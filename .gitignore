@@ -1,0 +1,49 @@
+# Superpowers / internal working notes
+.superpowers/
+
+# Internal development docs (not for public repo)
+docs/
+
+# macOS
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcscmblueprint
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.swiftpm/
+.build/
+Package.resolved
+
+# Code coverage / profiling artifacts
+*.profraw
+*.profdata
+
+# User data / secrets (never commit real connections or credentials)
+connections.json
+*.sqlite
+*.sqlite3
+
+# Release / packaging artifacts
+*.dmg
+dist/
+
+# DuckDB prebuilt static libs + header — fetched by scripts/fetch-duckdb.sh (not committed)
+vendor/DuckDB/libs/
+vendor/DuckDB/Sources/Cduckdb/include/duckdb.h
+
+# demo SQLite file written by scripts/seed-demo.sh
+scripts/fixtures/demo/ref.sqlite
+
+# compiled CGEvent helper for the screenshot driver (built by scripts/screenshots/lib.sh)
+scripts/screenshots/ui

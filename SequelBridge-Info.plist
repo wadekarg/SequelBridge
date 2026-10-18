@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  Merged with the keys Xcode generates for the app target (GENERATE_INFOPLIST_FILE).
+  It lives outside the SequelBridge/ folder because that folder's files are synced
+  into the target as resources.
+
+  NSAllowsArbitraryLoads: the app connects to servers the user names, and a
+  ClickHouse HTTP interface is often reached by host name without TLS. App Transport
+  Security would refuse every such http:// request (IP addresses are exempt), so a
+  ClickHouse server by name could not connect at all. HTTPS is still verified as before.
+-->
+<dict>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

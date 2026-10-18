@@ -1,0 +1,13 @@
+[
+  {"id":"7E3C9A10-0001-4000-8000-000000000001","name":"Shop","alias":"shop","connectionType":"TCP/IP","color":"#D97A0B",
+   "host":"127.0.0.1","port":3309,"username":"root","database":"shopdemo","engine":"mysql","folder":"Demo","readOnly":false,
+   "password":"sbverify123"},
+  {"id":"7E3C9A10-0002-4000-8000-000000000002","name":"CRM","alias":"crm","connectionType":"TCP/IP","color":"#3F7CB1",
+   "host":"127.0.0.1","port":5433,"username":"sbuser","database":"crmdemo","engine":"postgres","folder":"Demo","readOnly":false,
+   "password":"sbpass123"},
+  {"id":"7E3C9A10-0003-4000-8000-000000000003","name":"Reference","alias":"ref","connectionType":"TCP/IP","color":"#3A9AA8",
+   "host":"","port":0,"username":"","database":"__REPO__/scripts/fixtures/demo/ref.sqlite","engine":"sqlite","folder":"Demo","readOnly":true},
+  {"id":"7E3C9A10-0004-4000-8000-000000000004","name":"Analytics","alias":"analytics","connectionType":"TCP/IP","color":"#C99A00",
+   "host":"127.0.0.1","port":8123,"username":"sbuser","database":"analyticsdemo","engine":"clickhouse","folder":"Demo","readOnly":false,
+   "password":"sbpass123"}
+]
