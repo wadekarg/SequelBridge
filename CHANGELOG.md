@@ -2,6 +2,15 @@
 
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+### Fixed
+- The Structure tab could sit on "loading" on MariaDB, and on MySQL before 8. The
+  Relations tab's foreign-key lookup made the server open every table in every database
+  to answer for one table, and Structure waits behind it on the same connection. The
+  lookup now reads that one table's constraints: on a test server with 3,051 tables it
+  opens 1 table instead of 3,104, in about 1 ms instead of 260 ms.
+
 ## 1.2.1 — 2026-10-19
 
 ### Fixed

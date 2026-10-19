@@ -1699,21 +1699,7 @@ final class QueryEngine {
     /// result set the scanner can introspect. GROUP_CONCAT keeps multi-column keys
     /// together, ordered by position. Each row: [name, cols, refTable, refCols, onDelete, onUpdate].
     func fetchRelationsMySQL(alias: String, database: String, table: String) async throws -> [[String]] {
-        let aliEsc = alias.replacingOccurrences(of: "'", with: "''")
-        // MySQL-level string literals (quotes doubled); doubled again for the DuckDB embedding below.
-        let dbLit  = database.replacingOccurrences(of: "'", with: "''")
-        let tblLit = table.replacingOccurrences(of: "'", with: "''")
-        let inner = "SELECT k.CONSTRAINT_NAME, "
-            + "GROUP_CONCAT(k.COLUMN_NAME ORDER BY k.ORDINAL_POSITION SEPARATOR ', '), "
-            + "k.REFERENCED_TABLE_NAME, "
-            + "GROUP_CONCAT(k.REFERENCED_COLUMN_NAME ORDER BY k.ORDINAL_POSITION SEPARATOR ', '), "
-            + "r.DELETE_RULE, r.UPDATE_RULE "
-            + "FROM information_schema.KEY_COLUMN_USAGE k "
-            + "JOIN information_schema.REFERENTIAL_CONSTRAINTS r "
-            + "ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND r.TABLE_NAME = k.TABLE_NAME "
-            + "WHERE k.TABLE_SCHEMA = '\(dbLit)' AND k.TABLE_NAME = '\(tblLit)' AND k.REFERENCED_TABLE_NAME IS NOT NULL "
-            + "GROUP BY k.CONSTRAINT_NAME, k.REFERENCED_TABLE_NAME, r.DELETE_RULE, r.UPDATE_RULE "
-            + "ORDER BY k.CONSTRAINT_NAME"
+        let inner = Self.mysqlRelationsSQL(database: database, table: table)
         guard let sql = passthroughWrap(alias: alias, serverSQL: inner),
               let result = try? await metaQuery(sql) else { return [] }
         return result.rows.compactMap { r in
@@ -1722,6 +1708,28 @@ final class QueryEngine {
             let upd = r[5].isEmpty ? "RESTRICT" : r[5].uppercased()
             return [r[0], r[1], r[2], r[3], del, upd]
         }
+    }
+
+    /// The server-side SQL behind fetchRelationsMySQL, for the foreign keys of one table.
+    /// Both sides are pinned to the table with literals and meet on the key's name only.
+    /// MariaDB (like MySQL before 8) reads one table's constraints only when the schema and
+    /// table are compared with literals; joined on the other side's schema and table
+    /// columns instead, REFERENTIAL_CONSTRAINTS opened every table in every database.
+    nonisolated static func mysqlRelationsSQL(database: String, table: String) -> String {
+        // MySQL-level string literals (quotes doubled); doubled again for the DuckDB embedding.
+        let dbLit  = database.replacingOccurrences(of: "'", with: "''")
+        let tblLit = table.replacingOccurrences(of: "'", with: "''")
+        return "SELECT k.CONSTRAINT_NAME, "
+            + "GROUP_CONCAT(k.COLUMN_NAME ORDER BY k.ORDINAL_POSITION SEPARATOR ', '), "
+            + "k.REFERENCED_TABLE_NAME, "
+            + "GROUP_CONCAT(k.REFERENCED_COLUMN_NAME ORDER BY k.ORDINAL_POSITION SEPARATOR ', '), "
+            + "r.DELETE_RULE, r.UPDATE_RULE "
+            + "FROM information_schema.KEY_COLUMN_USAGE k "
+            + "JOIN information_schema.REFERENTIAL_CONSTRAINTS r ON r.CONSTRAINT_NAME = k.CONSTRAINT_NAME "
+            + "WHERE k.TABLE_SCHEMA = '\(dbLit)' AND k.TABLE_NAME = '\(tblLit)' AND k.REFERENCED_TABLE_NAME IS NOT NULL "
+            + "AND r.CONSTRAINT_SCHEMA = '\(dbLit)' AND r.TABLE_NAME = '\(tblLit)' "
+            + "GROUP BY k.CONSTRAINT_NAME, k.REFERENCED_TABLE_NAME, r.DELETE_RULE, r.UPDATE_RULE "
+            + "ORDER BY k.CONSTRAINT_NAME"
     }
 
     /// Triggers via SHOW TRIGGERS — reads cached trigger definitions, always fast.

@@ -231,7 +231,7 @@ run_tests() {
 
 # The MySQL family suites again, with their server pointed at MySQL 8.4. MariaDB stays
 # the second server, so MultiServer joins MySQL 8 with MariaDB.
-MYSQL_SUITES=(MySQLIntegrationTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests
+MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests
               RealSchemaTests MultiServerTests DestructiveDDLVerifyTests QueryResultEditTests PostgresTests
               ClickHouseBridgeTests CrossEngineJoinTests CrossJoinReductionTests FallbackMaterializeDBTests
               QueryCancelTests PushdownDBTests)

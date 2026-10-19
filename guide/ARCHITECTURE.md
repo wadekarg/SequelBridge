@@ -282,6 +282,12 @@ one for fast schema metadata and one for slow statistics, so a long query never 
 browsing a table and the sidebar never blocks a query. Every statement runs as a DuckDB
 streaming result and chunks are pulled on the actor, off the main thread.
 
+The metadata connection is shared by the Structure, Relations and Triggers tabs, so one
+slow lookup there stalls all three. Each lookup reads one table: `SHOW FULL COLUMNS`,
+`SHOW INDEX`, `SHOW TRIGGERS`, or an information_schema query that filters every
+information_schema table it reads by schema and table name, with literals. MariaDB, and
+MySQL before 8, answer anything else by opening every table on the server.
+
 DuckDB allows one live streaming result per connection; running anything else on it
 closes the stream. So each open stream has its own cursor, and before another
 statement starts on that connection the actor fetches every open stream's remaining
