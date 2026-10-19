@@ -22,6 +22,7 @@ struct SQLEditorView: NSViewRepresentable {
         guard let textView = scrollView.documentView as? NSTextView else { return scrollView }
 
         textView.delegate = context.coordinator
+        textView.setAccessibilityIdentifier("query.editor")
         textView.isRichText = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false

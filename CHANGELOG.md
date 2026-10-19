@@ -29,6 +29,11 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 - A connection whose database was dropped on the server failed every statement and
   couldn't switch to another database; it switches now.
 
+### Changed
+- The connection tabs at the top of the left panel wrap onto more rows instead of
+  scrolling sideways, so with several servers open none slides out of sight. A tab's
+  tooltip shows the connection's name and the database picked on it.
+
 ## 1.2.1 — 2026-10-19
 
 ### Fixed

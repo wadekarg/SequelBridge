@@ -60,7 +60,7 @@ final class WorkspaceControlsUITests: XCTestCase {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
         p.arguments = [dir.appendingPathComponent(name).path,
-                       "CREATE TABLE \(table) (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO \(table) VALUES (1, 'one');"]
+                       "CREATE TABLE \(table) (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO \(table) VALUES (1, '\(table)-row');"]
         try p.run()
         p.waitUntilExit()
     }
@@ -93,6 +93,20 @@ final class WorkspaceControlsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["beta_items"].waitForExistence(timeout: 15), "the liteb tab didn't show its tables")
         element("sidebar.connection.litea").click()
         XCTAssertTrue(app.staticTexts["alpha_items"].waitForExistence(timeout: 15), "the litea tab didn't show its tables")
+    }
+
+    func testAStatementThatNamesNoServerRunsOnTheActiveTab() {
+        // Two servers open, the second tab picked: a table name with no server prefix is
+        // that server's. It used to be refused ("Prefix each table with its server alias").
+        element("sidebar.connection.liteb").click()
+        let editor = element("query.editor")
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "no SQL editor")
+        editor.click()
+        editor.typeText("SELECT name FROM beta_items")
+        app.buttons["query.run"].click()
+        XCTAssertTrue(app.staticTexts["beta_items-row"].waitForExistence(timeout: 30),
+                      "the statement didn't run on liteb")
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "value CONTAINS 'Prefix each table'")).firstMatch.exists)
     }
 
     func testAddConnectionButtonOpensItsSheet() {

@@ -238,6 +238,7 @@ struct QueryPanelView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .keyboardShortcut(.return, modifiers: .command)
+                    .accessibilityIdentifier("query.run")
                 }
             }
             .padding(.trailing, 8)

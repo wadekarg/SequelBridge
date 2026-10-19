@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 577 tests in 104 suites (about three minutes of tests after the build).
+at them, and runs all 580 tests in 105 suites (about three minutes of tests after the build).
 Then every MySQL suite runs a second time with its server pointed at MySQL 8.4.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
 benchmark (`--bench`), and `QueryCancelTests.interruptStopsServerStatement`, the spec
@@ -42,8 +42,9 @@ and PostgreSQL to Unix sockets in `/tmp/sb-sock` while the tests run
 On GitHub, every push to `main` and every pull request builds the app on Apple Silicon,
 on macOS 15 and macOS 26 (`.github/workflows/test.yml`), and runs the tests that need no
 database server, then the UI tests (`SequelBridgeUITests`, scheme `SequelBridgeUITests`).
-The UI tests click the workspace's tab strips and + buttons; they take over the screen
-while they run, so `scripts/run-all-tests.sh` leaves them out.
+The UI tests click the workspace's tab strips and + buttons, check that six connection
+tabs all stay on screen, and run a statement that names no server on the active tab;
+they take over the screen while they run, so `scripts/run-all-tests.sh` leaves them out.
 
 ## What's in the suite
 
@@ -55,7 +56,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-577 tests across 85 files.
+580 tests across 86 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -88,6 +89,7 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `InlineCellEditTests` | always | the Content tab's in-cell edit: what Return, Esc and no change do, and readable text on a selected row (it was white on white) |
 | `QueryEffectsTests` | always | what a Query-tab run changes in the left panel, Sequel Ace's rules ported with its cases: `USE` (comments, quoted names), `DROP DATABASE` of the picked one, scripts in order, which statements refresh the table and database lists |
 | `SoleTargetTests` | always | which connection a statement runs on: the server it names, else the one picked at the top of the left panel; none for a cross-server query |
+| `WrappingHStackTests` | always | where the connection tabs wrap onto a new row, so none slides out of sight |
 | `ResultEditingSourceTests`, `ResultEditTargetTests` | always | when a Query-tab result can be edited: one table's rows, each result column matched to a table column, the primary key in the result; the `UPDATE` keyed by the row |
 | `QueryResultEditTests` | always (SQLite) / `SB_PG_VERIFY`, `SB_MYSQL_VERIFY` | a Query-tab result edit end to end: the engine's check, the `UPDATE`, read back |
 

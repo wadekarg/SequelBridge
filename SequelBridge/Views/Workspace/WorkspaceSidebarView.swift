@@ -244,24 +244,23 @@ struct WorkspaceSidebarView: View {
     // MARK: - Connection tabs
 
     private var connectionTabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(session.connections) { conn in
-                    connectionTab(conn)
-                }
-                Button { showAddSheet = true } label: {
-                    Text("+").font(.system(size: 14, weight: .medium))
-                        .frame(width: 28, height: 30)
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Add connection")
-                .accessibilityIdentifier("sidebar.addConnection")
+        // The tabs wrap onto more rows rather than scrolling sideways out of sight.
+        WrappingHStack {
+            ForEach(session.connections) { conn in
+                connectionTab(conn)
             }
+            Button { showAddSheet = true } label: {
+                Text("+").font(.system(size: 14, weight: .medium))
+                    .frame(width: 28, height: 30)
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Add connection")
+            .accessibilityIdentifier("sidebar.addConnection")
         }
-        .frame(height: 30)
-        // Off the window's top edge: on macOS 15 a scroll view touching it grows up under
-        // the toolbar, and its tabs and + draw in place but stop taking clicks.
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Off the window's top edge: on macOS 15 the strip, when it was a scroll view
+        // touching that edge, grew up under the toolbar and its tabs stopped taking clicks.
         .padding(.top, 1)
         .background(Color(NSColor.controlBackgroundColor))
         .overlay(Divider(), alignment: .bottom)
@@ -271,7 +270,7 @@ struct WorkspaceSidebarView: View {
         let isActive = conn.alias == (session.activeConnectionAlias ?? session.connections.first?.alias)
         return HStack(spacing: Theme.space2) {
             Circle().fill(conn.displayColor).frame(width: 7, height: 7)
-            Text(conn.alias).font(isActive ? Theme.fontChromeStrong : Theme.fontChrome)
+            Text(conn.alias).font(isActive ? Theme.fontChromeStrong : Theme.fontChrome).lineLimit(1)
             EngineBadge(engine: conn.engine)
             Button {
                 removeConnection(conn)
@@ -290,6 +289,7 @@ struct WorkspaceSidebarView: View {
             if isActive { Rectangle().fill(conn.displayColor).frame(height: 2) }
         }
         .contentShape(Rectangle())
+        .help("\(conn.name): \(session.selectedDatabase[conn.alias] ?? conn.database)")
         .onTapGesture { session.activeConnectionAlias = conn.alias }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("sidebar.connection.\(conn.alias)")
