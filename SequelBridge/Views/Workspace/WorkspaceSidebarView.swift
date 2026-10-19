@@ -260,8 +260,8 @@ struct WorkspaceSidebarView: View {
             }
         }
         .frame(height: 30)
-        // Off the window's top edge: on macOS 14 and 15 a scroll view touching it grows
-        // up under the toolbar, and its buttons and tabs stop taking clicks.
+        // Off the window's top edge: on macOS 15 a scroll view touching it grows up under
+        // the toolbar, and its tabs and + draw in place but stop taking clicks.
         .padding(.top, 1)
         .background(Color(NSColor.controlBackgroundColor))
         .overlay(Divider(), alignment: .bottom)

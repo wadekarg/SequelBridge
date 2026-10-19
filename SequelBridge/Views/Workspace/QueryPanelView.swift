@@ -171,9 +171,7 @@ struct QueryPanelView: View {
                     .keyboardShortcut("t", modifiers: .command)
                 }
             }
-            // Off the window's top edge: on macOS 14 and 15 a scroll view touching it grows
-            // up under the toolbar, and its tabs and + stop taking clicks.
-            .padding(.top, 1)
+            .frame(height: 32)
             Spacer()
             HStack(spacing: 6) {
                 savedQueriesMenu
@@ -245,6 +243,9 @@ struct QueryPanelView: View {
             .padding(.trailing, 8)
         }
         .frame(height: 32)
+        // Off the window's top edge: on macOS 15 a scroll view touching it grows up under
+        // the toolbar, and its tabs and + draw in place but stop taking clicks.
+        .padding(.top, 1)
         .background(Color(NSColor.controlBackgroundColor))
     }
 
