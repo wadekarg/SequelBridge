@@ -22,7 +22,8 @@ server it names.
 
 ## Several servers: naming tables
 
-Prefix each table with its connection alias:
+A statement that names no server runs on the one picked at the top of the left panel.
+To name a server, prefix each table with its connection alias:
 
 ```sql
 SELECT o.id, c.full_name

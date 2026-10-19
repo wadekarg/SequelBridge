@@ -693,7 +693,17 @@ final class QueryEngine {
         try? await userSerial.execute("USE memory")
         // Serialized with user queries — DETACH on the main thread while a query
         // runs on the actor's thread would use the non-thread-safe handle twice.
-        try await userSerial.execute("DETACH \(sqlIdentifierQuote(alias))")
+        do {
+            try await userSerial.execute("DETACH \(sqlIdentifierQuote(alias))")
+        } catch {
+            // When the database the alias is attached on was dropped on the server, every
+            // statement on the user connection fails with "Unknown database", USE memory
+            // too, so the alias stays its default and DETACH refuses. Detach it from the
+            // metadata connection, whose default is the in-memory catalog, then move the
+            // user connection off the alias.
+            try await metaSerial.execute("DETACH \(sqlIdentifierQuote(alias))")
+            try? await userSerial.execute("USE memory")
+        }
     }
 
     // MARK: - Error extraction

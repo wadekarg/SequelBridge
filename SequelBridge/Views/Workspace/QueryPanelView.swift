@@ -482,6 +482,16 @@ struct QueryPanelView: View {
             return
         }
 
+        // `USE db` picks that database at the top of the left panel, the way Sequel Ace's
+        // database menu follows it, and the statements after it run there.
+        if let db = QueryEffects.soleUse(baseSQL),
+           let conn = SQLBuilder.soleTarget(of: baseSQL, connections: session.connections,
+                                            active: session.activeConnectionAlias),
+           conn.engine == .mysql {
+            await runUse(baseSQL, database: db, on: conn, tabID: tabID)
+            return
+        }
+
         // Resolve SQL before starting the task.
         // Single server: record alias+db so the task can await the USE before querying.
         // Multi server: expand alias.table → "alias"."db"."table" now (no USE needed).
@@ -519,8 +529,12 @@ struct QueryPanelView: View {
             return (conn.alias, SQLBuilder.stripAliasPrefix(baseSQL, alias: conn.alias))
         }
 
-        if session.connections.count <= 1 {
-            if let conn = session.connections.first {
+        let referenced = session.connections.filter { SQLBuilder.referencesAlias(baseSQL, $0.alias) }
+        if session.connections.count <= 1 || referenced.isEmpty {
+            // One connection, or a statement that names no server (SHOW TABLES, SELECT *
+            // FROM orders): it runs on the connection picked at the top of the left panel.
+            if let conn = SQLBuilder.soleTarget(of: baseSQL, connections: session.connections,
+                                                active: session.activeConnectionAlias) {
                 if conn.engine == .clickhouse {
                     clickhouseAlias = conn.alias
                 } else if let pt = passthroughIfEligible(conn) {
@@ -534,17 +548,7 @@ struct QueryPanelView: View {
             }
             sql = baseSQL
         } else {
-            let referenced = session.connections.filter { SQLBuilder.referencesAlias(baseSQL, $0.alias) }
-            if referenced.isEmpty {
-                // A statement that touches no tables — SELECT 1, SELECT NOW() —
-                // has nothing to prefix; run it as-is.
-                guard !SQLBuilder.referencesTables(baseSQL) else {
-                    setTab { $0.error =
-                        "Prefix each table with its server alias, e.g. \(session.connections[0].alias).tablename" }
-                    return
-                }
-                sql = baseSQL
-            } else if referenced.count == 1, referenced[0].engine == .clickhouse {
+            if referenced.count == 1, referenced[0].engine == .clickhouse {
                 // Only the ClickHouse server is named. It runs on its native client,
                 // outside DuckDB's catalog, so neither the passthrough nor the scanner
                 // can take it; the alias becomes the database the sidebar picked.
@@ -655,6 +659,7 @@ struct QueryPanelView: View {
         startElapsedTimer()
 
         let task = Task {
+            var finished = false
             do {
                 // Await USE before running the query — eliminates the race condition where
                 // the query runs before setDefaultContext's USE completes on userSerial.
@@ -774,6 +779,7 @@ struct QueryPanelView: View {
                         }
                     }
                 }
+                finished = true
             } catch is CancellationError {
                 // Cancelling mid-stream keeps the rows already loaded; only show the
                 // cancelled message when nothing was displayed yet.
@@ -791,6 +797,7 @@ struct QueryPanelView: View {
                 $0.isRunning = false; $0.isStreaming = false
             }
             stopElapsedTimer()
+            if finished { await followRun(baseSQL) }
         }
         runningTask = task
 
@@ -895,10 +902,45 @@ struct QueryPanelView: View {
     /// The one server an EXPLAIN runs on: the only alias the SQL references, or the
     /// only connection when it references none; nil when that is ambiguous. Also
     /// returns how many aliases were referenced, for the error message.
+    /// After a run that succeeded: what it changed (USE, CREATE/ALTER/DROP/RENAME) shows
+    /// in the left panel of the connection it ran on, or of each server it named.
+    private func followRun(_ sql: String) async {
+        let targets: [Connection]
+        if let conn = SQLBuilder.soleTarget(of: sql, connections: session.connections,
+                                            active: session.activeConnectionAlias) {
+            targets = [conn]
+        } else {
+            targets = session.connections.filter { SQLBuilder.referencesAlias(sql, $0.alias) }
+        }
+        for conn in targets { await session.followRun(sql, on: conn, manager: manager) }
+    }
+
+    /// A lone `USE db`: the same switch as picking `db` at the top of the left panel.
+    private func runUse(_ sql: String, database db: String, on conn: Connection, tabID: UUID) async {
+        func setTab(_ body: (inout QueryTab) -> Void) {
+            guard let i = session.tabs.firstIndex(where: { $0.id == tabID }) else { return }
+            body(&session.tabs[i])
+        }
+        setTab {
+            $0.isRunning = true; $0.error = nil; $0.result = nil
+            $0.runID = UUID(); $0.editTarget = nil; $0.editBlockedReason = ResultEditing.notOneTable
+        }
+        let start = Date()
+        await session.followRun(sql, on: conn, manager: manager)
+        let took = Date().timeIntervalSince(start)
+        let failure: String? = session.selectedDatabase[conn.alias] == db ? nil
+            : (session.tableListError[conn.alias]?.message ?? "Couldn't open \(db)")
+        setTab {
+            if let failure { $0.error = failure }
+            else { $0.result = QueryResult(columns: ["Result"], rows: [["Database changed to \(db)"]], executionTime: took) }
+            $0.isRunning = false
+        }
+        session.appendConsole(sql: sql, rowsAffected: nil, error: failure, duration: took)
+    }
+
     private func explainTarget(for sql: String) -> (conn: Connection?, referenced: Int) {
         let referenced = session.connections.filter { SQLBuilder.referencesAlias(sql, $0.alias) }
-        let conn: Connection? = referenced.count == 1 ? referenced[0]
-            : (referenced.isEmpty && session.connections.count == 1 ? session.connections.first : nil)
+        let conn = SQLBuilder.soleTarget(of: sql, connections: session.connections, active: session.activeConnectionAlias)
         return (conn, referenced.count)
     }
 
@@ -919,8 +961,8 @@ struct QueryPanelView: View {
             : rawSQL)
         guard !baseSQL.isEmpty else { return }
 
-        // EXPLAIN runs on ONE server. Accept a query that references exactly one
-        // alias, or any query when only one server is connected.
+        // EXPLAIN runs on ONE server: the one the query names, or, when it names none,
+        // the connection picked at the top of the left panel.
         let (target, referencedCount) = explainTarget(for: baseSQL)
         guard let conn = target else {
             setTab { $0.error = "EXPLAIN runs on a single server, but this query references \(referencedCount). Explain it against one server at a time." }

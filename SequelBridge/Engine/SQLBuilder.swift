@@ -715,6 +715,18 @@ nonisolated extension SQLBuilder {
 
     private static func isWordChar(_ c: Character) -> Bool { c.isLetter || c.isNumber || c == "_" }
 
+    /// The one connection a Query-tab statement runs on: the server it names, or, when it
+    /// names none, the connection picked at the top of the left panel (the only one, or
+    /// the active tab's), as in Sequel Ace, where each window has one connection. Nil
+    /// when it names several servers: that is a cross-server query.
+    static func soleTarget(of sql: String, connections: [Connection], active: String?) -> Connection? {
+        let named = connections.filter { referencesAlias(sql, $0.alias) }
+        if named.count == 1 { return named[0] }
+        guard named.isEmpty else { return nil }
+        if connections.count == 1 { return connections[0] }
+        return connections.first { $0.alias == active }
+    }
+
     /// True when `alias` appears as an `alias.` qualifier at a word boundary, outside
     /// string/identifier quotes.
     static func referencesAlias(_ sql: String, _ alias: String) -> Bool {

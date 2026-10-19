@@ -10,6 +10,24 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   to answer for one table, and Structure waits behind it on the same connection. The
   lookup now reads that one table's constraints: on a test server with 3,051 tables it
   opens 1 table instead of 3,104, in about 1 ms instead of 260 ms.
+- Picking another database at the top of the left panel could show no tables. Each
+  pick detached the connection and attached it again on its own, so two picks close
+  together interleaved: the second list failed and the connection was left on the
+  first database. A database that couldn't be opened left no working connection. Now
+  one switch runs at a time and the last pick wins; a database that can't be opened
+  says why, with Try Again, and the connection stays on the one it had. The list says
+  "Loading tables…" while it loads and "No tables in …" when there are none. Found by
+  a tester coming from Sequel Pro and Sequel Ace.
+- `USE other_db` in the Query tab picks that database at the top of the left panel, and
+  the statements after it run there; before, the next statement went back to the picked
+  database. CREATE, ALTER, DROP and RENAME refresh the table list, and creating or
+  dropping a database refreshes the database list; dropping the picked database goes
+  back to the connection's own. These are Sequel Ace's rules.
+- With several servers open, a statement that names no server (`SHOW TABLES`,
+  `SELECT * FROM orders`) runs on the one picked at the top of the left panel; before,
+  it was refused. Explain follows the same rule.
+- A connection whose database was dropped on the server failed every statement and
+  couldn't switch to another database; it switches now.
 
 ## 1.2.1 — 2026-10-19
 

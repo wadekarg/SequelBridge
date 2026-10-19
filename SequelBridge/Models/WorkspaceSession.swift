@@ -16,6 +16,13 @@ class WorkspaceSession: ObservableObject {
     @Published var sidebarTrees: [String: [TableInfo]] = [:]       // alias → tables
     @Published var availableDatabases: [String: [String]] = [:]    // alias → list of databases
     @Published var selectedDatabase: [String: String] = [:]        // alias → selected database name
+    @Published var tableListError: [String: TableListError] = [:]  // alias → why its tables couldn't be listed
+    var shownDatabase: [String: String] = [:]                        // alias → database whose tables were last listed
+
+    struct TableListError: Equatable {
+        let database: String   // the database to try again
+        let message: String
+    }
     @Published var selectedTables: [String: TableInfo] = [:]      // alias → selected table
 
     /// The selected table of the ACTIVE connection. Selection is remembered per
@@ -57,13 +64,16 @@ class WorkspaceSession: ObservableObject {
     }
 
     /// Statement history persists across launches; the console shows it.
-    private let historyStore = HistoryStore()
+    private let historyStore: HistoryStore
 
     /// Named, reusable SQL snippets — persisted globally, shown in the query tab.
     @Published var savedQueries: [SavedQuery] = []
-    private let savedQueryStore = SavedQueryStore()
+    private let savedQueryStore: SavedQueryStore
 
-    init(connections: [Connection]) {
+    /// `arguments` picks the folder history and saved queries live in (see SupportDirectory).
+    init(connections: [Connection], arguments: [String] = CommandLine.arguments) {
+        self.historyStore = HistoryStore(arguments: arguments)
+        self.savedQueryStore = SavedQueryStore(arguments: arguments)
         self.connections = connections
         self.consoleLog = historyStore.loadRecent()
         self.savedQueries = savedQueryStore.load()

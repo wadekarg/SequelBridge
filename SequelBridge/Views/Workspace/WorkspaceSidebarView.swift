@@ -307,13 +307,7 @@ struct WorkspaceSidebarView: View {
                         set: { newDb in
                             session.selectedDatabase[conn.alias] = newDb
                             session.sidebarTrees[conn.alias] = nil
-                            Task {
-                                // Re-attach to the picked database (if needed) so the fast
-                                // passthrough applies, then refresh the context + table list.
-                                await manager.adoptDatabase(alias: conn.alias, database: newDb)
-                                manager.queryEngine.setDefaultContext(alias: conn.alias, database: newDb)
-                                await loadTables(for: conn)
-                            }
+                            Task { await session.showDatabase(newDb, for: conn, manager: manager) }
                         }
                     )) {
                         ForEach(databases, id: \.self) { Text($0).tag($0) }
@@ -400,6 +394,31 @@ struct WorkspaceSidebarView: View {
         let views  = filtered.filter { $0.type == .view }
 
         return List {
+            if let problem = session.tableListError[conn.alias] {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(problem.message)
+                        .font(.caption).foregroundColor(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("sidebar.tables.error")
+                    Button("Try Again") {
+                        Task { await session.showDatabase(problem.database, for: conn, manager: manager) }
+                    }
+                    .font(.caption)
+                    .accessibilityIdentifier("sidebar.tables.retry")
+                }
+                .padding(.vertical, 4)
+            }
+            if session.sidebarTrees[conn.alias] == nil {
+                HStack(spacing: 6) {
+                    ProgressView().scaleEffect(0.5).frame(width: 12, height: 12)
+                    Text("Loading tables…").font(.caption).foregroundColor(.secondary)
+                }
+                .accessibilityIdentifier("sidebar.tables.loading")
+            } else if allTables.isEmpty, session.tableListError[conn.alias] == nil {
+                Text("No tables in \(session.selectedDatabase[conn.alias] ?? conn.database)")
+                    .font(.caption).foregroundColor(.secondary)
+                    .accessibilityIdentifier("sidebar.tables.empty")
+            }
             if !tables.isEmpty {
                 Section("Tables") {
                     ForEach(tables) { table in tableRow(table, conn: conn) }
@@ -614,26 +633,11 @@ struct WorkspaceSidebarView: View {
     // MARK: - Data loading
 
     private func loadDatabases(for conn: Connection) async {
-        do {
-            let dbs = try await manager.queryEngine.fetchDatabases(alias: conn.alias)
-            session.availableDatabases[conn.alias] = dbs
-            if session.selectedDatabase[conn.alias] == nil {
-                session.selectedDatabase[conn.alias] = dbs.first(where: { $0 == conn.database }) ?? dbs.first ?? ""
-            }
-            // Adopt the selected database as the connection's DSN default so the fast
-            // passthrough applies — covers connections saved without a database.
-            await manager.adoptDatabase(alias: conn.alias, database: session.selectedDatabase[conn.alias] ?? "")
-            await loadTables(for: conn)
-        } catch { session.availableDatabases[conn.alias] = [] }
+        await session.loadDatabases(for: conn, manager: manager)
     }
 
     private func loadTables(for conn: Connection) async {
-        let db = session.selectedDatabase[conn.alias] ?? conn.database
-        guard !db.isEmpty else { return }
-        do {
-            let tables = try await manager.queryEngine.fetchTables(alias: conn.alias, database: db)
-            session.sidebarTrees[conn.alias] = tables
-        } catch { session.sidebarTrees[conn.alias] = [] }
+        await session.loadTables(for: conn, manager: manager)
     }
 
     private func connectOne(_ conn: Connection) async {

@@ -25,8 +25,8 @@ struct QueryConventions: Equatable {
             return QueryConventions(summary: singleSummary(first), lines: [singleLine(first), streamingNote])
         }
         let aliases = connections.map(\.alias)
-        let example = aliases.prefix(2).map { "\($0).table" }.joined(separator: " • ")
         var lines = [
+            "No server named (SHOW TABLES, SELECT * FROM t) → runs on the server picked at the top of the left panel.",
             "alias.table — the database is filled in (sidebar pick, else the connection's); alias.db.table to be explicit.",
             "One server named → runs there in its own SQL, EXPLAIN included: " + connections.map(runsAs).joined(separator: "; ") + ".",
             "Two tables on one key (JOIN … ON, or FROM a, b WHERE a.k = b.k) → streamed server to server; simple WHERE filters (=, IN, LIKE, number/date ranges) run on the servers.",
@@ -36,7 +36,9 @@ struct QueryConventions: Equatable {
             lines.append("ClickHouse side is copied over — keep it the smaller side; ClickHouse × ClickHouse isn't supported.")
         }
         lines.append(streamingNote)
-        return QueryConventions(summary: "Servers \(aliases.joined(separator: ", ")) — prefix tables: \(example)", lines: lines)
+        return QueryConventions(
+            summary: "Servers \(aliases.joined(separator: ", ")) — no prefix runs on the server picked in the left panel; name another: \(aliases[0]).table",
+            lines: lines)
     }
 
     private static func singleSummary(_ c: Connection) -> String {

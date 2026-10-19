@@ -119,30 +119,71 @@ class ConnectionManager: ObservableObject {
         directConns[alias]
     }
 
-    /// Re-attaches a MySQL/Postgres `alias` with `database` as its DSN default so the
-    /// fast server passthrough applies: it needs a database in the connection string
-    /// (a connection saved without a database otherwise falls back to the
-    /// slower scanner and can't push LIMIT/WHERE to the server). Called when the user
-    /// picks a database in the sidebar. No-op if the connection is already attached with
-    /// that database, or isn't a passthrough engine.
-    func adoptDatabase(alias: String, database: String) async {
-        guard !database.isEmpty,
-              let idx = active.firstIndex(where: { $0.alias == alias }) else { return }
-        let conn = active[idx]
-        guard conn.engine == .mysql || conn.engine == .postgres,
-              queryEngine.attachedDatabase(alias) != database,
-              let password = password(for: conn) else { return }
-        var adopted = conn
-        adopted.database = database
+    /// Puts `alias` on `database` and lists its tables: the database picked at the top of
+    /// the left panel, or by a `USE` in the Query tab. A MySQL/Postgres connection is
+    /// attached again with `database` as its DSN default, because the fast server
+    /// passthrough resolves unqualified names in the attach's database; then the
+    /// database becomes the query context.
+    ///
+    /// One switch per connection runs at a time, and the newest request wins: a request
+    /// a later one overtook ends in CancellationError without touching the connection.
+    /// When the database can't be opened, the connection goes back to the database it
+    /// had, and the error says why.
+    func switchDatabase(alias: String, to database: String) async throws -> [TableInfo] {
+        let ticket = (switchTickets[alias] ?? 0) + 1
+        switchTickets[alias] = ticket
+        let earlier = switchQueue[alias]
+        let work = Task { @MainActor () -> Result<[TableInfo], Error> in
+            await earlier?.value
+            guard self.switchTickets[alias] == ticket else { return .failure(CancellationError()) }
+            do { return .success(try await self.performSwitch(alias: alias, to: database)) }
+            catch { return .failure(error) }
+        }
+        switchQueue[alias] = Task { _ = await work.value }
+        return try await work.value.get()
+    }
+
+    private func performSwitch(alias: String, to database: String) async throws -> [TableInfo] {
+        let before = queryEngine.attachedDatabase(alias)
         do {
-            try await queryEngine.detach(alias)
-            try await queryEngine.attach(adopted, password: password)
-            active[idx] = adopted
-            directConns[alias] = MySQLDirectConnection(adopted, password: password)
+            try await reattach(alias, on: database)
+            // Listing proves the database can be used: an attach can succeed and the
+            // first statement on it fail.
+            let tables = try await queryEngine.fetchTables(alias: alias, database: database)
+            await queryEngine.setDefaultContextAwaited(alias: alias, database: database)
+            return tables
         } catch {
-            Log.connections.error("adoptDatabase(\(alias, privacy: .public), \(database, privacy: .public)) failed: \(QueryEngine.extractReason(from: error), privacy: .public)")
+            Log.connections.error("switchDatabase(\(alias, privacy: .public), \(database, privacy: .public)) failed: \(QueryEngine.extractReason(from: error), privacy: .public)")
+            if queryEngine.attachedDatabase(alias) != before { try? await reattach(alias, on: before) }
+            if !before.isEmpty { await queryEngine.setDefaultContextAwaited(alias: alias, database: before) }
+            throw error
         }
     }
+
+    /// Attaches a MySQL/Postgres `alias` again with `database` as its default. A failed
+    /// attach puts the previous one back before the error is thrown. Other engines, and
+    /// a connection already on `database`, are left as they are.
+    private func reattach(_ alias: String, on database: String) async throws {
+        guard let idx = active.firstIndex(where: { $0.alias == alias }) else { return }
+        let current = active[idx]
+        guard current.engine == .mysql || current.engine == .postgres,
+              queryEngine.attachedDatabase(alias) != database,
+              let password = password(for: current) else { return }
+        var target = current
+        target.database = database
+        try await queryEngine.detach(alias)
+        do {
+            try await queryEngine.attach(target, password: password)
+        } catch {
+            try? await queryEngine.attach(current, password: password)
+            throw error
+        }
+        active[idx] = target
+        directConns[alias] = MySQLDirectConnection(target, password: password)
+    }
+
+    private var switchTickets: [String: Int] = [:]
+    private var switchQueue: [String: Task<Void, Never>] = [:]
 
     // MARK: - Test connection before saving
 

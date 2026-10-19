@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 562 tests in 101 suites (about three minutes of tests after the build).
+at them, and runs all 577 tests in 104 suites (about three minutes of tests after the build).
 Then every MySQL suite runs a second time with its server pointed at MySQL 8.4.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
 benchmark (`--bench`), and `QueryCancelTests.interruptStopsServerStatement`, the spec
@@ -55,13 +55,14 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-562 tests across 82 files.
+577 tests across 85 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
 | Suite | Gate | Covers |
 |---|---|---|
 | `MySQLIntegrationTests` | `SB_MYSQL_VERIFY` | live MySQL/MariaDB attach, query, metadata, FK relations |
+| `DatabaseSwitchTests` | `SB_MYSQL_VERIFY` | the database picked at the top of the left panel: its tables are listed and queries run there; two picks close together end on the second; one that can't be opened says why and the connection stays on its database; `USE` in the Query tab moves the pick; CREATE/DROP of tables and databases refresh the lists, and dropping the picked database goes back to the connection's own |
 | `MySQLRelationsTests` | `SB_MYSQL_VERIFY` | the Relations tab's foreign-key lookup: the server's plan reads only that table's constraints (no "Scanned all databases"); a two-column key and a second key listed once each, columns in key order; the same names in another database stay out |
 | `MySQLAuthTests` | always | the app's own MySQL client's login pieces: both password scrambles against reference values, the RSA password exchange |
 | `SSLConnectionTests` | `SB_SSL_VERIFY` | Use SSL: MySQL 8.4 connects encrypted; MariaDB 10.0 and PostgreSQL 16 without TLS are refused with the reason and no password; EXPLAIN and dumps on an SSL connection fail fast or say what they rebuilt |
@@ -85,6 +86,8 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `ContentEditTests` | always (SQLite) / `SB_PG_VERIFY` (PostgreSQL) | a Content-tab cell edit and set-to-NULL reach the database, run the way the panel runs them (`executeWrite`) |
 | `CellEditorTests` | always | the Query tab popup's rules: Save needs Edit and a change, NULL is a change, a cell that can't be edited says why |
 | `InlineCellEditTests` | always | the Content tab's in-cell edit: what Return, Esc and no change do, and readable text on a selected row (it was white on white) |
+| `QueryEffectsTests` | always | what a Query-tab run changes in the left panel, Sequel Ace's rules ported with its cases: `USE` (comments, quoted names), `DROP DATABASE` of the picked one, scripts in order, which statements refresh the table and database lists |
+| `SoleTargetTests` | always | which connection a statement runs on: the server it names, else the one picked at the top of the left panel; none for a cross-server query |
 | `ResultEditingSourceTests`, `ResultEditTargetTests` | always | when a Query-tab result can be edited: one table's rows, each result column matched to a table column, the primary key in the result; the `UPDATE` keyed by the row |
 | `QueryResultEditTests` | always (SQLite) / `SB_PG_VERIFY`, `SB_MYSQL_VERIFY` | a Query-tab result edit end to end: the engine's check, the `UPDATE`, read back |
 

@@ -79,6 +79,8 @@ the selected table's rows, data and index size, engine, encoding and timestamps.
 "…" button beside the picker holds the database-level actions (export as SQL; on MySQL,
 import a CSV into a new table); a table's context menu has the table-level ones
 (`SELECT *`, copy name, export as SQL on MySQL, import a CSV on MySQL and PostgreSQL).
+Picking a database lists its tables; one that can't be opened says why, with
+**Try Again**, and the connection stays on the database it had.
 
 The toolbar tabs switch the main area: **Structure, Content, Relations, Triggers,
 Table Info** for the selected table; **Routines, Server, Query, Console** for the
@@ -127,8 +129,13 @@ The bookmark button saves the statement under a name for later. Every statement 
 run is kept in the history, which survives restarts; the Console tab shows it.
 
 A statement that names one server runs on that server in that server's own SQL, as if
-you had typed it into the server's own client. A SQLite file is read by DuckDB, so
-DuckDB SQL applies there.
+you had typed it into the server's own client. A statement that names no server runs
+on the one picked at the top of the left panel, in the database picked there. A SQLite
+file is read by DuckDB, so DuckDB SQL applies there.
+
+As in Sequel Ace, `USE other_db` picks that database at the top of the left panel and
+the statements after it run there; CREATE, ALTER, DROP and RENAME refresh the table
+list, and creating or dropping a database refreshes the database list.
 
 ## Querying across servers
 
