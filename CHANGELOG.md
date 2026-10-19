@@ -2,6 +2,22 @@
 
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## 1.2.1 — 2026-10-19
+
+### Fixed
+- macOS 15: the left panel's connection tabs and its **+**, and the query tab bar's tabs
+  and **+**, did nothing when clicked. Both strips are scroll views at the top of their
+  pane; on macOS 15 a scroll view touching the window's top edge grows up under the
+  toolbar, and its buttons draw in place but stop taking clicks. macOS 26 was not
+  affected. Found by a tester on an Apple Silicon Mac, reproduced and verified on macOS
+  15 by the new UI tests.
+- macOS 15: a grid showing a NULL value could crash the app.
+- A query tab takes a click anywhere on it, not only on its title.
+
+### Added
+- UI tests that click the workspace's tab strips and **+** buttons, run on GitHub's
+  Apple Silicon machines with macOS 15 and 26 for every change.
+
 ## 1.2.0 — 2026-10-13
 
 ### Added
