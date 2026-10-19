@@ -165,6 +165,7 @@ struct HomeView: View {
                     .font(.system(size: 16))
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("home.select.\(conn.alias)")
 
             // The connection's color as an edge, not a dot: it reads at any size and
             // matches the tab underline the same server gets inside the workspace.
@@ -262,6 +263,7 @@ struct HomeView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .disabled(selectedIds.isEmpty || isConnecting)
+            .accessibilityIdentifier("home.connect")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

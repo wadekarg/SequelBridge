@@ -167,6 +167,7 @@ struct QueryPanelView: View {
                     }
                     .buttonStyle(.plain)
                     .help("New tab (⌘T)")
+                    .accessibilityIdentifier("query.newTab")
                     .keyboardShortcut("t", modifiers: .command)
                 }
             }
@@ -271,6 +272,8 @@ struct QueryPanelView: View {
             }
         }
         .onTapGesture { session.activeTabId = tab.id }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("query.tab")
     }
 
     // MARK: - Autocomplete items

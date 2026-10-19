@@ -1,7 +1,8 @@
-# Builds the app and runs the tests that need no database server on Apple Silicon
-# (GitHub's macos-26 runners), with the Xcode the release is built with. The database
-# suites need the Docker containers that scripts/run-all-tests.sh provisions; run them
-# locally with that script.
+# Builds the app and runs its tests on Apple Silicon, on macOS 15 and macOS 26, with the
+# Xcode each image has (the release is built with Xcode 26.5):
+#   - the unit tests that need no database server (the database suites need the Docker
+#     containers that scripts/run-all-tests.sh provisions; run them locally with it);
+#   - the UI tests, which click the workspace's tab strips and + buttons.
 name: Tests
 
 on:
@@ -12,31 +13,51 @@ on:
 
 jobs:
   test:
-    name: Build and test on Apple Silicon
-    runs-on: macos-26
+    name: Tests on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            xcode: /Applications/Xcode_26.5.app
+          - os: macos-15
+            xcode: /Applications/Xcode_26.3.app
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+      DEVELOPER_DIR: ${{ matrix.xcode }}/Contents/Developer
+      SIGNING: CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
     steps:
       - uses: actions/checkout@v4
 
       - name: Fetch DuckDB's static libraries
         run: ./scripts/fetch-duckdb.sh
 
-      - name: Build and test
+      - name: Unit tests
         run: |
           set +e
           xcodebuild test -scheme SequelBridge -destination 'platform=macOS,arch=arm64' \
-            -parallel-testing-enabled NO \
-            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
-            > xcodebuild.log 2>&1
+            -parallel-testing-enabled NO $SIGNING > unit.log 2>&1
           status=$?
-          grep -E "Test run with|✘|error:|\*\* (TEST|BUILD)" xcodebuild.log
+          grep -E "Test run with|✘|error:|\*\* (TEST|BUILD)" unit.log
           exit $status
 
-      - name: Keep the log
+      - name: UI tests
+        if: always()
+        run: |
+          set +e
+          xcodebuild test -scheme SequelBridgeUITests -destination 'platform=macOS,arch=arm64' \
+            -parallel-testing-enabled NO -resultBundlePath ui.xcresult $SIGNING > ui.log 2>&1
+          status=$?
+          grep -E "Test Case .*(passed|failed)|error:|\*\* (TEST|BUILD)" ui.log
+          exit $status
+
+      - name: Keep the logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xcodebuild-log
-          path: xcodebuild.log
+          name: logs-${{ matrix.os }}
+          path: |
+            unit.log
+            ui.log
+            ui.xcresult

@@ -1,0 +1,95 @@
+//
+//  WorkspaceControlsUITests.swift
+//  SequelBridgeUITests
+//
+//  Clicks the workspace's tab strips and + buttons the way a person does. A tester on
+//  an Apple Silicon Mac reported that the left panel's connection tabs, its + buttons
+//  and the new-query + did nothing. These run on GitHub's macOS 15 and 26 machines
+//  (.github/workflows/test.yml). They take over the screen while they run, so the local
+//  test script leaves them out.
+//
+//  Two SQLite files in a temporary folder stand in for servers: no Docker, no network,
+//  no password, and nothing in a folder macOS asks permission for.
+//
+
+import XCTest
+
+final class WorkspaceControlsUITests: XCTestCase {
+    private var app: XCUIApplication!
+    private var dir: URL!
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-ui-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try makeSQLite("a.sqlite", table: "alpha_items")
+        try makeSQLite("b.sqlite", table: "beta_items")
+
+        let fixture = dir.appendingPathComponent("connections.json")
+        try """
+        [
+          {"id":"5B0A0000-0001-4000-8000-000000000001","name":"Lite A","alias":"litea","connectionType":"TCP/IP","color":"#3A9AA8",
+           "host":"","port":0,"username":"","database":"\(dir.path)/a.sqlite","engine":"sqlite","folder":"","readOnly":false},
+          {"id":"5B0A0000-0002-4000-8000-000000000002","name":"Lite B","alias":"liteb","connectionType":"TCP/IP","color":"#D97A0B",
+           "host":"","port":0,"username":"","database":"\(dir.path)/b.sqlite","engine":"sqlite","folder":"","readOnly":false}
+        ]
+        """.write(to: fixture, atomically: true, encoding: .utf8)
+        let support = dir.appendingPathComponent("support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+
+        app = XCUIApplication()
+        app.launchArguments = ["-SBConnectionsFile", fixture.path, "-SBSupportDir", support.path,
+                               "-ApplePersistenceIgnoreState", "YES", "-theme", "Light"]
+        app.launch()
+
+        // Home: tick both connections, Connect. The first connect downloads DuckDB's
+        // SQLite driver, so allow for that.
+        XCTAssertTrue(app.buttons["home.select.litea"].waitForExistence(timeout: 30), "Home didn't show the connections")
+        app.buttons["home.select.litea"].click()
+        app.buttons["home.select.liteb"].click()
+        app.buttons["home.connect"].click()
+        XCTAssertTrue(app.buttons["query.newTab"].waitForExistence(timeout: 120), "the workspace didn't open")
+    }
+
+    override func tearDownWithError() throws {
+        app?.terminate()
+        if let dir { try? FileManager.default.removeItem(at: dir) }
+    }
+
+    private func makeSQLite(_ name: String, table: String) throws {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        p.arguments = [dir.appendingPathComponent(name).path,
+                       "CREATE TABLE \(table) (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO \(table) VALUES (1, 'one');"]
+        try p.run()
+        p.waitUntilExit()
+    }
+
+    private func element(_ identifier: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    func testNewQueryTabButtonOpensATab() {
+        let tabs = app.descendants(matching: .any).matching(identifier: "query.tab")
+        let before = tabs.count
+        app.buttons["query.newTab"].click()
+        XCTAssertEqual(tabs.count, before + 1, "the + didn't open a new query tab")
+    }
+
+    func testConnectionTabsSwitchTheSidebar() {
+        element("sidebar.connection.liteb").click()
+        XCTAssertTrue(app.staticTexts["beta_items"].waitForExistence(timeout: 15), "the liteb tab didn't show its tables")
+        element("sidebar.connection.litea").click()
+        XCTAssertTrue(app.staticTexts["alpha_items"].waitForExistence(timeout: 15), "the litea tab didn't show its tables")
+    }
+
+    func testAddConnectionButtonOpensItsSheet() {
+        app.buttons["sidebar.addConnection"].click()
+        XCTAssertTrue(app.sheets.firstMatch.waitForExistence(timeout: 10), "the + didn't open the Add Connection sheet")
+    }
+
+    func testCreateTableButtonOpensItsSheet() {
+        app.buttons["sidebar.createTable"].click()
+        XCTAssertTrue(app.sheets.firstMatch.waitForExistence(timeout: 10), "the + didn't open the Create Table sheet")
+    }
+}

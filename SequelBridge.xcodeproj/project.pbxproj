@@ -18,11 +18,19 @@
 			remoteGlobalIDString = B1F596D92F9C43A2007D8D8B;
 			remoteInfo = SequelBridge;
 		};
+		B1F597102F9C4FBD007D8D8B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B1F596D22F9C43A2007D8D8B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B1F596D92F9C43A2007D8D8B;
+			remoteInfo = SequelBridge;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		B1F596DA2F9C43A2007D8D8B /* SequelBridge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SequelBridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B1F596F62F9C4FBD007D8D8B /* SequelBridgeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SequelBridgeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B1F597112F9C4FBD007D8D8B /* SequelBridgeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SequelBridgeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -34,6 +42,11 @@
 		B1F596F72F9C4FBD007D8D8B /* SequelBridgeTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = SequelBridgeTests;
+			sourceTree = "<group>";
+		};
+		B1F597122F9C4FBD007D8D8B /* SequelBridgeUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SequelBridgeUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -54,6 +67,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B1F597132F9C4FBD007D8D8B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -62,6 +82,7 @@
 			children = (
 				B1F596DC2F9C43A2007D8D8B /* SequelBridge */,
 				B1F596F72F9C4FBD007D8D8B /* SequelBridgeTests */,
+				B1F597122F9C4FBD007D8D8B /* SequelBridgeUITests */,
 				B1F596DB2F9C43A2007D8D8B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -71,6 +92,7 @@
 			children = (
 				B1F596DA2F9C43A2007D8D8B /* SequelBridge.app */,
 				B1F596F62F9C4FBD007D8D8B /* SequelBridgeTests.xctest */,
+				B1F597112F9C4FBD007D8D8B /* SequelBridgeUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -124,6 +146,29 @@
 			productReference = B1F596F62F9C4FBD007D8D8B /* SequelBridgeTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		B1F597162F9C4FBD007D8D8B /* SequelBridgeUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B1F5971A2F9C4FBD007D8D8B /* Build configuration list for PBXNativeTarget "SequelBridgeUITests" */;
+			buildPhases = (
+				B1F597152F9C4FBD007D8D8B /* Sources */,
+				B1F597132F9C4FBD007D8D8B /* Frameworks */,
+				B1F597142F9C4FBD007D8D8B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B1F597172F9C4FBD007D8D8B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B1F597122F9C4FBD007D8D8B /* SequelBridgeUITests */,
+			);
+			name = SequelBridgeUITests;
+			packageProductDependencies = (
+			);
+			productName = SequelBridgeUITests;
+			productReference = B1F597112F9C4FBD007D8D8B /* SequelBridgeUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -139,6 +184,10 @@
 					};
 					B1F596F52F9C4FBD007D8D8B = {
 						CreatedOnToolsVersion = 26.4.1;
+						TestTargetID = B1F596D92F9C43A2007D8D8B;
+					};
+					B1F597162F9C4FBD007D8D8B = {
+						CreatedOnToolsVersion = 26.5;
 						TestTargetID = B1F596D92F9C43A2007D8D8B;
 					};
 				};
@@ -162,6 +211,7 @@
 			targets = (
 				B1F596D92F9C43A2007D8D8B /* SequelBridge */,
 				B1F596F52F9C4FBD007D8D8B /* SequelBridgeTests */,
+				B1F597162F9C4FBD007D8D8B /* SequelBridgeUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -175,6 +225,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		B1F596F42F9C4FBD007D8D8B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B1F597142F9C4FBD007D8D8B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -198,6 +255,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B1F597152F9C4FBD007D8D8B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -205,6 +269,11 @@
 			isa = PBXTargetDependency;
 			target = B1F596D92F9C43A2007D8D8B /* SequelBridge */;
 			targetProxy = B1F596FA2F9C4FBD007D8D8B /* PBXContainerItemProxy */;
+		};
+		B1F597172F9C4FBD007D8D8B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B1F596D92F9C43A2007D8D8B /* SequelBridge */;
+			targetProxy = B1F597102F9C4FBD007D8D8B /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -437,6 +506,44 @@
 			};
 			name = Release;
 		};
+		B1F597182F9C4FBD007D8D8B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 95;
+				DEVELOPMENT_TEAM = 4NJA57K54Y;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = gwadekar.SequelBridgeUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = SequelBridge;
+			};
+			name = Debug;
+		};
+		B1F597192F9C4FBD007D8D8B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 95;
+				DEVELOPMENT_TEAM = 4NJA57K54Y;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = gwadekar.SequelBridgeUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = SequelBridge;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -463,6 +570,15 @@
 			buildConfigurations = (
 				B1F596FD2F9C4FBD007D8D8B /* Debug */,
 				B1F596FE2F9C4FBD007D8D8B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B1F5971A2F9C4FBD007D8D8B /* Build configuration list for PBXNativeTarget "SequelBridgeUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B1F597182F9C4FBD007D8D8B /* Debug */,
+				B1F597192F9C4FBD007D8D8B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

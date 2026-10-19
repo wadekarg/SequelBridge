@@ -256,6 +256,7 @@ struct WorkspaceSidebarView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Add connection")
+                .accessibilityIdentifier("sidebar.addConnection")
             }
         }
         .frame(height: 30)
@@ -287,6 +288,8 @@ struct WorkspaceSidebarView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { session.activeConnectionAlias = conn.alias }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("sidebar.connection.\(conn.alias)")
     }
 
     // MARK: - Database selector
@@ -373,6 +376,7 @@ struct WorkspaceSidebarView: View {
             }
             .buttonStyle(.plain)
             .help("Create new table")
+            .accessibilityIdentifier("sidebar.createTable")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
