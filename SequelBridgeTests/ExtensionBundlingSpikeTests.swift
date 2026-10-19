@@ -33,35 +33,26 @@ import DuckDB
 struct ExtensionBundlingSpikeTests {
 
     /// Byte offset where the Mach-O proper ends (end of the __LINKEDIT segment),
-    /// i.e. the truncation point that removes DuckDB's appended footer.
+    /// i.e. the truncation point that removes DuckDB's appended footer. Read from the
+    /// load commands directly: shelling out to otool found nothing on GitHub's Apple
+    /// Silicon runners.
     private func machOEnd(_ path: String) throws -> UInt64? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/otool")
-        p.arguments = ["-l", path]
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = Pipe()
-        try p.run()
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        guard let text = String(data: data, encoding: .utf8) else { return nil }
-
-        var inLinkedit = false
-        var fileoff: UInt64 = 0
-        var filesize: UInt64 = 0
-        for raw in text.split(separator: "\n") {
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("segname ") {
-                inLinkedit = line.contains("__LINKEDIT")
-            } else if inLinkedit, line.hasPrefix("fileoff ") {
-                fileoff = UInt64(line.dropFirst("fileoff ".count).trimmingCharacters(in: .whitespaces)) ?? 0
-            } else if inLinkedit, line.hasPrefix("filesize ") {
-                filesize = UInt64(line.dropFirst("filesize ".count).trimmingCharacters(in: .whitespaces)) ?? 0
-                break
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        func u32(_ o: Int) -> UInt32 { data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt32.self) } }
+        func u64(_ o: Int) -> UInt64 { data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt64.self) } }
+        guard data.count >= 32, u32(0) == 0xFEED_FACF else { return nil }      // MH_MAGIC_64, thin
+        var off = 32                                                           // sizeof(mach_header_64)
+        for _ in 0..<Int(u32(16)) {                                            // ncmds
+            guard off + 56 <= data.count else { return nil }
+            let cmd = u32(off), size = Int(u32(off + 4))
+            if cmd == 0x19 {                                                   // LC_SEGMENT_64
+                let name = String(decoding: data[(off + 8)..<(off + 24)].prefix { $0 != 0 }, as: UTF8.self)
+                if name == "__LINKEDIT" { return u64(off + 40) + u64(off + 48) }   // fileoff + filesize
             }
+            guard size > 0 else { return nil }
+            off += size
         }
-        guard fileoff > 0, filesize > 0 else { return nil }
-        return fileoff + filesize
+        return nil
     }
 
     /// A scanner extension cached by a previous run of the app, if any.
@@ -112,7 +103,8 @@ struct ExtensionBundlingSpikeTests {
 
         let sizeBefore = (try FileManager.default.attributesOfItem(atPath: stripped.path)[.size] as? UInt64) ?? 0
         guard let end = try machOEnd(stripped.path) else {
-            Issue.record("could not locate __LINKEDIT end via otool")
+            let head = (try? Data(contentsOf: src).prefix(8).map { String(format: "%02x", $0) }.joined()) ?? "?"
+            Issue.record("could not locate the end of __LINKEDIT in \(src.lastPathComponent) (starts \(head))")
             return
         }
         let handle = try FileHandle(forWritingTo: stripped)
