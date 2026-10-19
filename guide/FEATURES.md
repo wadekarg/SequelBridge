@@ -50,7 +50,10 @@ the file. The form offers only what the engine supports: ClickHouse, reached ove
 HTTP, has no socket. For a socket, MySQL takes the socket file and PostgreSQL its
 directory, or the `.s.PGSQL.<port>` file itself. An SSH tunnel logs in with your key
 file, also on old servers that only offer the `ssh-rsa` key type, and closes when you
-disconnect or quit the app. **Test Connection** on the form tries the connection,
+disconnect or quit the app. When the SSH server asks for something (a password, the
+key's passphrase, or a one-time code from an RSA token or an authenticator app), a
+dialog shows its question; **Remember in Keychain** saves a password or passphrase,
+never a one-time code. **Test Connection** on the form tries the connection,
 tunnel included, before saving. Passwords go into your Keychain, never into the
 connection file. A failed connection says why, in the server's words: a wrong
 password, an unknown host, SSL required but not offered.

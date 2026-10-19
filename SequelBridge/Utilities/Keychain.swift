@@ -9,14 +9,16 @@ import Foundation
 import Security
 
 enum Keychain {
-    private static func key(for id: UUID) -> String {
-        "SequelBridge-\(id.uuidString)"
+    /// The item for a connection's database password, or, with `kind`, for another of
+    /// its secrets ("ssh-password", "ssh-passphrase").
+    private static func key(for id: UUID, kind: String? = nil) -> String {
+        kind.map { "SequelBridge-\(id.uuidString)-\($0)" } ?? "SequelBridge-\(id.uuidString)"
     }
 
     @discardableResult
-    static func save(_ password: String, for id: UUID) -> Bool {
+    static func save(_ password: String, for id: UUID, kind: String? = nil) -> Bool {
         let data = Data(password.utf8)
-        let k = key(for: id)
+        let k = key(for: id, kind: kind)
         let searchQuery: [String: Any] = [
             kSecClass as String:        kSecClassGenericPassword,
             kSecAttrAccount as String:  k,
@@ -46,8 +48,8 @@ enum Keychain {
         return false
     }
 
-    static func load(for id: UUID) -> String? {
-        let k = key(for: id)
+    static func load(for id: UUID, kind: String? = nil) -> String? {
+        let k = key(for: id, kind: kind)
         let query: [String: Any] = [
             kSecClass as String:            kSecClassGenericPassword,
             kSecAttrAccount as String:      k,
@@ -61,8 +63,8 @@ enum Keychain {
         return String(data: data, encoding: .utf8)
     }
 
-    static func delete(for id: UUID) {
-        let k = key(for: id)
+    static func delete(for id: UUID, kind: String? = nil) {
+        let k = key(for: id, kind: kind)
         let query: [String: Any] = [
             kSecClass as String:        kSecClassGenericPassword,
             kSecAttrAccount as String:  k,

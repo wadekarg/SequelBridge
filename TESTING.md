@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 580 tests in 105 suites (about three minutes of tests after the build).
+at them, and runs all 590 tests in 106 suites (about three minutes of tests after the build).
 Then every MySQL suite runs a second time with its server pointed at MySQL 8.4.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
 benchmark (`--bench`), and `QueryCancelTests.interruptStopsServerStatement`, the spec
@@ -56,7 +56,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-580 tests across 86 files.
+590 tests across 87 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -82,7 +82,8 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `DatabaseDumpTests` | `SB_MYSQL_VERIFY` | whole-database SQL dump (all tables, schema + data) |
 | `PostgresTests` | `SB_PG_VERIFY` | PostgreSQL attach, query, joins |
 | `CrossEngineBenchmark` | `SB_BENCH` | timing (not correctness) for the MySQL×Postgres JOIN |
-| `SSHTunnelTests` | always (ports, arguments) / `SB_SSH_VERIFY` (tunnels) | port allocation, failure paths, MySQL through the tunnel on a current and an `ssh-rsa`-only server |
+| `SSHTunnelTests` | always (ports, arguments) / `SB_SSH_VERIFY` (tunnels) | port allocation, failure paths, MySQL through the tunnel on a current and an `ssh-rsa`-only server; the login prompts on a real ssh: a password (`pwuser`), a key with a passphrase, Cancel stopping at once, a wrong password asked three times |
+| `SSHLoginTests` | always | what ssh asks (password, passphrase, one-time code), when a saved answer is used, and the askpass script's round trip to the app: the answer back, a wrong token refused, Cancel failing the attempt |
 | `ConnectionTypeTests` | always (what each engine offers) / `SB_SSH_VERIFY`, `SB_SOCKET_VERIFY` | every engine × connection type: PostgreSQL and ClickHouse over SSH, MySQL and PostgreSQL over sockets, EXPLAIN on both, ClickHouse socket refused, Test Connection and quitting close their tunnels |
 | `ContentEditTests` | always (SQLite) / `SB_PG_VERIFY` (PostgreSQL) | a Content-tab cell edit and set-to-NULL reach the database, run the way the panel runs them (`executeWrite`) |
 | `CellEditorTests` | always | the Query tab popup's rules: Save needs Edit and a change, NULL is a change, a cell that can't be edited says why |

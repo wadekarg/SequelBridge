@@ -10,6 +10,12 @@ final class SSHTunnel {
     private(set) var localPort: Int
     private var process: Process?
     private var stderr: DrainedPipe?
+    private var askpass: SSHAskpass?
+
+    /// Answers what ssh asks while it logs in: a password, a key's passphrase, a one-time
+    /// code. The app sets it to its login dialog; while it is nil, ssh runs in BatchMode
+    /// and a login that needs an answer fails.
+    static var prompter: ((SSHLoginRequest) async -> String?)?
 
     /// Every tunnel whose ssh is running. A child process outlives its parent on macOS,
     /// so without this an ssh left open at quit kept its SSH session and local port
@@ -45,8 +51,27 @@ final class SSHTunnel {
         }
 
         let p = Process()
+        if let prompter = Self.prompter {
+            let counts = AskCounts()
+            askpass = try await SSHAskpass { prompt in
+                // After Cancel, ssh asks again (up to three times): end the login instead.
+                guard !counts.cancelled else { return nil }
+                let kind = SSHLogin.kind(of: prompt)
+                let request = SSHLoginRequest(prompt: prompt, kind: kind, timesAsked: counts.next(kind),
+                                              user: conn.sshUsername, host: conn.sshHost, connectionID: conn.id)
+                let reply = await prompter(request)
+                if reply == nil { counts.cancelled = true; p.terminate() }
+                return reply
+            }
+        }
+
         p.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        p.arguments = Self.arguments(for: conn, localPort: localPort, keyPath: expandedKey)
+        p.arguments = Self.arguments(for: conn, localPort: localPort, keyPath: expandedKey, interactive: askpass != nil)
+        if let askpass {
+            // No terminal: ssh asks every question through the askpass script.
+            p.environment = ProcessInfo.processInfo.environment.merging(askpass.environment) { $1 }
+            p.standardInput = FileHandle.nullDevice
+        }
         // stdout is genuinely unwanted, so discard it outright — an undrained Pipe
         // would eventually fill and block ssh. stderr is kept, but drained
         // continuously for the same reason: a tunnel that reconnects or emits
@@ -61,25 +86,32 @@ final class SSHTunnel {
         _ = Self.quitObserver
         Self.running[ObjectIdentifier(self)] = p
 
-        // Poll until the local port is listening (max 10 seconds)
-        for _ in 0..<20 {
+        // Poll until the local port is listening: 10 seconds, not counting the time a
+        // question from ssh waits for its answer.
+        var waited = 0
+        while waited < 20 {
             try await Task.sleep(nanoseconds: 500_000_000) // 0.5 s
-            if isLocalPortListening(localPort) { return }
+            if isLocalPortListening(localPort) { endLogin(); return }
             if !p.isRunning {
                 Self.running.removeValue(forKey: ObjectIdentifier(self))
+                let cancelled = askpass?.cancelled ?? false
+                endLogin()
+                if cancelled { throw SequelBridgeError.attachFailed("SSH login cancelled.") }
                 let msg = stderrPipe.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 throw SequelBridgeError.attachFailed(
-                    "SSH process exited unexpectedly.\(msg.isEmpty ? "" : " \(msg)")\n\nCheck: SSH host, username, and key path.")
+                    "SSH process exited unexpectedly.\(msg.isEmpty ? "" : " \(msg)")\n\nCheck: SSH host, username, key path and password.")
             }
+            if !(askpass?.isAsking ?? false) { waited += 1 }
         }
         p.terminate()
         Self.running.removeValue(forKey: ObjectIdentifier(self))
+        endLogin()
         throw SequelBridgeError.attachFailed(
             "SSH tunnel timed out after 10 seconds. Verify the SSH host is reachable and the key is valid.")
     }
 
     /// The ssh command line for the tunnel: a local forward to the database through the
-    /// SSH server, key-only and non-interactive.
+    /// SSH server. `interactive` when the app answers ssh's questions (SSHAskpass).
     ///
     /// `+ssh-rsa` appends SHA-1 RSA to the algorithms ssh accepts, for the server's host
     /// key and for signatures made with an RSA user key. OpenSSH 8.8 and later switched
@@ -87,7 +119,7 @@ final class SSHTunnel {
     /// host key only as ssh-rsa ("no matching host key type found. Their offer: ssh-rsa")
     /// and accept only ssh-rsa signatures. Appended, it is used only when the server
     /// offers nothing newer.
-    static func arguments(for conn: Connection, localPort: Int, keyPath: String?) -> [String] {
+    static func arguments(for conn: Connection, localPort: Int, keyPath: String?, interactive: Bool = false) -> [String] {
         var args: [String] = [
             "-N",                                               // no remote command
             "-L", "\(localPort):\(conn.host):\(conn.port)",   // forward local→remote database
@@ -96,10 +128,12 @@ final class SSHTunnel {
             "-o", "ExitOnForwardFailure=yes",                  // die if tunnel can't bind
             "-o", "ServerAliveInterval=30",                    // keepalive
             "-o", "ConnectTimeout=10",                         // SSH connect timeout
-            "-o", "BatchMode=yes",                             // no interactive prompts
             "-o", "HostKeyAlgorithms=+ssh-rsa",                // old servers' host keys
             "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa",         // old servers' key logins
         ]
+        // With nothing to answer them, ssh must not wait on questions (a password, a
+        // key's passphrase, a one-time code); with SSHAskpass, the app answers.
+        if !interactive { args += ["-o", "BatchMode=yes"] }
         if let keyPath {
             // IdentitiesOnly=yes: use ONLY this key, never the agent or defaults,
             // so the connection depends on exactly the key the user chose.
@@ -109,7 +143,14 @@ final class SSHTunnel {
         return args
     }
 
+    /// The login is over, one way or the other: ssh asks nothing more.
+    private func endLogin() {
+        askpass?.stop()
+        askpass = nil
+    }
+
     func stop() {
+        endLogin()
         process?.terminate()
         process = nil
         Self.running.removeValue(forKey: ObjectIdentifier(self))
@@ -167,5 +208,15 @@ final class SSHTunnel {
                 Darwin.bind(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0
             }
         }
+    }
+}
+
+/// How often each kind of question was asked in one login, and whether it was cancelled.
+private final class AskCounts {
+    var cancelled = false
+    private var counts: [SSHLogin.Kind: Int] = [:]
+    func next(_ kind: SSHLogin.Kind) -> Int {
+        defer { counts[kind, default: 0] += 1 }
+        return counts[kind, default: 0]
     }
 }

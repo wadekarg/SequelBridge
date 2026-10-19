@@ -5,7 +5,9 @@
 #   2223  an old server: one RSA host key offered only as ssh-rsa (SHA-1 signatures),
 #         and only ssh-rsa accepted for user keys, as OpenSSH 7.1 and older behave.
 #         Current macOS ssh refuses that server unless ssh-rsa is allowed again.
-# The test key's public half arrives in $TEST_PUBKEY; logins are key-only. Host keys
+# The test keys' public halves arrive in $TEST_PUBKEY (one has a passphrase, for the
+# login prompts); tunneluser logs in with a key only. pwuser logs in with a password,
+# on the 2222 server only, for the app's SSH login prompts. Host keys
 # come from /hostkeys when mounted, so they stay the same across re-provisioning and
 # the client's known_hosts entry stays valid (the tunnel trusts hosts the way ssh does).
 set -e
@@ -21,13 +23,15 @@ install -d -m 700 -o tunneluser -g tunneluser /home/tunneluser/.ssh
 printf '%s\n' "$TEST_PUBKEY" > /home/tunneluser/.ssh/authorized_keys
 chown tunneluser:tunneluser /home/tunneluser/.ssh/authorized_keys
 chmod 600 /home/tunneluser/.ssh/authorized_keys
+adduser -D -s /bin/sh pwuser
+echo 'pwuser:sbssh123' | chpasswd               # the password-login account
 
 common='PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no
 AllowTcpForwarding yes
 PidFile none'
-printf '%s\nPort 2222\nHostKey /etc/ssh/ssh_host_ed25519_key\nHostKey /etc/ssh/ssh_host_rsa_key\n' \
+printf '%s\nPort 2222\nHostKey /etc/ssh/ssh_host_ed25519_key\nHostKey /etc/ssh/ssh_host_rsa_key\nMatch User pwuser\n  PasswordAuthentication yes\n' \
   "$common" > /etc/ssh/sshd_modern
 printf '%s\nPort 2223\nHostKey /etc/ssh/ssh_host_rsa_key\nHostKeyAlgorithms ssh-rsa\nPubkeyAcceptedAlgorithms ssh-rsa\n' \
   "$common" > /etc/ssh/sshd_legacy

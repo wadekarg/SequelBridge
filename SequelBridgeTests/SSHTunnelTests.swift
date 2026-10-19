@@ -17,6 +17,7 @@ private struct SSHEnv {
     static var e: [String: String] { ProcessInfo.processInfo.environment }
     static var enabled: Bool { e["SB_SSH_VERIFY"] == "1" }
     static var keyPath: String { e["SB_SSH_KEY"] ?? "" }
+    static var phraseKeyPath: String { e["SB_SSH_PHRASE_KEY"] ?? "" }   // passphrase "sbphrase"
     static var port: Int { Int(e["SB_SSH_PORT"] ?? "") ?? 2224 }
     static var legacyPort: Int { Int(e["SB_SSH_LEGACY_PORT"] ?? "") ?? 2225 }
     // The MariaDB container as the SSH server sees it, with the fixture's login.
@@ -30,6 +31,10 @@ private struct SSHEnv {
 @MainActor
 @Suite("SSH tunnel", .serialized)
 struct SSHTunnelTests {
+
+    /// The tests run inside the app, which answers ssh's questions with a dialog. No test
+    /// may put that on screen: each starts with nothing answering, as a key login needs.
+    init() { SSHTunnel.prompter = nil }
 
     @Test("allocates a local port inside the reserved range")
     func portAllocation() {
@@ -143,6 +148,73 @@ struct SSHTunnelTests {
         try await attachAndQuery(sshConnection(alias: "sshlegacy", sshPort: SSHEnv.legacyPort))
     }
 
+    // MARK: - Login prompts (needs SB_SSH_VERIFY=1): what ssh asks goes to the app
+
+    /// Runs `body` with `answer` answering ssh's questions; returns what ssh asked.
+    func answering(_ answer: @escaping (SSHLoginRequest) -> String?,
+                   _ body: () async throws -> Void) async throws -> [SSHLoginRequest] {
+        let asked = AskLog()
+        SSHTunnel.prompter = { @MainActor request in asked.items.append(request); return answer(request) }
+        defer { SSHTunnel.prompter = nil }
+        try await body()
+        return asked.items
+    }
+
+    /// pwuser logs in with a password. The test key isn't authorized for it, so ssh tries
+    /// that key alone (IdentitiesOnly), then asks for the password.
+    func passwordConnection(alias: String) -> Connection {
+        var c = sshConnection(alias: alias)
+        c.sshUsername = "pwuser"
+        return c
+    }
+
+    @Test("a password login: ssh asks for the password and the app answers",
+          .enabled(if: SSHEnv.enabled && !SSHEnv.keyPath.isEmpty))
+    func passwordLogin() async throws {
+        let asked = try await answering({ _ in "sbssh123" }) {
+            try await attachAndQuery(passwordConnection(alias: "sshpw"))
+        }
+        #expect(asked.map(\.kind) == [.password], "asked: \(asked.map(\.prompt))")
+        #expect(asked.first?.user == "pwuser")
+    }
+
+    @Test("a key with a passphrase: ssh asks for the passphrase and the app answers",
+          .enabled(if: SSHEnv.enabled && !SSHEnv.phraseKeyPath.isEmpty))
+    func passphraseLogin() async throws {
+        var c = sshConnection(alias: "sshphrase")
+        c.sshKeyPath = SSHEnv.phraseKeyPath
+        let asked = try await answering({ _ in "sbphrase" }) { try await attachAndQuery(c) }
+        #expect(asked.map(\.kind) == [.passphrase], "asked: \(asked.map(\.prompt))")
+    }
+
+    @Test("Cancel in the login dialog stops the connection at once, and says so",
+          .enabled(if: SSHEnv.enabled && !SSHEnv.keyPath.isEmpty))
+    func cancelledLogin() async throws {
+        let engine = try QueryEngine()
+        let started = Date()
+        var reason = ""
+        let asked = try await answering({ _ in nil }) {
+            do { try await engine.attach(passwordConnection(alias: "sshcancel"), password: SSHEnv.dbPass) }
+            catch { reason = QueryEngine.extractReason(from: error) }
+        }
+        #expect(asked.count == 1)
+        #expect(reason.localizedCaseInsensitiveContains("cancelled"), "got: \(reason)")
+        #expect(Date().timeIntervalSince(started) < 15)
+    }
+
+    @Test("a wrong password is asked again, then the login fails with the server's reason",
+          .enabled(if: SSHEnv.enabled && !SSHEnv.keyPath.isEmpty))
+    func wrongPassword() async throws {
+        let engine = try QueryEngine()
+        var reason = ""
+        let asked = try await answering({ _ in "not-the-password" }) {
+            do { try await engine.attach(passwordConnection(alias: "sshwrong"), password: SSHEnv.dbPass) }
+            catch { reason = QueryEngine.extractReason(from: error) }
+        }
+        #expect(asked.map(\.timesAsked) == [0, 1, 2], "asked: \(asked.map(\.prompt))")
+        #expect(reason.contains("Permission denied"), "got: \(reason)")
+    }
+
     @Test("a wrong key path fails with an actionable message, not a hang")
     func badKeyFails() async throws {
         let engine = try QueryEngine()
@@ -156,3 +228,7 @@ struct SSHTunnelTests {
     }
 
 }
+
+/// What ssh asked during a test.
+@MainActor
+private final class AskLog { var items: [SSHLoginRequest] = [] }

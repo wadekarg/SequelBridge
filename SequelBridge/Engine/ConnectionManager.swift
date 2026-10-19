@@ -77,6 +77,7 @@ class ConnectionManager: ObservableObject {
     func deleteSaved(id: UUID) throws {
         saved.removeAll { $0.id == id }
         Keychain.delete(for: id)
+        for kind in SSHLoginPrompt.keychainKinds { Keychain.delete(for: id, kind: kind) }
         try store.save(saved)
     }
 

@@ -28,6 +28,12 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   it was refused. Explain follows the same rule.
 - A connection whose database was dropped on the server failed every statement and
   couldn't switch to another database; it switches now.
+- An SSH tunnel could only log in with a key file without a passphrase: ssh ran in
+  BatchMode, so a server that asked for a password, a key's passphrase or a one-time
+  code from an RSA token got no answer and the login failed. Each question now opens
+  a dialog with the server's own words; Remember in Keychain saves a password or a
+  passphrase (never a one-time code), and Cancel stops the login at once. Reported by
+  a tester who logs in with an RSA token.
 
 ### Changed
 - The connection tabs at the top of the left panel wrap onto more rows instead of

@@ -339,7 +339,8 @@ struct AddConnectionSheet: View {
             row("SSH Host",     field: TextField("ssh.example.com", text: $sshHost))
             row("SSH Port",     field: TextField("22", text: $sshPort).frame(width: 80))
             row("SSH Username", field: TextField("ubuntu", text: $sshUsername))
-            row("SSH Key",      field: TextField("~/.ssh/id_rsa", text: $sshKeyPath))
+            row("SSH Key",      field: TextField("optional, e.g. ~/.ssh/id_rsa", text: $sshKeyPath)
+                                    .help("Leave it empty to log in with a password. A password, a key's passphrase or a one-time code is asked when you connect."))
         }
         formGroup("\(engine.displayName) Server") {
             row("Host",     field: TextField("127.0.0.1", text: $host))

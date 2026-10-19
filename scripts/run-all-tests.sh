@@ -124,12 +124,13 @@ start_mysql8() {
 start_sshd() {
   mkdir -p "$SSH_DIR/hostkeys"
   [ -f "$SSH_DIR/sb_test_key" ] || ssh-keygen -q -t rsa -b 3072 -N "" -C sequelbridge-test -f "$SSH_DIR/sb_test_key"
+  [ -f "$SSH_DIR/sb_phrase_key" ] || ssh-keygen -q -t ed25519 -N "sbphrase" -C sequelbridge-phrase -f "$SSH_DIR/sb_phrase_key"
   local t; for t in rsa ed25519; do
     [ -f "$SSH_DIR/hostkeys/ssh_host_${t}_key" ] || ssh-keygen -q -t "$t" -N "" -C sb-sshd -f "$SSH_DIR/hostkeys/ssh_host_${t}_key"
   done
   docker rm -f "$SSHD" >/dev/null 2>&1 || true
   docker run -d --name "$SSHD" -p "$SSH_PORT:2222" -p "$SSH_LEGACY_PORT:2223" \
-    -e TEST_PUBKEY="$(cat "$SSH_DIR/sb_test_key.pub")" \
+    -e TEST_PUBKEY="$(cat "$SSH_DIR/sb_test_key.pub" "$SSH_DIR/sb_phrase_key.pub")" \
     -v "$FIX/ssh/sshd-setup.sh:/sshd-setup.sh:ro" -v "$SSH_DIR/hostkeys:/hostkeys:ro" \
     "$SSHD_IMG" sh /sshd-setup.sh >/dev/null
   # Docker accepts connections on a published port before anything listens behind it,
@@ -196,6 +197,7 @@ export_db_env() {
   export TEST_RUNNER_SB_PG_USER=$PG_USER      TEST_RUNNER_SB_PG_PASS=$PG_PW          TEST_RUNNER_SB_PG_DB=$PG_DB
   # SSH tunnels (SSHTunnel, Connection types) and Unix sockets (Connection types)
   export TEST_RUNNER_SB_SSH_VERIFY=1          TEST_RUNNER_SB_SSH_KEY="$SSH_DIR/sb_test_key"
+  export TEST_RUNNER_SB_SSH_PHRASE_KEY="$SSH_DIR/sb_phrase_key"
   export TEST_RUNNER_SB_SSH_PORT=$SSH_PORT    TEST_RUNNER_SB_SSH_LEGACY_PORT=$SSH_LEGACY_PORT
   export TEST_RUNNER_SB_SOCKET_VERIFY=1       TEST_RUNNER_SB_MYSQL_SOCKET="$SOCK_DIR/mysql.sock"
   export TEST_RUNNER_SB_PG_SOCKET_DIR="$SOCK_DIR"
