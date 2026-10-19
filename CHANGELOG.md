@@ -2,7 +2,7 @@
 
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## Unreleased
+## 1.2.2 — 2026-10-19
 
 ### Fixed
 - The Structure tab could sit on "loading" on MariaDB, and on MySQL before 8. The
