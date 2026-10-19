@@ -7,9 +7,6 @@
 <meta name="description" content="A native macOS SQL client that runs one query — JOINs included — across MySQL, PostgreSQL, SQLite and ClickHouse at once. Free and open source.">
 <link rel="icon" type="image/png" href="assets/icon.png">
 <link rel="apple-touch-icon" href="assets/icon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
   :root{
     color-scheme: light;
@@ -30,9 +27,9 @@
     --shadow: 0 1px 2px rgba(20,26,34,.04), 0 12px 32px -12px rgba(20,26,34,.18);
     --radius:14px;
     --maxw:1120px;
-    --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    --sans:"IBM Plex Sans", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-    --display:"Bricolage Grotesque", var(--sans);
+    --mono:ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans:-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --display:-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;  /* Apple system font: SF Pro on Mac/iPhone, nothing to download */
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
@@ -84,9 +81,13 @@
   .dotline{display:inline-block; width:22px; height:1px; background:var(--line-strong)}
 
   /* ---------- top bar ---------- */
+  html{scroll-padding-top:calc(72px + env(safe-area-inset-top,0px))}
   header.bar{
-    position:sticky; top:env(safe-area-inset-top,0px); z-index:20;
-    background:color-mix(in srgb, var(--ground) 86%, transparent);
+    position:sticky; top:0; z-index:20;
+    /* pin to the very top; the notch / status-bar area is filled by padding, not by a gap */
+    padding-top:env(safe-area-inset-top,0px);
+    background:color-mix(in srgb, var(--ground) 94%, transparent);
+    transition:transform .25s ease;
     backdrop-filter:saturate(1.4) blur(10px);
     border-bottom:1px solid var(--line);
   }
@@ -99,6 +100,10 @@
   .nav a{color:var(--ink-soft); text-decoration:none; font-size:14.5px; font-weight:500}
   .nav a:hover{color:var(--ink)}
   .bar-spacer{flex:1}
+  .bar-in > .icon-btn, .bar-in > .btn{flex:none}
+  @media (max-width:520px){ .bar-in{gap:12px} .brand{font-size:17px; gap:8px} }
+  @media (max-width:380px){ .bar-in{gap:8px} .brand{font-size:16px} .bar .btn-sm{padding:8px 11px; font-size:13.5px} .bar .icon-btn{width:34px; height:34px} }
+  @media (max-width:340px){ .bar .icon-btn{display:none} }  /* tiniest phones: page still follows the system theme */
   .btn{
     display:inline-flex; align-items:center; gap:8px; justify-content:center;
     font-family:var(--sans); font-weight:600; font-size:15px; line-height:1;
@@ -115,6 +120,8 @@
   .icon-btn:hover{background:var(--surface-2); color:var(--ink)}
   .bar .nav, .bar .brand-word-full{}
   @media (max-width:760px){ .nav{display:none} }
+  /* phones: the bar slides away while scrolling down and comes back on any scroll up */
+  @media (max-width:760px){ header.bar.is-hidden{transform:translateY(-100%)} }
 
   /* ---------- hero ---------- */
   .hero{padding-top:clamp(48px,7vw,88px)}
@@ -407,6 +414,20 @@
       root.setAttribute('data-theme', next);
       try{ localStorage.setItem('sb-theme', next); }catch(e){}
     });
+  })();
+</script>
+<script>
+  // Phones only: hide the top bar on scroll down, show it on scroll up.
+  (function(){
+    var bar=document.querySelector('header.bar'); if(!bar) return;
+    var mq=window.matchMedia('(max-width:760px)'), last=window.scrollY, ticking=false;
+    function update(){
+      var y=window.scrollY;
+      if(!mq.matches || y<80 || y<last-4) bar.classList.remove('is-hidden');
+      else if(y>last+4) bar.classList.add('is-hidden');
+      last=y; ticking=false;
+    }
+    window.addEventListener('scroll',function(){ if(!ticking){ ticking=true; requestAnimationFrame(update); } },{passive:true});
   })();
 </script>
 </body>
