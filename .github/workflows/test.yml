@@ -1,0 +1,42 @@
+# Builds the app and runs the tests that need no database server on Apple Silicon
+# (GitHub's macos-26 runners), with the Xcode the release is built with. The database
+# suites need the Docker containers that scripts/run-all-tests.sh provisions; run them
+# locally with that script.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Build and test on Apple Silicon
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch DuckDB's static libraries
+        run: ./scripts/fetch-duckdb.sh
+
+      - name: Build and test
+        run: |
+          set +e
+          xcodebuild test -scheme SequelBridge -destination 'platform=macOS,arch=arm64' \
+            -parallel-testing-enabled NO \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
+            > xcodebuild.log 2>&1
+          status=$?
+          grep -E "Test run with|✘|error:|\*\* (TEST|BUILD)" xcodebuild.log
+          exit $status
+
+      - name: Keep the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log

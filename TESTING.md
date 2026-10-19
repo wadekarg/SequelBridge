@@ -39,6 +39,10 @@ once and kept, so those entries stay valid. For socket connections it relays Mar
 and PostgreSQL to Unix sockets in `/tmp/sb-sock` while the tests run
 (`scripts/fixtures/socket-relay.py`).
 
+On GitHub, every push to `main` and every pull request builds the app and runs the
+tests that need no database server on Apple Silicon (`.github/workflows/test.yml`,
+`macos-26`, Xcode 26.5).
+
 ## What's in the suite
 
 **Hermetic (always run, no Docker)** — DuckDB engine, SQL builders (`SQLBuilderTests`,
