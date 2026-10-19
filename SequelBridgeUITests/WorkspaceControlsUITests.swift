@@ -76,6 +76,18 @@ final class WorkspaceControlsUITests: XCTestCase {
         XCTAssertEqual(tabs.count, before + 1, "the + didn't open a new query tab")
     }
 
+    func testClickingAQueryTabSelectsIt() {
+        // Two tabs, the second active; a click anywhere on the first selects it again.
+        app.buttons["query.newTab"].click()
+        let tabs = app.descendants(matching: .any).matching(identifier: "query.tab")
+        XCTAssertEqual(tabs.count, 2)
+        XCTAssertTrue(app.staticTexts["Query 2"].exists)
+        let first = tabs.element(boundBy: 0)
+        XCTAssertFalse(first.isSelected)
+        first.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)).click()   // the padding, left of the title
+        XCTAssertTrue(first.isSelected, "clicking the first tab didn't select it")
+    }
+
     func testConnectionTabsSwitchTheSidebar() {
         element("sidebar.connection.liteb").click()
         XCTAssertTrue(app.staticTexts["beta_items"].waitForExistence(timeout: 15), "the liteb tab didn't show its tables")

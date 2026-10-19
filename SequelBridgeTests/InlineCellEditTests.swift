@@ -55,4 +55,15 @@ struct InlineCellEditTests {
         #expect(cell.textField?.font == font)
         #expect(cell.textField?.textColor == .textColor)
     }
+
+    @MainActor @Test("a NULL cell keeps its font, in italics, and a reused cell gets the regular one back")
+    func nullFont() throws {
+        // On macOS 15 this crashed: the cell read its font back from the text field and got nil.
+        let cell = DataCellView.make()
+        cell.configure(value: "NULL", isNull: true, numeric: false, font: font)
+        let italic = try #require(cell.textField?.font)
+        #expect(NSFontManager.shared.traits(of: italic).contains(.italicFontMask))
+        cell.configure(value: "paid", isNull: false, numeric: false, font: font)
+        #expect(cell.textField?.font == font)
+    }
 }

@@ -260,6 +260,9 @@ struct WorkspaceSidebarView: View {
             }
         }
         .frame(height: 30)
+        // Off the window's top edge: on macOS 14 and 15 a scroll view touching it grows
+        // up under the toolbar, and its buttons and tabs stop taking clicks.
+        .padding(.top, 1)
         .background(Color(NSColor.controlBackgroundColor))
         .overlay(Divider(), alignment: .bottom)
     }
@@ -290,6 +293,7 @@ struct WorkspaceSidebarView: View {
         .onTapGesture { session.activeConnectionAlias = conn.alias }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("sidebar.connection.\(conn.alias)")
+        .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
     }
 
     // MARK: - Database selector

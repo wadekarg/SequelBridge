@@ -171,6 +171,9 @@ struct QueryPanelView: View {
                     .keyboardShortcut("t", modifiers: .command)
                 }
             }
+            // Off the window's top edge: on macOS 14 and 15 a scroll view touching it grows
+            // up under the toolbar, and its tabs and + stop taking clicks.
+            .padding(.top, 1)
             Spacer()
             HStack(spacing: 6) {
                 savedQueriesMenu
@@ -271,9 +274,11 @@ struct QueryPanelView: View {
                 Rectangle().fill(Color.accentColor).frame(height: 2)
             }
         }
+        .contentShape(Rectangle())          // the whole tab, not only its title, takes the click
         .onTapGesture { session.activeTabId = tab.id }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("query.tab")
+        .accessibilityAddTraits(tab.id == session.activeTabId ? [.isButton, .isSelected] : .isButton)
     }
 
     // MARK: - Autocomplete items

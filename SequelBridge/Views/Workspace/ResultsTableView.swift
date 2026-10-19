@@ -634,6 +634,9 @@ private struct _ResultsTable: NSViewRepresentable {
 final class DataCellView: NSTableCellView {
     private var isNull = false
     private var numeric = false
+    /// The grid's font for this cell; a NULL shows it in italics. Kept here rather than
+    /// read back from the text field: on macOS 15 that came back nil (a crash).
+    private var baseFont: NSFont? = nil
     /// True while the cell's text field is the in-cell editor.
     private(set) var isEditingInline = false
 
@@ -694,14 +697,15 @@ final class DataCellView: NSTableCellView {
     func configure(value: String, isNull: Bool, numeric: Bool, font: NSFont) {
         self.isNull = isNull
         self.numeric = numeric
+        baseFont = font
         guard let tf = textField else { return }
+        tf.placeholderString = nil
         tf.font = font
         tf.stringValue = value
         tf.alignment = numeric ? .right : .left
         tf.isEditable = false      // editing is turned on by a double-click (beginInlineEdit)
         tf.isSelectable = false
         tf.drawsBackground = false
-        tf.placeholderString = nil
         isEditingInline = false
         applyColor()
     }
@@ -720,7 +724,9 @@ final class DataCellView: NSTableCellView {
         if isEditingInline { textField?.textColor = .textColor; return }
         textField?.textColor = (backgroundStyle == .emphasized) ? .white
                              : (isNull ? .tertiaryLabelColor : .labelColor)
-        if isNull { textField?.font = NSFontManager.shared.convert(textField!.font!, toHaveTrait: .italicFontMask) }
+        if let base = baseFont {
+            textField?.font = isNull ? NSFontManager.shared.convert(base, toHaveTrait: .italicFontMask) : base
+        }
     }
 
     override var backgroundStyle: NSView.BackgroundStyle {
