@@ -644,6 +644,48 @@ final class QueryEngine {
         }
     }
 
+    /// Runs `sql` on `alias`'s MySQL server as typed, as Sequel Ace does, and returns the
+    /// rows it changed: nil for a statement MySQL doesn't count (OPTIMIZE TABLE). The
+    /// statement runs in a transaction of its own, which keeps one server connection for
+    /// it and the ROW_COUNT() after it; inside a transaction begun in the Query tab it
+    /// runs in that one instead, and waits for its COMMIT or ROLLBACK.
+    func runAsTyped(alias: String, sql: String) async throws -> Int? {
+        // (A nested BEGIN can't probe for the Query tab's transaction: in DuckDB a failed
+        // statement aborts the transaction it ran in.)
+        try ensureWritable(alias)
+        let start = Date()
+        let ownTransaction = !queryTabTransaction
+        do {
+            if ownTransaction { try await userSerial.execute("BEGIN TRANSACTION") }
+            try await userSerial.execute("CALL mysql_execute(\(SQLBuilder.literal(alias)), \(SQLBuilder.literal(sql)))")
+            let counted = try await userSerial.query("SELECT * FROM mysql_query(\(SQLBuilder.literal(alias)), 'SELECT ROW_COUNT()')")
+            if ownTransaction { try await userSerial.execute("COMMIT") }
+            // The scanner caches the server's catalog: a table made a moment ago would be
+            // invisible to the next DuckDB-level statement.
+            try? await userSerial.execute("CALL mysql_clear_cache()")
+            let rows = counted.rowCount > 0 ? Self.extractColumn(counted, colIndex: 0, rowRange: 0..<1).first ?? nil : nil
+            let changed = rows.flatMap { Int($0) }.flatMap { $0 >= 0 ? $0 : nil }
+            onStatement?(sql, changed, nil, Date().timeIntervalSince(start))
+            return changed
+        } catch {
+            if ownTransaction { try? await userSerial.execute("ROLLBACK") }
+            let reason = Self.extractReason(from: error)
+            onStatement?(sql, nil, reason, Date().timeIntervalSince(start))
+            throw SequelBridgeError.attachFailed(reason)
+        }
+    }
+
+    /// Whether a transaction begun in the Query tab (its BEGIN runs in DuckDB, on the user
+    /// lane) is open: a statement run as typed joins it instead of opening its own.
+    private var queryTabTransaction = false
+
+    /// Follows BEGIN, COMMIT and ROLLBACK on the user lane. An end always ends it, even one
+    /// that fails (DuckDB rolls back a COMMIT it can't make); a begin counts once it ran.
+    private func noteTransaction(_ sql: String, lane: Lane, succeeded: Bool) {
+        guard lane == .user, let begins = QueryEffects.transactionChange(sql) else { return }
+        if !begins { queryTabTransaction = false } else if succeeded { queryTabTransaction = true }
+    }
+
     func mysqlExecute(alias: String, sql: String) async throws {
         try ensureWritable(alias)
         // mysql_execute() is the mysql_scanner entry point for statements that
@@ -861,9 +903,11 @@ final class QueryEngine {
         do {
             head = try await s.openStream(sql)
         } catch {
+            noteTransaction(sql, lane: lane, succeeded: false)
             onStatement?(logged, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
             throw error
         }
+        noteTransaction(sql, lane: lane, succeeded: true)
         var cells = CellTable(columnCount: head.columns.count)
         do {
             while let pulled = try await s.pull(65_536, id: head.id) {
@@ -920,9 +964,11 @@ final class QueryEngine {
                 throw error
             }
         } catch {
+            noteTransaction(sql, lane: lane, succeeded: false)
             onStatement?(logged, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
             throw error
         }
+        noteTransaction(sql, lane: lane, succeeded: true)
         var result = QueryResult(columns: head.columns,
                                  cells: first?.chunk.map { CellTable(chunk: $0) } ?? CellTable(columnCount: head.columns.count),
                                  executionTime: Date().timeIntervalSince(start))

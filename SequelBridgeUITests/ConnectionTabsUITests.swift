@@ -67,4 +67,20 @@ final class ConnectionTabsUITests: XCTestCase {
         last.click()
         XCTAssertTrue(last.isSelected, "clicking the last tab didn't select it")
     }
+
+    func testTheStripStaysTidy() {
+        // The + sits at the top right of the left panel, right above the database menu's ….
+        let plus = app.buttons["sidebar.addConnection"]
+        let menu = element("sidebar.databaseMenu")
+        XCTAssertTrue(menu.waitForExistence(timeout: 30), "no database menu")
+        XCTAssertEqual(plus.frame.midX, menu.frame.midX, accuracy: 3, "the + isn't above the …")
+        XCTAssertLessThanOrEqual(plus.frame.maxY, menu.frame.minY + 1, "the + isn't above the …")
+        // Every engine badge stays on one line, whatever the alias beside it.
+        for alias in aliases {
+            let badge = element("sidebar.connection.\(alias)").descendants(matching: .any)
+                .matching(identifier: "engine.badge").firstMatch
+            XCTAssertTrue(badge.waitForExistence(timeout: 10), "no engine badge on \(alias)")
+            XCTAssertLessThan(badge.frame.height, 20, "\(alias)'s badge wrapped onto more lines")
+        }
+    }
 }

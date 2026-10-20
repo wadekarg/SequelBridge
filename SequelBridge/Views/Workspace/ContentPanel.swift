@@ -8,6 +8,7 @@ struct ContentPanel: View {
     let conn: Connection
     @ObservedObject var session: WorkspaceSession
     @EnvironmentObject private var manager: ConnectionManager
+    @EnvironmentObject private var appSettings: AppSettings
 
     @State private var rows:      [[String]] = []
     @State private var nullMask:  [[Bool]]  = []
@@ -19,6 +20,8 @@ struct ContentPanel: View {
     @State private var totalRows: Int? = nil
     @State private var rowCountIsEstimate = false
     @State private var pkColumns: [String] = []
+    /// Columns the server fills in itself (an auto-increment key): left out of a duplicate.
+    @State private var generatedColumns: Set<String> = []
     @State private var selectedRowIndices: Set<Int> = []
     /// Bumped after each saved cell edit, so the grid redraws the changed row.
     @State private var editRevision = 0
@@ -28,15 +31,26 @@ struct ContentPanel: View {
     @State private var appliedFilter = ""
     @State private var showFilter    = false
 
-    // Insert row sheet
-    @State private var showInsertSheet = false
+    // The row sheet: Add Row, or Duplicate Row (⌘D) starting from the selected row.
+    @State private var rowSheet: RowSheetRequest?
+
+    // Jump to a page, and the rows per page (⌘J), as in Sequel Ace.
+    @State private var showPageOptions = false
+    @State private var typedPage = ""
 
     // Server-side sort: clicking a column header reloads the page with ORDER BY,
-    // so sorting spans the whole table, not just the 200 rows currently on screen.
+    // so sorting spans the whole table, not just the page on screen.
     @State private var sortColumn: String? = nil
     @State private var sortAscending = true
 
-    private let pageSize = 200
+    private var pageSize: Int { appSettings.contentPageSize }
+
+    private var pageCount: Int? { ContentPaging.pageCount(total: totalRows, pageSize: pageSize) }
+
+    private var pageLabel: String {
+        guard let pageCount else { return "Page \(page + 1)" }
+        return "Page \(page + 1) of \(rowCountIsEstimate ? "~" : "")\(pageCount)"
+    }
 
     /// Whether reads can go through the fast server-side passthrough. Requires a
     /// MySQL/Postgres engine AND a database in the connection's DSN: `mysql_query`/
@@ -110,10 +124,13 @@ struct ContentPanel: View {
             sortColumn = nil; sortAscending = true
             await load()
         }
-        .sheet(isPresented: $showInsertSheet) {
+        .sheet(item: $rowSheet) { request in
             InsertRowSheet(
+                title: request.title,
                 columns: columns.isEmpty ? (session.sidebarTrees[conn.alias]?
-                    .first(where: { $0.id == table.id })?.columns.map(\.name) ?? []) : columns
+                    .first(where: { $0.id == table.id })?.columns.map(\.name) ?? []) : columns,
+                initial: request.initial,
+                generated: generatedColumns
             ) { values in
                 Task { await insertRow(values) }
             }
@@ -127,14 +144,33 @@ struct ContentPanel: View {
             // Pagination
             Button { if page > 0 { page -= 1; Task { await load() } } } label: {
                 Image(systemName: "chevron.left")
-            }.disabled(page == 0 || isLoading)
+            }
+            .disabled(page == 0 || isLoading)
+            .help("Previous page")
+            .accessibilityIdentifier("content.previousPage")
 
-            Text(totalRows.map { "Page \(page + 1) of \(rowCountIsEstimate ? "~" : "")\(max(1, Int(ceil(Double($0) / Double(pageSize)))))" } ?? "Page \(page + 1)")
-                .font(.caption).monospacedDigit()
+            Button {
+                typedPage = "\(page + 1)"
+                showPageOptions = true
+            } label: {
+                HStack(spacing: 3) {
+                    Text(pageLabel).font(.caption).monospacedDigit()
+                    Image(systemName: "chevron.down").font(.system(size: 7, weight: .semibold)).foregroundColor(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("j", modifiers: .command)
+            .help("Jump to a page, or change the rows per page (⌘J)")
+            .accessibilityIdentifier("content.page")
+            .popover(isPresented: $showPageOptions, arrowEdge: .bottom) { pageOptions }
 
             Button { page += 1; Task { await load() } } label: {
                 Image(systemName: "chevron.right")
-            }.disabled(rows.count < pageSize || isLoading)
+            }
+            .disabled(rows.count < pageSize || isLoading)
+            .help("Next page")
+            .accessibilityIdentifier("content.nextPage")
 
             Divider().frame(height: 14)
 
@@ -176,9 +212,21 @@ struct ContentPanel: View {
             .help(conn.readOnly ? "Read-only connection" : (pkColumns.isEmpty ? "Need primary key to delete rows" : "Delete selected row(s)"))
             .accessibilityIdentifier("content.deleteRows")
 
+            // Duplicate the selected row (⌘D), as in Sequel Ace: the copy opens in the row
+            // sheet, without what the server fills in itself.
+            Button { duplicateSelectedRow() } label: {
+                Image(systemName: "plus.square.on.square")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .keyboardShortcut("d", modifiers: .command)
+            .disabled(selectedRowIndices.count != 1 || isLoading || conn.engine.isNative || conn.readOnly)
+            .help(conn.readOnly ? "Read-only connection" : (conn.engine.isNative ? "ClickHouse rows are inserted with INSERT statements in the Query tab" : "Duplicate the selected row (⌘D)"))
+            .accessibilityIdentifier("content.duplicateRow")
+
             // Add new row
             Button {
-                showInsertSheet = true
+                rowSheet = RowSheetRequest(title: "Add Row", initial: [:])
             } label: {
                 Image(systemName: "plus")
             }
@@ -201,6 +249,57 @@ struct ContentPanel: View {
         .padding(.vertical, 6)
         .background(Color(NSColor.controlBackgroundColor))
         .overlay(Divider(), alignment: .bottom)
+    }
+
+    // MARK: - Page options (⌘J)
+
+    private var pageOptions: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("Page")
+                TextField("", text: $typedPage)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 64)
+                    .onSubmit { jumpToTypedPage() }
+                    .accessibilityIdentifier("content.pageField")
+                if let pageCount {
+                    Text("of \(rowCountIsEstimate ? "~" : "")\(pageCount)").foregroundColor(.secondary).monospacedDigit()
+                }
+                Button("Go") { jumpToTypedPage() }
+                    .disabled(ContentPaging.page(typed: typedPage, pageCount: nil) == nil)
+                    .accessibilityIdentifier("content.pageGo")
+            }
+            Divider()
+            HStack(spacing: 6) {
+                Text("Rows per page")
+                Picker("Rows per page", selection: Binding(get: { pageSize }, set: { changePageSize(to: $0) })) {
+                    ForEach(ContentPaging.pageSizes, id: \.self) { Text("\($0)").tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityIdentifier("content.pageSize")
+            }
+        }
+        .font(.system(size: 12))
+        .padding(14)
+    }
+
+    /// An estimated count can be short of the real one, so it doesn't cap the jump: a
+    /// page past the end shows no rows.
+    private func jumpToTypedPage() {
+        guard let target = ContentPaging.page(typed: typedPage, pageCount: rowCountIsEstimate ? nil : pageCount) else { return }
+        showPageOptions = false
+        guard target != page else { return }
+        page = target
+        Task { await load() }
+    }
+
+    /// Keeps the first row on screen in view.
+    private func changePageSize(to size: Int) {
+        guard size != pageSize else { return }
+        page = page * pageSize / size
+        appSettings.contentPageSize = size
+        Task { await load() }
     }
 
     // MARK: - Filter bar
@@ -297,6 +396,7 @@ struct ContentPanel: View {
                 : ((try? await manager.queryEngine.fetchColumns(
                     alias: conn.alias, database: db, table: table.name)) ?? [])
             pkColumns = colInfo.filter { $0.isPrimaryKey }.map { $0.name }
+            generatedColumns = ContentPaging.generatedColumns(colInfo, engine: conn.engine)
             isLoading = false
 
             // 2) Total row count, resolved AFTER the grid is on screen.
@@ -367,6 +467,14 @@ struct ContentPanel: View {
         if let opError { self.error = opError }
     }
 
+    private func duplicateSelectedRow() {
+        guard selectedRowIndices.count == 1, let i = selectedRowIndices.first, i < rows.count else { return }
+        rowSheet = RowSheetRequest(
+            title: "Duplicate Row",
+            initial: ContentPaging.duplicateValues(row: rows[i], nulls: i < nullMask.count ? nullMask[i] : [],
+                                                   columns: columns, generated: generatedColumns))
+    }
+
     private func insertRow(_ values: [String: String]) async {
         let db = session.selectedDatabase[conn.alias] ?? conn.database
         let sql = SQLBuilder.insert(alias: conn.alias, database: db, table: table.name, values: values)
@@ -423,10 +531,21 @@ struct ContentPanel: View {
     }
 }
 
-// MARK: - Insert row sheet
+// MARK: - Row sheet
+
+private struct RowSheetRequest: Identifiable {
+    let id = UUID()
+    let title: String
+    let initial: [String: String]
+}
 
 private struct InsertRowSheet: View {
+    var title = "Add Row"
     let columns: [String]
+    /// The values the fields start with: a duplicated row's.
+    var initial: [String: String] = [:]
+    /// Columns the server fills in itself, left empty.
+    var generated: Set<String> = []
     let onInsert: ([String: String]) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var values: [String: String] = [:]
@@ -434,7 +553,7 @@ private struct InsertRowSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Insert Row").font(.title2).bold()
+                Text(title).font(.title2).bold()
                 Spacer()
                 Button { dismiss() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundColor(.secondary).font(.title3)
@@ -451,12 +570,13 @@ private struct InsertRowSheet: View {
                                 .font(Theme.mono(12))
                                 .frame(width: 160, alignment: .trailing)
                                 .foregroundColor(.secondary)
-                            TextField("value or NULL", text: Binding(
+                            TextField(generated.contains(col) ? "set by the server" : "value or NULL", text: Binding(
                                 get: { values[col] ?? "" },
                                 set: { values[col] = $0 }
                             ))
                             .textFieldStyle(.roundedBorder)
                             .font(.system(size: 12))
+                            .accessibilityIdentifier("rowSheet.field.\(col)")
                         }
                     }
                 }
@@ -474,12 +594,13 @@ private struct InsertRowSheet: View {
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
                 .disabled(values.values.allSatisfy { $0.isEmpty })
+                .accessibilityIdentifier("rowSheet.insert")
             }
             .padding(20)
         }
         .frame(width: 440, height: min(CGFloat(columns.count) * 44 + 140, 560))
         .onAppear {
-            values = Dictionary(uniqueKeysWithValues: columns.map { ($0, "") })
+            values = Dictionary(uniqueKeysWithValues: columns.map { ($0, initial[$0] ?? "") })
         }
     }
 }

@@ -5,6 +5,23 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 ## 1.2.2 — 2026-10-19
 
 ### Fixed
+- On MySQL, a Query-tab statement that returns no rows runs on the server as typed, as
+  in Sequel Ace, and says how many rows it changed. DuckDB used to read it first: it
+  refused MySQL's own syntax (`AUTO_INCREMENT`, `UNSIGNED`, `TINYINT(1)`, backticks,
+  "double-quoted" strings, `ON DUPLICATE KEY UPDATE`, `REPLACE`, `INSERT IGNORE`,
+  `MODIFY`, `AFTER`, `SET @x`, `DATE_FORMAT`, `CREATE INDEX`) and changed some of what
+  it accepted: a `VARCHAR(40)` column was made `TEXT`. Inside a `BEGIN` typed in the
+  Query tab, these statements wait for its `COMMIT` or `ROLLBACK`. `LOCK TABLES` and
+  `SET autocommit` are refused, saying why: SequelBridge's statements don't share one
+  server connection, so they would stay on a connection the app reuses.
+- Keyboard shortcuts could act on the wrong table or connection: a button's shortcut
+  kept the action from when it was first drawn. ⌘R in the Structure tab reloaded the
+  first table opened there, under the name of the table on screen; ⇧⌘R and ⌃⌘R
+  refreshed the first connection shown, not the one picked. Each table and connection
+  gets its own panel now, and ⌘W closes the query tab you're on (it closed another).
+- Picking another database left the table from the one before open: the Content tab
+  kept its rows while reads and edits went to the newly picked database. Another
+  database now closes it, as in Sequel Ace.
 - The Structure tab could sit on "loading" on MariaDB, and on MySQL before 8. The
   Relations tab's foreign-key lookup made the server open every table in every database
   to answer for one table, and Structure waits behind it on the same connection. The
@@ -45,6 +62,8 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   comments weren't marked, and a backticked name such as `from` showed as a keyword.
 
 ### Changed
+- The left panel's **+** sits at its top right, above the database menu's **…**, and a
+  connection's engine badge (MY, PG, LITE, CH) stays on one line beside a long alias.
 - The connection tabs at the top of the left panel wrap onto more rows instead of
   scrolling sideways, so with several servers open none slides out of sight. A tab's
   tooltip shows the connection's name and the database picked on it.
@@ -53,6 +72,9 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   Table Info, Query), and ⌘7–⌘9 open Routines, Server and Console.
 
 ### Added
+- In the Content tab, ⌘J jumps to a page and sets the rows a page shows (100 to 5,000,
+  kept across launches); ⌘D duplicates the selected row in the row sheet, its
+  auto-increment key left to the server. Both as in Sequel Ace.
 - Refresh beside the database picker: ⇧⌘R re-reads the databases and tables, ⌃⌘R the
   tables, for changes made outside the app. ⌘R refreshes the Content and Structure tabs.
 - Table Info shows the server's own `CREATE TABLE` on MySQL and ClickHouse, and the file's

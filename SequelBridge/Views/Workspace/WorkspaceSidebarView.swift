@@ -25,10 +25,15 @@ struct WorkspaceSidebarView: View {
             connectionTabs
             if let conn = session.connections.first(where: { $0.alias == session.activeConnectionAlias })
                 ?? session.connections.first {
-                databaseSelector(conn)
-                filterBox(for: conn.alias)
-                tableList(conn)
-                tableInfoPanel(conn)
+                VStack(spacing: 0) {
+                    databaseSelector(conn)
+                    filterBox(for: conn.alias)
+                    tableList(conn)
+                    tableInfoPanel(conn)
+                }
+                // One per connection: a keyboard shortcut runs the action its button had
+                // when first drawn, so ⇧⌘R and ⌃⌘R refreshed the first connection shown.
+                .id(conn.alias)
             } else {
                 Spacer()
                 Text("No active connection").font(.caption).foregroundColor(.secondary)
@@ -317,21 +322,26 @@ struct WorkspaceSidebarView: View {
     // MARK: - Connection tabs
 
     private var connectionTabs: some View {
-        // The tabs wrap onto more rows rather than scrolling sideways out of sight.
-        WrappingHStack {
-            ForEach(session.connections) { conn in
-                connectionTab(conn)
+        HStack(alignment: .top, spacing: 0) {
+            // The tabs wrap onto more rows rather than scrolling sideways out of sight.
+            WrappingHStack {
+                ForEach(session.connections) { conn in
+                    connectionTab(conn)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // The + keeps the top right corner, above the database menu's ….
             Button { showAddSheet = true } label: {
-                Text("+").font(.system(size: 14, weight: .medium))
-                    .frame(width: 28, height: 30)
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.secondary)
+                    .frame(width: Self.trailingColumn, height: 30)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Add connection")
             .accessibilityIdentifier("sidebar.addConnection")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         // Off the window's top edge: on macOS 15 the strip, when it was a scroll view
         // touching that edge, grew up under the toolbar and its tabs stopped taking clicks.
         .padding(.top, 1)
@@ -339,11 +349,15 @@ struct WorkspaceSidebarView: View {
         .overlay(Divider(), alignment: .bottom)
     }
 
+    /// The width of the left panel's right-hand column: the + above, the database menu below.
+    private static let trailingColumn: CGFloat = 28
+
     private func connectionTab(_ conn: Connection) -> some View {
         let isActive = conn.alias == (session.activeConnectionAlias ?? session.connections.first?.alias)
         return HStack(spacing: Theme.space2) {
             Circle().fill(conn.displayColor).frame(width: 7, height: 7)
-            Text(conn.alias).font(isActive ? Theme.fontChromeStrong : Theme.fontChrome).lineLimit(1)
+            Text(conn.alias).font(isActive ? Theme.fontChromeStrong : Theme.fontChrome)
+                .lineLimit(1).truncationMode(.tail)
             EngineBadge(engine: conn.engine)
             Button {
                 removeConnection(conn)
@@ -426,8 +440,9 @@ struct WorkspaceSidebarView: View {
                         .menuStyle(.borderlessButton)
                         .menuIndicator(.hidden)      // hide the extra dropdown chevron next to the ⋯
                         .fixedSize()
+                        .frame(width: Self.trailingColumn)   // centred under the + above
                         .help("Database actions")
-                        .padding(.trailing, 8)
+                        .accessibilityIdentifier("sidebar.databaseMenu")
                     }
                 }
             } else {

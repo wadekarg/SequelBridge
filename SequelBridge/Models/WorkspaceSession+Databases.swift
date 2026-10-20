@@ -24,6 +24,10 @@ extension WorkspaceSession {
     /// connection is still on, and the panel says why, with Try Again.
     func showDatabase(_ database: String, for conn: Connection, manager: ConnectionManager) async {
         let alias = conn.alias
+        // Another database closes the table open from the one before: Content kept its
+        // rows while reads and edits went to the newly picked database, where a table of
+        // the same name took them.
+        if database != shownDatabase[alias] { selectedTables[alias] = nil }
         selectedDatabase[alias] = database
         sidebarTrees[alias] = nil
         tableListError[alias] = nil

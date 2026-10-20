@@ -19,7 +19,7 @@
 #
 # Options:
 #   --release         build/test in Release (DuckDB is 20-100x faster; honest numbers)
-#   --only "A/B"      pass an -only-testing filter straight to xcodebuild
+#   --only "A/B C/D"  pass -only-testing filters (space-separated) straight to xcodebuild
 #   --no-build        skip the plain build step, go straight to tests
 #
 # Every gated suite is pointed at these containers via TEST_RUNNER_SB_* env vars
@@ -214,7 +214,7 @@ export_db_env() {
 
 run_tests() {
   local xcflags=(-scheme SequelBridge -configuration "$CONFIG" -destination 'platform=macOS' -parallel-testing-enabled NO)
-  [ -n "$ONLY" ] && xcflags+=(-only-testing:"$ONLY")
+  local f; for f in $ONLY; do xcflags+=(-only-testing:"$f"); done
   if [ "$NO_BUILD" = 0 ]; then
     say "Building ($CONFIG)"
     xcodebuild build "${xcflags[@]}" | tail -1
@@ -234,7 +234,7 @@ run_tests() {
 
 # The MySQL family suites again, with their server pointed at MySQL 8.4. MariaDB stays
 # the second server, so MultiServer joins MySQL 8 with MariaDB.
-MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests ContentBrowseTests ServerToolsTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests
+MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests ContentBrowseTests ServerToolsTests QueryTabAsTypedTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests
               RealSchemaTests MultiServerTests DestructiveDDLVerifyTests QueryResultEditTests PostgresTests
               ClickHouseBridgeTests CrossEngineJoinTests CrossJoinReductionTests FallbackMaterializeDBTests
               QueryCancelTests PushdownDBTests)

@@ -77,6 +77,19 @@ struct DatabaseSwitchTests {
         #expect(try await count(manager, conn, "legacy_notes") == "3")
     }
 
+    @Test("another database closes the table open from the one before; the same database keeps it")
+    func pickClosesTheOpenTable() async throws {
+        let (manager, conn, session) = try await connect("sw20")
+        let orders = try #require(session.sidebarTrees[conn.alias]?.first { $0.name == "orders" })
+        session.selectedTable = orders
+        await session.showDatabase(SwitchEnv.db, for: conn, manager: manager)
+        #expect(session.selectedTable?.id == orders.id, "picking the database already shown closed the table")
+        // Left open, Content kept the first database's rows while an edit went to a
+        // same-named table in the second.
+        await session.showDatabase(SwitchEnv.otherDB, for: conn, manager: manager)
+        #expect(session.selectedTable == nil)
+    }
+
     @Test("two picks close together: the second one wins, and nothing fails")
     func quickPicks() async throws {
         let (manager, conn, session) = try await connect("sw2")

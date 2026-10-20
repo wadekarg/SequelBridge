@@ -215,6 +215,98 @@ final class MySQLWorkflowUITests: XCTestCase {
                       "Table Info didn't show the server's CREATE TABLE with its foreign key")
     }
 
+    // DuckDB used to read these first: it refused MySQL's own syntax (backticks,
+    // AUTO_INCREMENT, UNSIGNED, "double-quoted" strings, ON DUPLICATE KEY UPDATE) and
+    // made a VARCHAR(40) column TEXT. They run on the server as typed now.
+    func testMySQLsOwnSyntaxRunsAsTyped() {
+        pick(database: "sbwrite")
+        run("DROP TABLE IF EXISTS ui_typed; CREATE TABLE `ui_typed` (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, note VARCHAR(40)) ENGINE=InnoDB; "
+            + "INSERT INTO ui_typed (note) VALUES (\"typed\") ON DUPLICATE KEY UPDATE note = 'again'")
+        XCTAssertTrue(element("results.grid").buttons["Affected rows"].waitForExistence(timeout: 30), "the run didn't say how many rows it changed")
+        run("SELECT CONCAT('note=', note, ' type=', (SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
+            + "WHERE TABLE_SCHEMA = 'sbwrite' AND TABLE_NAME = 'ui_typed' AND COLUMN_NAME = 'note')) AS v FROM ui_typed")
+        XCTAssertTrue(text(containing: "note=typed type=varchar(40)").waitForExistence(timeout: 30), "the table or its row isn't as typed")
+        run("DROP TABLE ui_typed")
+    }
+
+    // A keyboard shortcut runs the action its button had when first drawn. Before each
+    // table had a panel of its own, ⌘R on the second table opened in Content or Structure
+    // reloaded the first table's rows or columns, under the second table's name.
+    func testCommandRReloadsTheTableOnScreenNotTheFirstOne() {
+        let grid = element("results.grid")
+        table("customers").click()
+        app.typeKey("2", modifierFlags: .command)
+        XCTAssertTrue(grid.staticTexts["Ada Lovelace"].waitForExistence(timeout: 30), "Content didn't show customers")
+        table("orders").click()
+        XCTAssertTrue(grid.staticTexts["shipped"].waitForExistence(timeout: 30), "Content didn't show orders")
+        app.typeKey("r", modifierFlags: .command)
+        XCTAssertFalse(grid.staticTexts["Ada Lovelace"].waitForExistence(timeout: 5), "Content's ⌘R reloaded the first table's rows")
+        XCTAssertTrue(grid.staticTexts["shipped"].exists)
+
+        table("customers").click()
+        app.typeKey("1", modifierFlags: .command)
+        let column = { (name: String) in self.app.textFields.matching(NSPredicate(format: "value == %@", name)).firstMatch }
+        XCTAssertTrue(column("email").waitForExistence(timeout: 30), "Structure didn't show customers")
+        table("orders").click()
+        XCTAssertTrue(column("total").waitForExistence(timeout: 30), "Structure didn't show orders")
+        app.typeKey("r", modifierFlags: .command)
+        XCTAssertFalse(column("email").waitForExistence(timeout: 5), "Structure's ⌘R reloaded the first table's columns")
+        XCTAssertTrue(column("total").exists)
+    }
+
+    func testJumpToAPageAndChangeTheRowsPerPage() {
+        pick(database: "sbwrite")
+        // Rows 1001–1300; a page starts with the id of its first row.
+        let digit = "(SELECT 0 d UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9)"
+        run("DROP TABLE IF EXISTS ui_pages; CREATE TABLE ui_pages (id INT PRIMARY KEY); "
+            + "INSERT INTO ui_pages SELECT 1001 + a.d * 100 + b.d * 10 + c.d FROM (SELECT 0 d UNION SELECT 1 UNION SELECT 2) a, \(digit) b, \(digit) c")
+        XCTAssertTrue(table("ui_pages").waitForExistence(timeout: 30))
+        table("ui_pages").click()
+        app.typeKey("2", modifierFlags: .command)
+        let grid = element("results.grid")
+        XCTAssertTrue(grid.staticTexts["1001"].waitForExistence(timeout: 30), "the Content tab didn't show the rows")
+
+        app.typeKey("j", modifierFlags: .command)
+        let size = element("content.pageSize")
+        XCTAssertTrue(size.waitForExistence(timeout: 10), "⌘J didn't open the page options")
+        size.click()
+        app.menuItems["100"].click()
+        app.typeKey(.escape, modifierFlags: [])
+        element("content.nextPage").click()
+        XCTAssertTrue(grid.staticTexts["1101"].waitForExistence(timeout: 30), "the second page doesn't start at row 101: the page size isn't 100")
+
+        app.typeKey("j", modifierFlags: .command)
+        let field = element("content.pageField")
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "no page field")
+        field.click()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText("3\r")
+        XCTAssertTrue(grid.staticTexts["1201"].waitForExistence(timeout: 30), "the jump didn't reach page 3")
+        XCTAssertFalse(grid.staticTexts["1101"].exists)
+        run("DROP TABLE ui_pages")
+    }
+
+    func testCommandDDuplicatesTheSelectedRow() {
+        pick(database: "sbwrite")
+        run("DROP TABLE IF EXISTS ui_dup; CREATE TABLE ui_dup (id INT AUTO_INCREMENT PRIMARY KEY, status VARCHAR(20), note VARCHAR(20) NULL); "
+            + "INSERT INTO ui_dup (status, note) VALUES ('dup-paid', NULL)")
+        XCTAssertTrue(table("ui_dup").waitForExistence(timeout: 30))
+        table("ui_dup").click()
+        app.typeKey("2", modifierFlags: .command)
+        let cell = element("results.grid").staticTexts["dup-paid"]
+        XCTAssertTrue(cell.waitForExistence(timeout: 30), "the Content tab didn't show the row")
+        cell.click()
+        app.typeKey("d", modifierFlags: .command)
+        let insert = element("rowSheet.insert")
+        XCTAssertTrue(insert.waitForExistence(timeout: 10), "⌘D didn't open the row sheet")
+        XCTAssertEqual(element("rowSheet.field.status").value as? String, "dup-paid", "the copy didn't start from the row's values")
+        insert.click()
+        // A copied key would clash with the first row's; the server numbers the copy.
+        run("SELECT CONCAT('copies=', COUNT(*), ' nulls=', SUM(note IS NULL), ' ids=', GROUP_CONCAT(id ORDER BY id)) AS v FROM ui_dup WHERE status = 'dup-paid'")
+        XCTAssertTrue(text(containing: "copies=2 nulls=2 ids=1,2").waitForExistence(timeout: 30), "the row wasn't duplicated as it was")
+        run("DROP TABLE ui_dup")
+    }
+
     private func waitForGone(_ e: XCUIElement, timeout: TimeInterval = 15) -> Bool {
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: e)
         return XCTWaiter.wait(for: [gone], timeout: timeout) == .completed

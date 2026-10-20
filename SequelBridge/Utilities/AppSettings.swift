@@ -30,11 +30,23 @@ class AppSettings: ObservableObject {
         self.defaults = defaults
     }
 
+    /// The store the app keeps its settings in: the owner's own, or, for a copy launched
+    /// with `-SBSupportDir` (UI tests, the screenshots), a store of its own emptied at each
+    /// launch, so a test that changes a setting never changes the owner's. Call once a launch.
+    static func store(arguments: [String] = CommandLine.arguments) -> UserDefaults {
+        guard arguments.contains("-SBSupportDir"), let apart = UserDefaults(suiteName: isolatedSuite) else { return .standard }
+        apart.removePersistentDomain(forName: isolatedSuite)
+        return apart
+    }
+
+    private static let isolatedSuite = "SequelBridge.launchedApart"
+
     private enum Key {
         static let theme = "theme"
         static let editorFontSize = "editorFontSize"
         static let tabWidth = "tabWidth"
         static let autoComplete = "autoComplete"
+        static let contentPageSize = "contentPageSize"
     }
 
     var theme: AppTheme {
@@ -50,6 +62,12 @@ class AppSettings: ObservableObject {
     var tabWidth: Int {
         get { defaults.object(forKey: Key.tabWidth) as? Int ?? 4 }
         set { objectWillChange.send(); defaults.set(newValue, forKey: Key.tabWidth) }
+    }
+
+    /// Rows per page in the Content tab.
+    var contentPageSize: Int {
+        get { defaults.object(forKey: Key.contentPageSize) as? Int ?? 200 }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.contentPageSize) }
     }
 
     var autoComplete: Bool {

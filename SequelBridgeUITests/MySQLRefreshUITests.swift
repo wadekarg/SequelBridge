@@ -60,11 +60,26 @@ final class MySQLRefreshUITests: XCTestCase {
         app.buttons["query.run"].click()
     }
 
-    func testRefreshShowsATableMadeOutsideThisConnection() {
+    /// No `table` on the server, and connection one's list knows it: a run that failed
+    /// before its cleanup can leave the table behind.
+    private func startWithout(_ table: String) {
+        element("sidebar.connection.two").click()
+        run("DROP TABLE IF EXISTS \(table)")
         element("sidebar.connection.one").click()
         XCTAssertTrue(element("sidebar.refresh").waitForExistence(timeout: 30))
+        element("sidebar.refresh").click()
+        XCTAssertTrue(waitForGone(element("sidebar.table.\(table)")), "\(table) is still listed")
+    }
+
+    private func waitForGone(_ e: XCUIElement, timeout: TimeInterval = 15) -> Bool {
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: e)
+        return XCTWaiter.wait(for: [gone], timeout: timeout) == .completed
+    }
+
+    func testRefreshShowsATableMadeOutsideThisConnection() {
+        startWithout("ui_refresh_probe")
         element("sidebar.connection.two").click()
-        run("DROP TABLE IF EXISTS ui_refresh_probe; CREATE TABLE ui_refresh_probe (id INT PRIMARY KEY)")
+        run("CREATE TABLE ui_refresh_probe (id INT PRIMARY KEY)")
         XCTAssertTrue(element("sidebar.table.ui_refresh_probe").waitForExistence(timeout: 30), "two's own list didn't refresh")
 
         element("sidebar.connection.one").click()
@@ -77,8 +92,9 @@ final class MySQLRefreshUITests: XCTestCase {
     }
 
     func testControlCommandRRefreshesTheTables() {
+        startWithout("ui_refresh_keys")
         element("sidebar.connection.two").click()
-        run("DROP TABLE IF EXISTS ui_refresh_keys; CREATE TABLE ui_refresh_keys (id INT PRIMARY KEY)")
+        run("CREATE TABLE ui_refresh_keys (id INT PRIMARY KEY)")
         XCTAssertTrue(element("sidebar.table.ui_refresh_keys").waitForExistence(timeout: 30))
         element("sidebar.connection.one").click()
         XCTAssertFalse(element("sidebar.table.ui_refresh_keys").waitForExistence(timeout: 3))
@@ -86,6 +102,19 @@ final class MySQLRefreshUITests: XCTestCase {
         XCTAssertTrue(element("sidebar.table.ui_refresh_keys").waitForExistence(timeout: 30), "⌃⌘R didn't refresh the tables")
         element("sidebar.connection.two").click()
         run("DROP TABLE ui_refresh_keys")
+    }
+
+    func testShiftCommandRRefreshesTheConnectionOnScreen() {
+        startWithout("ui_refresh_shift")
+        element("sidebar.connection.two").click()
+        run("CREATE TABLE ui_refresh_shift (id INT PRIMARY KEY)")
+        XCTAssertTrue(element("sidebar.table.ui_refresh_shift").waitForExistence(timeout: 30))
+        element("sidebar.connection.one").click()
+        XCTAssertFalse(element("sidebar.table.ui_refresh_shift").waitForExistence(timeout: 3))
+        app.typeKey("r", modifierFlags: [.command, .shift])
+        XCTAssertTrue(element("sidebar.table.ui_refresh_shift").waitForExistence(timeout: 30), "⇧⌘R didn't refresh the connection on screen")
+        element("sidebar.connection.two").click()
+        run("DROP TABLE ui_refresh_shift")
     }
 
     func testOptionCommandRRunsEveryStatementAndCommandRTheCurrentOne() {

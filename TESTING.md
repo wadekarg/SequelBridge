@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 636 tests in 119 suites (about three minutes of tests after the build).
+at them, and runs all 651 tests in 122 suites (about three minutes of tests after the build).
 Then every MySQL suite runs a second time with its server pointed at MySQL 8.4.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
 benchmark (`--bench`), and `QueryCancelTests.interruptStopsServerStatement`, the spec
@@ -43,14 +43,20 @@ On GitHub, every push to `main` and every pull request builds the app on Apple S
 on macOS 15 and macOS 26 (`.github/workflows/test.yml`), and runs the tests that need no
 database server, then the UI tests (`SequelBridgeUITests`, scheme `SequelBridgeUITests`).
 The UI tests click the workspace's tab strips and + buttons, check that six connection
-tabs all stay on screen, and run a statement that names no server on the active tab.
+tabs all stay on screen with the + above the database menu, run a statement that names
+no server on the active tab, and close the active query tab with ⌘W.
 `MySQLWorkflowUITests` walks the everyday flows on a MariaDB the job installs with
 Homebrew and seeds from `scripts/fixtures/mysql.sql`: pick a database, `USE`, several
 statements, Run Current, filter tables, edit a cell in place and set it to NULL, rename
-and duplicate a table, ⌘/, Table Info's `CREATE TABLE`, ⌘1–⌘6, the Console;
+and duplicate a table, ⌘/, Table Info's `CREATE TABLE`, ⌘1–⌘6, the Console, MySQL's
+own syntax run as typed, ⌘R on the table on screen after another was opened, and the
+Content tab's ⌘J (page and rows per page) and ⌘D (duplicate a row);
 `MySQLRefreshUITests` refreshes one connection after a change through another, by
-the button and by ⌃⌘R, and checks ⌘R (the statement under the cursor) against ⌥⌘R (all). The UI tests take over the screen while they run, so `scripts/run-all-tests.sh`
-leaves them out.
+the button, by ⇧⌘R and by ⌃⌘R, and checks ⌘R (the statement under the cursor) against
+⌥⌘R (all). `VisualTourUITests` takes a screenshot of every screen and sheet in light and
+dark mode, of the app's window only, for a person to look over. A copy launched for the
+UI tests keeps its settings apart from the owner's. The UI tests take over the screen
+while they run, so `scripts/run-all-tests.sh` leaves them out.
 
 ## What's in the suite
 
@@ -62,7 +68,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-636 tests across 94 files.
+651 tests across 96 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 

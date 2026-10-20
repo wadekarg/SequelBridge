@@ -157,11 +157,14 @@ struct EngineBadge: View {
     var body: some View {
         Text(label)
             .font(Theme.mono(9, weight: .semibold))
+            .lineLimit(1)
+            .fixedSize()                     // never squeezed: a long alias beside it truncates instead
             .foregroundColor(.secondary)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
             .background(Color.secondary.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: Theme.radiusControl))
             .help(engine.displayName)
+            .accessibilityIdentifier("engine.badge")
     }
 }

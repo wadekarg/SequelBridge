@@ -40,6 +40,39 @@ nonisolated enum QueryEffects {
         return identifier(useStatement, in: all[0])
     }
 
+    /// On MySQL, whether the Query tab runs `sql` on the server as typed, as Sequel Ace
+    /// does: a statement that returns no rows. DuckDB refused MySQL's own syntax and
+    /// changed what it accepted (a VARCHAR(40) column became TEXT). Reads already go to
+    /// the server, `USE` has a path of its own, and transaction control stays DuckDB's,
+    /// whose transaction keeps one server connection for the statements in it.
+    static func runsAsTyped(_ sql: String) -> Bool {
+        guard let statement = statements(sql).first else { return false }
+        if SQLBuilder.isRowReturning(statement) || soleUse(statement) != nil { return false }
+        return !matches(transactionControl, statement)
+    }
+
+    /// Whether `sql` begins a transaction (true) or ends one (false); nil for any other.
+    static func transactionChange(_ sql: String) -> Bool? {
+        guard let statement = statements(sql).first, matches(transactionControl, statement) else { return nil }
+        return ["BEGIN", "START"].contains(firstWord(statement))
+    }
+
+    /// Why the Query tab won't run `sql` on MySQL, if it won't. The app's statements
+    /// don't share one server connection, so a table lock, or autocommit turned off,
+    /// would stay on a connection the app goes on to reuse.
+    static func refusal(_ sql: String) -> String? {
+        guard let statement = statements(sql).first else { return nil }
+        if matches(lockTables, statement) {
+            return "LOCK TABLES and UNLOCK TABLES aren't run here: SequelBridge's statements don't share "
+                + "one server connection, so a lock would stay on a connection the app reuses."
+        }
+        if matches(autocommit, statement) {
+            return "SET autocommit isn't run here: SequelBridge's statements don't share one server "
+                + "connection. BEGIN … COMMIT keeps one connection for the statements between them."
+        }
+        return nil
+    }
+
     /// Each statement of `sql` with its comments taken out (outside quotes), trimmed.
     static func statements(_ sql: String) -> [String] {
         var out: [String] = [], current = ""
@@ -90,6 +123,9 @@ nonisolated enum QueryEffects {
     private static let useStatement = regex("^USE\(gap)\(name)\\s*$")
     private static let dropDatabase = regex("^DROP\\s+(?:DATABASE|SCHEMA)\(gap)(?:IF\\s+EXISTS\(gap))?\(name)\\s*$")
     private static let databaseDDL = regex("^(?:CREATE|DROP)\\s+(?:DATABASE|SCHEMA)\\b")
+    private static let transactionControl = regex("^(?:BEGIN|START\\s+TRANSACTION|COMMIT|ROLLBACK|END)\\b")
+    private static let lockTables = regex("^(?:UN)?LOCK\\s+TABLES?\\b")
+    private static let autocommit = regex("^SET\\s+(?:(?:SESSION|LOCAL|GLOBAL)\\s+|@@(?:SESSION\\.|LOCAL\\.|GLOBAL\\.)?)?autocommit\\b")
 
     private static func regex(_ pattern: String) -> NSRegularExpression {
         // The patterns are constants; a typo is a programming error caught by the tests.

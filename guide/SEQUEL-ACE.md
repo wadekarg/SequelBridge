@@ -33,12 +33,12 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 
 | Sequel Ace | SequelBridge | Tested by |
 |---|---|---|
-| ● Choose a database | ✓ one switch at a time, the last pick wins; one that can't be opened says why | `DatabaseSwitchTests`, `MySQLWorkflowUITests` |
+| ● Choose a database | ✓ one switch at a time, the last pick wins; one that can't be opened says why; another database closes the table open from the one before (fixed: Content kept its rows while edits went to the new database) | `DatabaseSwitchTests`, `MySQLWorkflowUITests` |
 | ● `USE db` in a query selects it | ✓ | `DatabaseSwitchTests.useFollows`, `QueryEffectsTests`, `MySQLWorkflowUITests` |
 | Add database (with encoding and collation) | ◐ typed `CREATE DATABASE` only; the list refreshes | `DatabaseSwitchTests.databaseDDL` |
 | Delete database | ◐ typed `DROP DATABASE` only; a dropped selection goes back to the connection's own | `DatabaseSwitchTests.databaseDDL` |
 | Duplicate, rename or alter a database | ✗ | |
-| Refresh databases, refresh tables | ✓ ↻ beside the database picker: ⇧⌘R both, ⌃⌘R the tables, as in Sequel Ace | `DatabaseSwitchTests.refresh`, `MySQLRefreshUITests` |
+| Refresh databases, refresh tables | ✓ ↻ beside the database picker: ⇧⌘R both, ⌃⌘R the tables, as in Sequel Ace (fixed: the keys refreshed the first connection shown) | `DatabaseSwitchTests.refresh`, `MySQLRefreshUITests` |
 | Open a database in a new tab | ✗ | |
 | Export a database as SQL | ✓ | `DatabaseDumpTests` |
 | Flush privileges | ◐ typed only | |
@@ -79,14 +79,14 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | Indexes: add and delete PRIMARY, UNIQUE, INDEX | ✓ | `PanelWritePathTests` |
 | FULLTEXT and SPATIAL indexes | ◐ listed, not created from the panel | |
 | Edit table details: engine, encoding, collation, comment, `AUTO_INCREMENT` | ✗ shown in Table Info, not editable | |
-| Refresh the structure | ✓ ⌘R; *no test* | |
+| Refresh the structure | ✓ ⌘R, on the table on screen (fixed: it reloaded the first table opened) | `MySQLWorkflowUITests` |
 
 ## Content
 
 | Sequel Ace | SequelBridge | Tested by |
 |---|---|---|
 | ● Browse rows a page at a time | ✓ | `ContentBrowseTests` |
-| Page size, jump to a page | ◐ fixed page size, next and previous | |
+| Page size, jump to a page | ✓ ⌘J: a page number, and 100 to 5,000 rows a page, kept across launches | `ContentPagingTests`, `MySQLWorkflowUITests` |
 | ● Filter rows | ◐ a typed `WHERE` condition, not field-operator-value pickers; a condition the server can't read says why | `ContentBrowseTests` |
 | Saved filters | ✗ | |
 | ● Sort by a column | ✓ on the server | `DestructiveDDLVerifyTests`, `ContentDMLTests` |
@@ -94,13 +94,13 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | Edit a long value in a sheet | ◐ in the Query tab's popup; the Content tab edits in place | `QueryResultEditTests` |
 | ● Set a cell to NULL | ✓ right-click; stores NULL, not an empty string | `ContentBrowseTests`, `MySQLWorkflowUITests` |
 | ● Add a row | ✓ | `PanelWritePathTests` |
-| Duplicate a row | ✗ | |
+| Duplicate a row | ✓ ⌘D: the copy opens in the row sheet, its auto-increment key left to the server | `ContentPagingTests`, `MySQLWorkflowUITests` |
 | ● Delete rows | ✓ | `PanelWritePathTests` |
 | ● Copy rows, or rows with column names | ✓ tab-separated, a NULL as an empty value | `RowCopyTests` |
 | Copy rows as SQL `INSERT` | ✓ a text value that reads NULL stays text (fixed) | `InsertStatementTests` |
 | Follow a foreign key to the row it points at | ✗ | |
 | Show binary data as hex | ◐ BLOBs are decoded for display | |
-| Refresh the content | ✓ ⌘R; *no test* | |
+| Refresh the content | ✓ ⌘R, on the table on screen | `MySQLWorkflowUITests` |
 
 ## Relations, Triggers, Table Info
 
@@ -120,6 +120,7 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | ● Run all, or the selection | ✓ ⌘↵ | `WorkspaceControlsUITests`, `MySQLWorkflowUITests` |
 | Run the statement under the cursor | ✓ Run Current: ⌘R as in Sequel Ace, ⌥⌘R runs them all | `SQLScriptTests.underCursor`, `MySQLWorkflowUITests` |
 | ● Highlighting and completion of tables and columns | ✓ `--` inside a string, `#` and `/* */` comments, backticked names (fixed) | `SQLHighlighterTests`, `SQLCompletionTests` |
+| ● MySQL's own statements | ✓ run on the server as typed, with the rows changed (fixed: DuckDB read them first, refused `AUTO_INCREMENT`, backticks, `ON DUPLICATE KEY UPDATE` and more, and made a `VARCHAR(40)` column `TEXT`); `LOCK TABLES` and `SET autocommit` are refused, saying why | `QueryTabAsTypedTests`, `AsTypedRoutingTests`, `MySQLWorkflowUITests` |
 | ● Several statements in one run | ✓ one at a time, as in Sequel Ace, `DELIMITER` and `/*! */` included (fixed: two `SELECT`s failed on MySQL) | `SQLScriptTests`, `MySQLWorkflowUITests` |
 | ● Edit a result's values | ✓ one table's rows with its primary key, as in Sequel Ace | `ResultEditingSourceTests`, `ResultEditTargetTests`, `QueryResultEditTests` |
 | Query history: menu, previous and next | ◐ the bookmark menu lists the last 10 statements, kept across restarts; no previous and next keys | `HistoryStoreTests` |
@@ -129,7 +130,7 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | Find and replace in the editor | ✓ macOS's find bar: ⌘F, ⌘G | `EditorCommandTests` |
 | Auto-pair brackets and quotes, uppercase keywords | ✗ | |
 | ● Export a result | ✓ CSV, JSON, Markdown, SQL `INSERT` | `ResultExporterTests` |
-| ● Several query tabs | ✓ | `WorkspaceControlsUITests` |
+| ● Several query tabs | ✓ ⌘T opens one, ⌘W closes the one you're on (fixed: it closed another) | `WorkspaceControlsUITests` |
 | Open and save `.sql` files in the editor | ✓ ⌘O, ⌘S, ⇧⌘S; UTF-8, or Latin-1 for an old file | `SQLFileTests`, `OpenSQLTabTests` |
 | Cancel a running query | ✓ | `QueryCancelTests` |
 | MySQL help for a word | ✗ | |
@@ -155,7 +156,7 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | Navigator | ✗ | |
 | Light and dark theme | ✓ | `AppSettingsTests` |
 | Editor font size, tab width | ✓ | `AppSettingsTests` |
-| NULL display text, default page size | ✗ | |
+| NULL display text, default page size | ◐ the page size, set in the Content tab (⌘J); no NULL text | `ContentPagingTests` |
 | Bundles (scripts) | ✗ | |
 | Print | ✗ | |
 

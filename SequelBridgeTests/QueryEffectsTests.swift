@@ -80,3 +80,48 @@ struct QueryEffectsTests {
         }
     }
 }
+
+@Suite("Query tab on MySQL: what runs on the server as typed")
+struct AsTypedRoutingTests {
+    @Test("a statement that returns no rows runs as typed, MySQL's own syntax included")
+    func asTyped() {
+        for sql in ["CREATE TABLE t (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY) ENGINE=InnoDB",
+                    "INSERT INTO `t` (`a`) VALUES (\"x\") ON DUPLICATE KEY UPDATE a = 'y'",
+                    "UPDATE t SET a = DATE_FORMAT(NOW(), '%Y')", "REPLACE INTO t VALUES (1)", "SET @x = 1",
+                    "OPTIMIZE TABLE t", "ALTER TABLE t MODIFY a INT", "/*!40101 SET NAMES utf8mb4 */",
+                    "# a note\nDELETE FROM t"] {
+            #expect(QueryEffects.runsAsTyped(sql), "\(sql)")
+        }
+    }
+
+    @Test("reads, USE and transaction control don't: a transaction is DuckDB's, so the statements in it share one server connection")
+    func notAsTyped() {
+        for sql in ["SELECT 1", "  (SELECT 1)", "# a note\nSELECT 1", "SHOW TABLES", "EXPLAIN SELECT 1",
+                    "WITH x AS (SELECT 1) SELECT * FROM x", "USE sbtest",
+                    "BEGIN", "begin work", "START TRANSACTION", "COMMIT", "ROLLBACK", "END"] {
+            #expect(!QueryEffects.runsAsTyped(sql), "\(sql)")
+        }
+    }
+
+    @Test("which statements begin and end a transaction in the Query tab")
+    func transactionChange() {
+        for sql in ["BEGIN", "begin work", "START TRANSACTION", "BEGIN TRANSACTION"] { #expect(QueryEffects.transactionChange(sql) == true, "\(sql)") }
+        for sql in ["COMMIT", "rollback", "END", "COMMIT WORK"] { #expect(QueryEffects.transactionChange(sql) == false, "\(sql)") }
+        for sql in ["SELECT 1", "UPDATE t SET a = 1", "CREATE TRIGGER x BEFORE INSERT ON t FOR EACH ROW BEGIN END"] {
+            #expect(QueryEffects.transactionChange(sql) == nil, "\(sql)")
+        }
+    }
+
+    @Test("LOCK TABLES, UNLOCK TABLES and SET autocommit are refused, saying why: they'd stay on a connection the app reuses")
+    func locks() {
+        let reason = QueryEffects.refusal("LOCK TABLES t WRITE")
+        #expect(reason?.contains("lock") == true, "got: \(reason ?? "nil")")
+        #expect(QueryEffects.refusal("unlock tables") != nil)
+        #expect(QueryEffects.refusal("LOCK TABLE t READ") != nil)
+        #expect(QueryEffects.refusal("SET autocommit = 0") != nil)
+        #expect(QueryEffects.refusal("set @@session.autocommit=0") != nil)
+        #expect(QueryEffects.refusal("SET @autocommit_note = 1") == nil)
+        #expect(QueryEffects.refusal("SELECT 'LOCK TABLES'") == nil)
+        #expect(QueryEffects.refusal("UPDATE t SET a = 1") == nil)
+    }
+}

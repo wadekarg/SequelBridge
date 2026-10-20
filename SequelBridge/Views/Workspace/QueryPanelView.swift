@@ -239,6 +239,16 @@ struct QueryPanelView: View {
                     .help("New tab (⌘T)")
                     .accessibilityIdentifier("query.newTab")
                     .keyboardShortcut("t", modifiers: .command)
+                    .background {
+                        // ⌘W closes the active tab; with one tab left it closes the window.
+                        // One button for it: when every tab's × had ⌘W, it closed whichever
+                        // one SwiftUI found first.
+                        if session.tabs.count > 1 {
+                            Button("") { if let id = session.activeTabId { session.closeTab(id: id) } }
+                                .keyboardShortcut("w", modifiers: .command)
+                                .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
+                        }
+                    }
                 }
             }
             .frame(height: 32)
@@ -358,8 +368,7 @@ struct QueryPanelView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(.secondary)
-                .keyboardShortcut("w", modifiers: .command)
-                .help("Close tab (⌘W)")
+                .help(tab.id == session.activeTabId ? "Close tab (⌘W)" : "Close tab")
             }
         }
         .padding(.horizontal, 12)
@@ -608,6 +617,15 @@ struct QueryPanelView: View {
             return
         }
 
+        // On MySQL, LOCK TABLES and SET autocommit would outlive the statement on a server
+        // connection the app reuses: refused, saying why.
+        if let target = SQLBuilder.soleTarget(of: baseSQL, connections: session.connections,
+                                              active: session.activeConnectionAlias),
+           target.engine == .mysql, let reason = QueryEffects.refusal(baseSQL) {
+            setTab { $0.error = reason }
+            return
+        }
+
         // Resolve SQL before starting the task.
         // Single server: record alias+db so the task can await the USE before querying.
         // Multi server: expand alias.table → "alias"."db"."table" now (no USE needed).
@@ -620,6 +638,9 @@ struct QueryPanelView: View {
         let sql: String
 
         var clickhouseAlias: String? = nil
+        // A MySQL statement that returns no rows runs on its server as typed (Sequel Ace's
+        // way): DuckDB refused MySQL's own syntax and changed what it accepted.
+        var asTyped: (alias: String, serverSQL: String)? = nil
         // Fast path: a read that targets ONE MySQL/Postgres server is pushed to that
         // server via the passthrough (server applies LIMIT/WHERE/indexes) instead of
         // DuckDB's scanner fetching the whole table. This applies whether that server
@@ -655,6 +676,8 @@ struct QueryPanelView: View {
                     clickhouseAlias = conn.alias
                 } else if let pt = passthroughIfEligible(conn) {
                     passthrough = pt
+                } else if conn.engine == .mysql, QueryEffects.runsAsTyped(baseSQL) {
+                    asTyped = (conn.alias, SQLBuilder.stripAliasPrefix(baseSQL, alias: conn.alias))
                 } else {
                     // Writes/DDL and non-default databases: the scanner path resolves
                     // names via DuckDB's USE context.
@@ -782,7 +805,12 @@ struct QueryPanelView: View {
                 if let ctx = pendingContext {
                     await manager.queryEngine.setDefaultContextAwaited(alias: ctx.alias, database: ctx.db)
                 }
-                if let chAlias = clickhouseAlias {
+                if let typed = asTyped {
+                    let changed = try await manager.queryEngine.runAsTyped(alias: typed.alias, sql: typed.serverSQL)
+                    let result = changed.map { QueryResult(columns: ["Affected rows"], rows: [["\($0)"]], executionTime: 0) }
+                        ?? QueryResult(columns: ["Result"], rows: [["Done"]], executionTime: 0)
+                    setTab { $0.result = runClock.stamped(result); $0.isRunning = false }
+                } else if let chAlias = clickhouseAlias {
                     // ClickHouse runs on its own native client — no DuckDB streaming.
                     let result = try await manager.queryEngine.clickhouseQuery(alias: chAlias, sql: sql)
                     setTab { $0.result = runClock.stamped(result); $0.isRunning = false }

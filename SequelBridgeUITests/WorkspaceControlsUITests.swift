@@ -88,6 +88,21 @@ final class WorkspaceControlsUITests: XCTestCase {
         XCTAssertTrue(first.isSelected, "clicking the first tab didn't select it")
     }
 
+    func testCommandWClosesTheActiveQueryTab() {
+        // Every tab's close button had ⌘W, so ⌘W closed whichever one SwiftUI found first.
+        app.buttons["query.newTab"].click()
+        app.buttons["query.newTab"].click()
+        let tabs = app.descendants(matching: .any).matching(identifier: "query.tab")
+        XCTAssertEqual(tabs.count, 3)
+        tabs.element(boundBy: 1).coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)).click()
+        XCTAssertTrue(tabs.element(boundBy: 1).isSelected, "the middle tab didn't take the click")
+        app.typeKey("w", modifierFlags: .command)
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.staticTexts["Query 2"])
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 10), .completed, "⌘W didn't close the active tab")
+        XCTAssertTrue(app.staticTexts["Query 1"].exists, "⌘W closed another tab")
+        XCTAssertTrue(app.staticTexts["Query 3"].exists, "⌘W closed another tab")
+    }
+
     func testConnectionTabsSwitchTheSidebar() {
         element("sidebar.connection.liteb").click()
         XCTAssertTrue(app.staticTexts["beta_items"].waitForExistence(timeout: 15), "the liteb tab didn't show its tables")

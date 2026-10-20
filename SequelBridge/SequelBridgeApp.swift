@@ -10,7 +10,7 @@ import SwiftUI
 @main
 struct SequelBridgeApp: App {
     @StateObject private var connectionManager: ConnectionManager
-    @StateObject private var appSettings = AppSettings()
+    @StateObject private var appSettings = AppSettings(defaults: AppSettings.store())
 
     @MainActor
     init() {
