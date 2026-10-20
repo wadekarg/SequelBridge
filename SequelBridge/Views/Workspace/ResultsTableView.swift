@@ -31,10 +31,19 @@ struct CellEditing {
     let save: (Int, Int, String?) async -> String?
 }
 
+/// A foreign-key column's cells lead to the row they point at, as in Sequel Ace.
+struct ForeignKeyLinks {
+    /// The menu item's title for a value of result column `i`, or nil when it isn't a key's.
+    let title: (_ column: Int, _ value: String) -> String?
+    /// Opens the row that result row `row`'s key points at.
+    let follow: (_ row: Int, _ column: Int) -> Void
+}
+
 struct ResultsTableView: View {
     let result: QueryResult
     var tableName: String? = nil
     var cellEditing: CellEditing? = nil
+    var foreignKeys: ForeignKeyLinks? = nil
     var onSelectionChange: ((Set<Int>) -> Void)? = nil
     var onSortChange: ((Int, Bool) -> Void)? = nil
 
@@ -43,6 +52,7 @@ struct ResultsTableView: View {
             result: result,
             tableName: tableName,
             cellEditing: cellEditing,
+            foreignKeys: foreignKeys,
             onSelectionChange: onSelectionChange,
             onSortChange: onSortChange
         )
@@ -127,6 +137,7 @@ private struct _ResultsTable: NSViewRepresentable {
     let result: QueryResult
     let tableName: String?
     let cellEditing: CellEditing?
+    let foreignKeys: ForeignKeyLinks?
     let onSelectionChange: ((Set<Int>) -> Void)?
     let onSortChange: ((Int, Bool) -> Void)?
 
@@ -574,6 +585,11 @@ private struct _ResultsTable: NSViewRepresentable {
             }
             let colIdx = clickedColumn > 0 && clickedColumn <= result.columns.count ? clickedColumn - 1 : lastClickedColumn
             let originalRow = displayOrder[safe: clickedRow] ?? clickedRow
+            if let links = parent.foreignKeys, !result.isNull(originalRow, colIdx),
+               let title = links.title(colIdx, result.cells.value(originalRow, colIdx)) {
+                menu.addItem(withTitleAction: title) { links.follow(originalRow, colIdx) }
+                menu.addItem(.separator())
+            }
             menu.addItem(withTitleAction: "Copy Cell Value") { [weak self] in
                 guard let self else { return }
                 let isNull = self.result.isNull(originalRow, colIdx)

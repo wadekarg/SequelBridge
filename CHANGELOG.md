@@ -81,6 +81,9 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   Table Info, Query), and ⌘7–⌘9 open Routines, Server and Console.
 
 ### Added
+- A cell of a foreign key's column leads to the row it points at, as in Sequel Ace: its
+  right-click menu has Go to customers where id = 2, which opens that table's Content
+  tab filtered to the row. Keys of several columns too.
 - The Content tab's Filter picks a column, an operator (=, ≠, <, >, ≤, ≥, contains,
   doesn't contain, begins with, ends with, is in, between, is NULL, isn't NULL) and a
   value, as in Sequel Ace. A `%`, `_`, quote or backslash in the value is matched as

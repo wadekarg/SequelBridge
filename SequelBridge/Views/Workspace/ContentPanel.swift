@@ -24,6 +24,8 @@ struct ContentPanel: View {
     @State private var generatedColumns: Set<String> = []
     /// What each empty field of the row sheet gets: a default, NULL, or the server's own value.
     @State private var emptyFieldHints: [String: String] = [:]
+    /// The foreign keys of this table, by column: a cell of one leads to the row it points at.
+    @State private var foreignKeyTargets: [String: ForeignKeyFollow.Target] = [:]
     @State private var selectedRowIndices: Set<Int> = []
     /// Bumped after each saved cell edit, so the grid redraws the changed row.
     @State private var editRevision = 0
@@ -114,6 +116,15 @@ struct ContentPanel: View {
                     }(),
                     tableName: table.name,
                     cellEditing: cellEditing,
+                    foreignKeys: foreignKeyTargets.isEmpty ? nil : ForeignKeyLinks(
+                        title: { col, value in
+                            guard col < columns.count, let target = foreignKeyTargets[columns[col]] else { return nil }
+                            let shown = value.count > 40 ? value.prefix(40) + "…" : Substring(value)
+                            return target.columns.count == 1
+                                ? "Go to \(target.table) where \(target.referenced[0]) = \(shown)"
+                                : "Go to the \(target.table) row this key points at"
+                        },
+                        follow: { row, col in followForeignKey(row: row, col: col) }),
                     onSelectionChange: { selectedRowIndices = $0 },
                     onSortChange: { colIndex, ascending in
                         guard colIndex < columns.count else { return }
@@ -129,6 +140,10 @@ struct ContentPanel: View {
         .task(id: table.id) {
             page = 0; appliedFilter = ""; filterText = ""; totalRows = nil
             sortColumn = nil; sortAscending = true
+            if let follow = session.contentFollows.removeValue(forKey: table.id) { apply(follow) }
+            let db = session.selectedDatabase[conn.alias] ?? conn.database
+            foreignKeyTargets = ForeignKeyFollow.targets(
+                (try? await manager.queryEngine.fetchRelations(alias: conn.alias, database: db, table: table.name)) ?? [])
             await load()
         }
         .sheet(item: $rowSheet) { request in
@@ -347,8 +362,9 @@ struct ContentPanel: View {
         .padding(.horizontal, 12).padding(.vertical, 6)
         .background(Color.accentColor.opacity(0.04))
         .overlay(Divider(), alignment: .bottom)
-        .onAppear { if !columns.contains(ruleColumn) { ruleColumn = columns.first ?? "" } }
-        .onChange(of: columns) { _, now in if !now.contains(ruleColumn) { ruleColumn = now.first ?? "" } }
+        // A rule's column is kept until the columns are known: a followed key sets it first.
+        .onAppear { if let first = columns.first, !columns.contains(ruleColumn) { ruleColumn = first } }
+        .onChange(of: columns) { _, now in if let first = now.first, !now.contains(ruleColumn) { ruleColumn = first } }
     }
 
     /// The rule as the WHERE condition of whichever server reads the page; nil until it is whole.
@@ -502,6 +518,44 @@ struct ContentPanel: View {
         // load() clears `error` on entry, so re-apply the operation error afterwards —
         // otherwise a failed delete would vanish silently while the grid refreshed.
         if let opError { self.error = opError }
+    }
+
+    /// Opens the row a key's cell points at: the referenced table's Content tab, filtered to
+    /// it. A key of a table to itself filters this tab.
+    private func followForeignKey(row: Int, col: Int) {
+        guard col < columns.count, row < rows.count, let target = foreignKeyTargets[columns[col]] else { return }
+        var values: [String: String] = [:]
+        for (i, name) in columns.enumerated() where i < rows[row].count {
+            let isNull = row < nullMask.count && i < nullMask[row].count && nullMask[row][i]
+            if !isNull { values[name] = rows[row][i] }
+        }
+        let dialect = ContentFilter.dialect(engine: conn.engine, passthrough: passthroughEligible)
+        guard let condition = ForeignKeyFollow.condition(target, values: values, dialect: dialect) else { return }
+        let follow = target.columns.count == 1
+            ? ContentFollow(condition: condition, column: target.referenced[0], value: values[target.columns[0]])
+            : ContentFollow(condition: condition)
+        if target.table == table.name { apply(follow); page = 0; Task { await load() }; return }
+        guard let referenced = session.sidebarTrees[conn.alias]?.first(where: { $0.name == target.table }) else {
+            let alert = NSAlert()
+            alert.messageText = "\(target.table) isn't in this database's tables"
+            alert.informativeText = "Pick the database it is in, then open it from the left panel."
+            alert.runModal()
+            return
+        }
+        session.contentFollows[referenced.id] = follow
+        session.selectedTable = referenced
+    }
+
+    /// Shows the filter a followed key asks for, as a rule when it has one column.
+    private func apply(_ follow: ContentFollow) {
+        showFilter = true
+        if let column = follow.column, let value = follow.value {
+            typedWhere = false; ruleColumn = column; ruleOp = .equals; ruleValue = value
+        } else {
+            typedWhere = true
+        }
+        filterText = follow.condition
+        appliedFilter = follow.condition
     }
 
     private func duplicateSelectedRow() {

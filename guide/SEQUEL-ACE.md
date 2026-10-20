@@ -98,7 +98,7 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | ● Delete rows | ✓ | `PanelWritePathTests` |
 | ● Copy rows, or rows with column names | ✓ tab-separated, a NULL as an empty value | `RowCopyTests` |
 | Copy rows as SQL `INSERT` | ✓ a text value that reads NULL stays text (fixed) | `InsertStatementTests` |
-| Follow a foreign key to the row it points at | ✗ | |
+| Follow a foreign key to the row it points at | ✓ a key cell's right-click menu: Go to customers where id = 2, which opens with that filter; keys of several columns too | `ForeignKeyFollowTests`, `MySQLWorkflowUITests` |
 | Show binary data as hex | ◐ BLOBs are decoded for display | |
 | Refresh the content | ✓ ⌘R, on the table on screen | `MySQLWorkflowUITests` |
 

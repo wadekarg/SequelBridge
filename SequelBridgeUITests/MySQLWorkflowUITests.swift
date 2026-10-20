@@ -311,6 +311,21 @@ final class MySQLWorkflowUITests: XCTestCase {
         XCTAssertFalse(grid.staticTexts["paid"].exists)
     }
 
+    func testFollowAForeignKeyToTheRowItPointsAt() {
+        table("orders").click()
+        app.typeKey("2", modifierFlags: .command)
+        let grid = element("results.grid")
+        XCTAssertTrue(grid.staticTexts["shipped"].waitForExistence(timeout: 30), "the Content tab didn't show the rows")
+        // Order 3 belongs to customer 2: its customer_id cell, after # and id.
+        grid.tableRows.element(boundBy: 2).cells.element(boundBy: 2).rightClick()
+        let go = app.menuItems["Go to customers where id = 2"]
+        XCTAssertTrue(go.waitForExistence(timeout: 10), "a customer_id cell doesn't lead to its customer")
+        go.click()
+        XCTAssertTrue(grid.staticTexts["Alan Turing"].waitForExistence(timeout: 30), "customer 2 isn't shown")
+        XCTAssertFalse(grid.staticTexts["Ada Lovelace"].exists, "the other customers are still shown")
+        XCTAssertEqual(element("content.filterValue").value as? String, "2", "the filter doesn't show the key's value")
+    }
+
     func testJumpToAPageAndChangeTheRowsPerPage() {
         pick(database: "sbwrite")
         // Rows 1001–1300; a page starts with the id of its first row.

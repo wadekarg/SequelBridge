@@ -24,6 +24,8 @@ class WorkspaceSession: ObservableObject {
         let message: String
     }
     @Published var selectedTables: [String: TableInfo] = [:]      // alias → selected table
+    /// A filter for a table's Content tab to open with, by table id: following a foreign key.
+    var contentFollows: [String: ContentFollow] = [:]
 
     /// The selected table of the ACTIVE connection. Selection is remembered per
     /// server: switching tabs never shows one server's chrome over another
