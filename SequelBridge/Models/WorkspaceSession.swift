@@ -47,6 +47,22 @@ class WorkspaceSession: ObservableObject {
         case server    = "Server"
         case query     = "Query"
         case console   = "Console"
+
+        /// ⌘ plus this key: Sequel Ace's ⌘1–⌘6 (Structure, Content, Relations, Triggers,
+        /// Table Info, Query), then ⌘7–⌘9 for Routines, Server, Console.
+        var shortcutKey: Character {
+            switch self {
+            case .structure: return "1"
+            case .content:   return "2"
+            case .relations: return "3"
+            case .triggers:  return "4"
+            case .tableInfo: return "5"
+            case .query:     return "6"
+            case .routines:  return "7"
+            case .server:    return "8"
+            case .console:   return "9"
+            }
+        }
     }
 
     @Published var activeFeatureTab: FeatureTab = .query

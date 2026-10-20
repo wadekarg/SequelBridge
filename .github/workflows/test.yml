@@ -2,7 +2,8 @@
 # Xcode each image has (the release is built with Xcode 26.5):
 #   - the unit tests that need no database server (the database suites need the Docker
 #     containers that scripts/run-all-tests.sh provisions; run them locally with it);
-#   - the UI tests, which click the workspace's tab strips and + buttons.
+#   - the UI tests, which click the workspace's tab strips and + buttons, and walk the
+#     everyday flows on a MariaDB the job installs (MySQLWorkflowUITests).
 name: Tests
 
 on:
@@ -42,8 +43,27 @@ jobs:
           grep -E "Test run with|✘|error:|\*\* (TEST|BUILD)" unit.log
           exit $status
 
+      - name: MariaDB for the UI tests
+        if: always()
+        run: |
+          # The everyday flows (MySQLWorkflowUITests) run against a real server, seeded
+          # with the fixtures the local suites use. The runner's user logs in by socket.
+          brew install mariadb >/dev/null
+          brew services start mariadb
+          for i in $(seq 1 60); do mariadb -e 'SELECT 1' >/dev/null 2>&1 && break; sleep 1; done
+          mariadb -e "CREATE USER IF NOT EXISTS 'sbui'@'%' IDENTIFIED BY 'sbui-pass';
+                      CREATE USER IF NOT EXISTS 'sbui'@'localhost' IDENTIFIED BY 'sbui-pass';
+                      GRANT ALL PRIVILEGES ON *.* TO 'sbui'@'%'; GRANT ALL PRIVILEGES ON *.* TO 'sbui'@'localhost';"
+          mariadb < scripts/fixtures/mysql.sql
+          mariadb -e "SELECT VERSION(); SELECT COUNT(*) FROM sbtest.orders"
+
       - name: UI tests
         if: always()
+        env:
+          TEST_RUNNER_SB_UI_MYSQL_HOST: 127.0.0.1
+          TEST_RUNNER_SB_UI_MYSQL_PORT: "3306"
+          TEST_RUNNER_SB_UI_MYSQL_USER: sbui
+          TEST_RUNNER_SB_UI_MYSQL_PASS: sbui-pass
         run: |
           set +e
           xcodebuild test -scheme SequelBridgeUITests -destination 'platform=macOS,arch=arm64' \

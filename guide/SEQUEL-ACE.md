@@ -148,7 +148,7 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 
 | Sequel Ace | SequelBridge | Tested by |
 |---|---|---|
-| ⌘1–⌘6 switch the main tabs | ✗ | |
+| ⌘1–⌘6 switch the main tabs | ✓ Sequel Ace's six, then ⌘7–⌘9 for Routines, Server, Console | `FeatureTabShortcutTests` |
 | Back and forward through visited tables | ✗ | |
 | ● Console: show and clear | ✓ *no test* | |
 | Save the history to a file | ✓ the Console's Export | `ConsoleExporterTests` |

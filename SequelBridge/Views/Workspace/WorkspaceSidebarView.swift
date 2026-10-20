@@ -313,6 +313,7 @@ struct WorkspaceSidebarView: View {
                         ForEach(databases, id: \.self) { Text($0).tag($0) }
                     }
                     .labelsHidden()
+                    .accessibilityIdentifier("sidebar.database")
                     .font(.system(size: 11))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 8)
@@ -359,6 +360,7 @@ struct WorkspaceSidebarView: View {
         return HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").foregroundColor(.secondary).font(.caption)
             TextField("Filter tables…", text: binding)
+                .accessibilityIdentifier("sidebar.filter")
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
             if !(session.tableFilter[alias] ?? "").isEmpty {
@@ -465,6 +467,8 @@ struct WorkspaceSidebarView: View {
             }
         }
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("sidebar.table.\(table.name)")
         .padding(.vertical, 2)
         .background(
             session.selectedTable?.id == table.id

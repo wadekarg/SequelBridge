@@ -49,6 +49,8 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   scrolling sideways, so with several servers open none slides out of sight. A tab's
   tooltip shows the connection's name and the database picked on it.
 - The table filter ignores spaces around what you type.
+- ⌘1–⌘6 switch the main tabs as in Sequel Ace (Structure, Content, Relations, Triggers,
+  Table Info, Query), and ⌘7–⌘9 open Routines, Server and Console.
 - A Sequel Ace checklist in the guide: each of its features, whether SequelBridge has it,
   and the test that proves it.
 

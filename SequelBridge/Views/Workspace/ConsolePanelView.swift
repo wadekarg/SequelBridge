@@ -20,6 +20,7 @@ struct ConsolePanelView: View {
                     .disabled(session.consoleLog.isEmpty)
                     .help("Save all logged queries to a .sql file")
                 Button("Clear") { session.consoleLog.removeAll() }
+                    .accessibilityIdentifier("console.clear")
                     .font(.caption)
                     .buttonStyle(.plain)
                     .foregroundColor(.secondary)

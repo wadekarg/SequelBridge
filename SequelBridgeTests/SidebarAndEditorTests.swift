@@ -103,3 +103,13 @@ struct RowCopyTests {
         #expect(RowCopy.withColumnNames(["id", "status"], rows: ["1\tpaid", "2\tnew"]) == "id\tstatus\n1\tpaid\n2\tnew")
     }
 }
+
+@Suite("Toolbar tabs: keyboard shortcuts")
+struct FeatureTabShortcutTests {
+    @Test("⌘1–⌘6 are Sequel Ace's: Structure, Content, Relations, Triggers, Table Info, Query; ⌘7–⌘9 the rest")
+    func keys() {
+        let keys = WorkspaceSession.FeatureTab.allCases.map { "\($0.rawValue)=\($0.shortcutKey)" }
+        #expect(keys == ["Structure=1", "Content=2", "Relations=3", "Triggers=4", "Table Info=5",
+                         "Routines=7", "Server=8", "Query=6", "Console=9"])
+    }
+}

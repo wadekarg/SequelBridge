@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 613 tests in 113 suites (about three minutes of tests after the build).
+at them, and runs all 614 tests in 114 suites (about three minutes of tests after the build).
 Then every MySQL suite runs a second time with its server pointed at MySQL 8.4.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
 benchmark (`--bench`), and `QueryCancelTests.interruptStopsServerStatement`, the spec
@@ -43,8 +43,12 @@ On GitHub, every push to `main` and every pull request builds the app on Apple S
 on macOS 15 and macOS 26 (`.github/workflows/test.yml`), and runs the tests that need no
 database server, then the UI tests (`SequelBridgeUITests`, scheme `SequelBridgeUITests`).
 The UI tests click the workspace's tab strips and + buttons, check that six connection
-tabs all stay on screen, and run a statement that names no server on the active tab;
-they take over the screen while they run, so `scripts/run-all-tests.sh` leaves them out.
+tabs all stay on screen, and run a statement that names no server on the active tab.
+`MySQLWorkflowUITests` walks the everyday flows on a MariaDB the job installs with
+Homebrew and seeds from `scripts/fixtures/mysql.sql`: pick a database, `USE`, several
+statements, filter tables, edit a cell in place and set it to NULL, ⌘1–⌘6, the
+Console. The UI tests take over the screen while they run, so `scripts/run-all-tests.sh`
+leaves them out.
 
 ## What's in the suite
 
@@ -56,7 +60,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-613 tests across 91 files.
+614 tests across 91 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -95,6 +99,7 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `ServerToolsTests` | `SB_MYSQL_VERIFY` | Test Connection (the server's reason, never the password), Kill ending a running statement, views listed as views |
 | `TableListFilterTests`, `SQLCompletionTests`, `SQLHighlighterTests`, `RowCopyTests` | always | the table filter, the editor's completion and highlighting (strings, `--` `#` `/* */` comments, backticks), Copy Row's text |
 | `SQLScriptTests` | always | a script split into statements as written: quotes, comments, comment-only pieces, `DELIMITER` |
+| `FeatureTabShortcutTests` | always | ⌘1–⌘6 as in Sequel Ace, ⌘7–⌘9 for the rest |
 | `ResultEditingSourceTests`, `ResultEditTargetTests` | always | when a Query-tab result can be edited: one table's rows, each result column matched to a table column, the primary key in the result; the `UPDATE` keyed by the row |
 | `QueryResultEditTests` | always (SQLite) / `SB_PG_VERIFY`, `SB_MYSQL_VERIFY` | a Query-tab result edit end to end: the engine's check, the `UPDATE`, read back |
 

@@ -83,6 +83,8 @@ struct WorkspaceView: View {
     private func toolbarButton(_ tab: WorkspaceSession.FeatureTab, disabled: Bool) -> some View {
         let isActive = session.activeFeatureTab == tab
         return Button(tab.rawValue) { session.activeFeatureTab = tab }
+            .keyboardShortcut(KeyEquivalent(tab.shortcutKey), modifiers: .command)
+            .help("\(tab.rawValue) (⌘\(tab.shortcutKey))")
             .buttonStyle(.plain)
             .font(.system(size: 12, weight: isActive ? .semibold : .regular))
             .padding(.horizontal, 10)

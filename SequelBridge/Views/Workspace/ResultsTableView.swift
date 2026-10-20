@@ -135,6 +135,7 @@ private struct _ResultsTable: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let coord = context.coordinator
         let table = ResultsNSTableView()
+        table.setAccessibilityIdentifier("results.grid")
         table.dataSource = coord
         table.delegate = coord
         table.coordinator = coord

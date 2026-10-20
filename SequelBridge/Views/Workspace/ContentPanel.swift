@@ -174,6 +174,7 @@ struct ContentPanel: View {
             .controlSize(.small)
             .disabled(selectedRowIndices.isEmpty || pkColumns.isEmpty || isLoading || conn.engine.isNative || conn.readOnly)
             .help(conn.readOnly ? "Read-only connection" : (pkColumns.isEmpty ? "Need primary key to delete rows" : "Delete selected row(s)"))
+            .accessibilityIdentifier("content.deleteRows")
 
             // Add new row
             Button {
@@ -185,12 +186,15 @@ struct ContentPanel: View {
             .controlSize(.small)
             .disabled(isLoading || conn.engine.isNative || conn.readOnly)
             .help(conn.readOnly ? "Read-only connection" : (conn.engine.isNative ? "ClickHouse rows are inserted with INSERT statements in the Query tab" : "Add new row"))
+            .accessibilityIdentifier("content.addRow")
 
             // Reload
             Button { Task { await load() } } label: {
                 Image(systemName: "arrow.clockwise")
             }
             .disabled(isLoading)
+            .help("Refresh the rows")
+            .accessibilityIdentifier("content.refresh")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -204,10 +208,12 @@ struct ContentPanel: View {
         HStack(spacing: 8) {
             Text("WHERE").font(.system(size: 12, weight: .semibold)).foregroundColor(.secondary)
             TextField("status = 'active' AND created_at > '2025-01-01'", text: $filterText)
+                .accessibilityIdentifier("content.filter")
                 .textFieldStyle(.roundedBorder)
                 .font(Theme.mono(12))
                 .onSubmit { applyFilter() }
             Button("Apply") { applyFilter() }
+                .accessibilityIdentifier("content.apply")
                 .buttonStyle(.borderedProminent).controlSize(.small)
                 .disabled(filterText == appliedFilter)
             if !appliedFilter.isEmpty {

@@ -328,6 +328,8 @@ struct StructurePanel: View {
                     selectedColId = newEdit.id
                 } label: { Image(systemName: "plus").frame(width: 20, height: 20) }
                 .buttonStyle(.borderedProminent).controlSize(.mini)
+                .help("Add a column")
+                .accessibilityIdentifier("structure.addColumn")
             }
             .padding(.horizontal, 12).padding(.vertical, 5)
             .background(Color(NSColor.controlBackgroundColor))
@@ -588,6 +590,7 @@ struct StructurePanel: View {
                 .buttonStyle(.bordered).controlSize(.small)
                 .disabled(isSaving)
             Button("Save Changes") { Task { await saveChanges() } }
+                .accessibilityIdentifier("structure.save")
                 .buttonStyle(.borderedProminent).controlSize(.small)
                 .disabled(isSaving)
         }
