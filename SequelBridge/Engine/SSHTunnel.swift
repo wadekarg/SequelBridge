@@ -51,16 +51,17 @@ final class SSHTunnel {
         }
 
         let p = Process()
+        let counts = AskCounts()
         if let prompter = Self.prompter {
-            let counts = AskCounts()
             askpass = try await SSHAskpass { prompt in
-                // After Cancel, ssh asks again (up to three times): end the login instead.
                 guard !counts.cancelled else { return nil }
                 let kind = SSHLogin.kind(of: prompt)
                 let request = SSHLoginRequest(prompt: prompt, kind: kind, timesAsked: counts.next(kind),
                                               user: conn.sshUsername, host: conn.sshHost, connectionID: conn.id)
                 let reply = await prompter(request)
-                if reply == nil { counts.cancelled = true; p.terminate() }
+                // Cancel on a password or a code: ssh would ask again, up to three times, so
+                // the login ends. On a key's passphrase, ssh moves on to the next way in.
+                if reply == nil, SSHLogin.cancelEndsLogin(kind) { counts.cancelled = true; p.terminate() }
                 return reply
             }
         }
@@ -94,9 +95,8 @@ final class SSHTunnel {
             if isLocalPortListening(localPort) { endLogin(); return }
             if !p.isRunning {
                 Self.running.removeValue(forKey: ObjectIdentifier(self))
-                let cancelled = askpass?.cancelled ?? false
                 endLogin()
-                if cancelled { throw SequelBridgeError.attachFailed("SSH login cancelled.") }
+                if counts.cancelled { throw SequelBridgeError.attachFailed("SSH login cancelled.") }
                 let msg = stderrPipe.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 throw SequelBridgeError.attachFailed(
                     "SSH process exited unexpectedly.\(msg.isEmpty ? "" : " \(msg)")\n\nCheck: SSH host, username, key path and password.")

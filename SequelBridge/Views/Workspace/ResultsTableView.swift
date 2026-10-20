@@ -560,9 +560,7 @@ private struct _ResultsTable: NSViewRepresentable {
         func copySelectedRows() {
             guard let table else { return }
             let sel = table.selectedRowIndexes.sorted()
-            let header = result.columns.joined(separator: "\t")
-            let body = sel.map { r -> String in rowTabbed(displayOrder[safe: r] ?? r) }.joined(separator: "\n")
-            setClipboard(header + "\n" + body)
+            setClipboard(RowCopy.withColumnNames(result.columns, rows: sel.map { rowTabbed(displayOrder[safe: $0] ?? $0) }))
         }
 
         func contextMenu(clickedRow: Int, clickedColumn: Int) -> NSMenu {
@@ -584,7 +582,7 @@ private struct _ResultsTable: NSViewRepresentable {
             menu.addItem(withTitleAction: "Copy Row") { [weak self] in self?.setClipboard(self?.rowTabbed(originalRow) ?? "") }
             menu.addItem(withTitleAction: "Copy Row with Column Names") { [weak self] in
                 guard let self else { return }
-                self.setClipboard(self.result.columns.joined(separator: "\t") + "\n" + self.rowTabbed(originalRow))
+                self.setClipboard(RowCopy.withColumnNames(self.result.columns, rows: [self.rowTabbed(originalRow)]))
             }
             menu.addItem(.separator())
             menu.addItem(withTitleAction: "Copy as SQL INSERT") { [weak self] in
@@ -592,7 +590,8 @@ private struct _ResultsTable: NSViewRepresentable {
                 let row = self.result.row(originalRow)
                 guard !row.isEmpty else { return }
                 self.setClipboard(SQLBuilder.insertStatement(table: self.parent.tableName ?? "table_name",
-                                                             columns: self.result.columns, row: row))
+                                                             columns: self.result.columns, row: row,
+                                                             nulls: row.indices.map { self.result.isNull(originalRow, $0) }))
             }
             if let editing = parent.cellEditing, editing.reason(colIdx) == nil {
                 menu.addItem(.separator())
@@ -617,9 +616,8 @@ private struct _ResultsTable: NSViewRepresentable {
         }
 
         private func rowTabbed(_ originalRow: Int) -> String {
-            result.row(originalRow).enumerated().map { i, v in
-                result.isNull(originalRow, i) ? "" : v
-            }.joined(separator: "\t")
+            let row = result.row(originalRow)
+            return RowCopy.tabbed(row, nulls: row.indices.map { result.isNull(originalRow, $0) })
         }
 
         private func setClipboard(_ s: String) {

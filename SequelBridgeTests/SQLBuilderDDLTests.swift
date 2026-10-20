@@ -179,8 +179,15 @@ struct InsertStatementTests {
 
     @Test("NULL cells stay unquoted keywords")
     func nulls() {
-        let sql = SQLBuilder.insertStatement(table: "t", columns: ["a", "b"], row: ["NULL", "x"])
+        let sql = SQLBuilder.insertStatement(table: "t", columns: ["a", "b"], row: ["NULL", "x"], nulls: [true, false])
         #expect(sql.contains("VALUES (NULL, 'x')"))
+    }
+
+    @Test("a text value that reads NULL stays text: only the cell's null flag makes a NULL")
+    func nullText() {
+        // It was decided by the text, so copying a 'NULL' string pasted back as a real NULL.
+        let sql = SQLBuilder.insertStatement(table: "t", columns: ["a", "b"], row: ["NULL", "x"], nulls: [false, false])
+        #expect(sql.contains("VALUES ('NULL', 'x')"))
     }
 
     @Test("quotes inside a value are escaped")

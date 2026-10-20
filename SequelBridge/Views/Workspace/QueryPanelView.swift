@@ -448,7 +448,11 @@ struct QueryPanelView: View {
         return (result, nil)
     }
 
-    private func runQuery(tabIndex: Int) async {
+    /// Runs the editor's text, or the selection. Several statements run one at a time, as
+    /// in Sequel Ace (a server prepares one statement at a time): each takes its own path,
+    /// the first that fails stops the run and says which it was, and the last one's result
+    /// stays on screen. `statement` runs that one statement instead of the editor's text.
+    private func runQuery(tabIndex: Int, statement: String? = nil) async {
         guard tabIndex < session.tabs.count else { return }
         // Address the tab by its stable id, not its position: a tab closed mid-query
         // shifts every later index, so using tabIndex across an await would write the
@@ -459,10 +463,26 @@ struct QueryPanelView: View {
             body(&session.tabs[i])
         }
         let rawSQL = selectedSQL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let baseSQL = rawSQL.isEmpty
+        let baseSQL = statement ?? (rawSQL.isEmpty
             ? session.tabs[tabIndex].sql.trimmingCharacters(in: .whitespacesAndNewlines)
-            : rawSQL
+            : rawSQL)
         guard !baseSQL.isEmpty else { return }
+
+        if statement == nil {
+            let statements = SQLScript.statements(baseSQL)
+            if statements.count > 1 {
+                for (n, one) in statements.enumerated() {
+                    guard let index = session.tabs.firstIndex(where: { $0.id == tabID }) else { return }
+                    await runQuery(tabIndex: index, statement: one)
+                    guard let i = session.tabs.firstIndex(where: { $0.id == tabID }) else { return }
+                    if let error = session.tabs[i].error {
+                        session.tabs[i].error = "Statement \(n + 1) of \(statements.count): \(error)"
+                        return
+                    }
+                }
+                return
+            }
+        }
 
         // A typed `EXPLAIN …` takes the Explain button's path — server-native EXPLAIN,
         // on the native client for MySQL — when its one target is MySQL/MariaDB or

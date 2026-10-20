@@ -66,37 +66,14 @@ struct SQLEditorView: NSViewRepresentable {
         guard let storage = textView.textStorage else { return }
         let fullRange = NSRange(location: 0, length: storage.length)
         storage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: fullRange)
-
-        let keywords = ["SELECT", "FROM", "WHERE", "JOIN", "LEFT", "RIGHT", "INNER",
-                        "OUTER", "ON", "AND", "OR", "NOT", "IN", "LIKE", "AS",
-                        "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "OFFSET",
-                        "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE",
-                        "CREATE", "ALTER", "DROP", "TABLE", "INDEX", "VIEW",
-                        "DISTINCT", "UNION", "ALL", "CASE", "WHEN", "THEN", "ELSE",
-                        "END", "IS", "NULL", "BETWEEN", "EXISTS", "WITH"]
-
-        let pattern = "\\b(" + keywords.joined(separator: "|") + ")\\b"
-        if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
-            let str = storage.string
-            for match in regex.matches(in: str, range: fullRange) {
-                storage.addAttribute(.foregroundColor, value: NSColor.systemPurple, range: match.range)
+        for span in SQLHighlighter.spans(in: storage.string) {
+            let color: NSColor
+            switch span.kind {
+            case .keyword: color = .systemPurple
+            case .string:  color = .systemGreen
+            case .comment: color = .systemGray
             }
-        }
-
-        // String literals
-        if let regex = try? NSRegularExpression(pattern: "'[^']*'") {
-            let str = storage.string
-            for match in regex.matches(in: str, range: fullRange) {
-                storage.addAttribute(.foregroundColor, value: NSColor.systemGreen, range: match.range)
-            }
-        }
-
-        // Line comments
-        if let regex = try? NSRegularExpression(pattern: "--[^\\n]*") {
-            let str = storage.string
-            for match in regex.matches(in: str, range: fullRange) {
-                storage.addAttribute(.foregroundColor, value: NSColor.systemGray, range: match.range)
-            }
+            storage.addAttribute(.foregroundColor, value: color, range: span.range)
         }
     }
 
@@ -145,12 +122,8 @@ struct SQLEditorView: NSViewRepresentable {
             let partial = String(textView.string[range]).lowercased()
             guard !partial.isEmpty else { return [] }
 
-            var candidates = SQLKeywords.all + parent.completionItems
-            candidates = Array(Set(candidates))  // deduplicate
             index?.pointee = 0
-            return candidates
-                .filter { $0.lowercased().hasPrefix(partial) }
-                .sorted { $0.lowercased() < $1.lowercased() }
+            return SQLCompletion.candidates(for: partial, items: parent.completionItems)
         }
     }
 }
@@ -263,7 +236,7 @@ final class LineNumberRulerView: NSRulerView {
 
 // MARK: - SQL keywords for completion
 
-enum SQLKeywords {
+nonisolated enum SQLKeywords {
     static let all: [String] = [
         "SELECT","FROM","WHERE","JOIN","LEFT","RIGHT","INNER","OUTER","CROSS",
         "ON","AND","OR","NOT","IN","LIKE","AS","GROUP","BY","ORDER","HAVING",

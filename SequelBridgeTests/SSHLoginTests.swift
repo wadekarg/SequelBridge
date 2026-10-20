@@ -35,6 +35,15 @@ struct SSHLoginTests {
         #expect(SSHLogin.answer(kind: .code, timesAsked: 0, saved: "123456") == .ask)
     }
 
+    @Test("Cancel on a key's passphrase skips that key; Cancel on a password or a code ends the login")
+    func cancelRules() {
+        // ssh moves on to the next key or the password after a skipped passphrase, but asks
+        // a password or a code again, up to three times.
+        #expect(!SSHLogin.cancelEndsLogin(.passphrase))
+        #expect(SSHLogin.cancelEndsLogin(.password))
+        #expect(SSHLogin.cancelEndsLogin(.code))
+    }
+
     /// Runs the askpass script the way ssh does: the question as its one argument, the
     /// answer on stdout. Awaited, so the listener on the main queue keeps running.
     @MainActor

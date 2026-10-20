@@ -454,10 +454,13 @@ nonisolated enum SQLBuilder {
     }
 
     /// A standalone INSERT for the clipboard, pairing only the cells the row actually has.
-    static func insertStatement(table: String, columns: [String], row: [String]) -> String {
+    /// `nulls` are the cells' null flags: only those make a NULL, so a text value that
+    /// reads "NULL" stays text.
+    static func insertStatement(table: String, columns: [String], row: [String], nulls: [Bool] = []) -> String {
         let pairs = zip(columns, row)
         let cols = pairs.map { mysqlIdent($0.0) }.joined(separator: ", ")
-        let vals = pairs.map { $0.1 == "NULL" ? "NULL" : literal($0.1) }.joined(separator: ", ")
+        let vals = pairs.enumerated().map { i, pair in i < nulls.count && nulls[i] ? "NULL" : literal(pair.1) }
+            .joined(separator: ", ")
         return "INSERT INTO \(mysqlIdent(table)) (\(cols)) VALUES (\(vals));"
     }
 

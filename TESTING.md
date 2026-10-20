@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 590 tests in 106 suites (about three minutes of tests after the build).
+at them, and runs all 613 tests in 113 suites (about three minutes of tests after the build).
 Then every MySQL suite runs a second time with its server pointed at MySQL 8.4.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
 benchmark (`--bench`), and `QueryCancelTests.interruptStopsServerStatement`, the spec
@@ -56,7 +56,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-590 tests across 87 files.
+613 tests across 91 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -91,6 +91,10 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `QueryEffectsTests` | always | what a Query-tab run changes in the left panel, Sequel Ace's rules ported with its cases: `USE` (comments, quoted names), `DROP DATABASE` of the picked one, scripts in order, which statements refresh the table and database lists |
 | `SoleTargetTests` | always | which connection a statement runs on: the server it names, else the one picked at the top of the left panel; none for a cross-server query |
 | `WrappingHStackTests` | always | where the connection tabs wrap onto a new row, so none slides out of sight |
+| `ContentBrowseTests` | `SB_MYSQL_VERIFY` | the Content tab: pages in order, a typed filter and one the server can't read, Set to NULL stores NULL |
+| `ServerToolsTests` | `SB_MYSQL_VERIFY` | Test Connection (the server's reason, never the password), Kill ending a running statement, views listed as views |
+| `TableListFilterTests`, `SQLCompletionTests`, `SQLHighlighterTests`, `RowCopyTests` | always | the table filter, the editor's completion and highlighting (strings, `--` `#` `/* */` comments, backticks), Copy Row's text |
+| `SQLScriptTests` | always | a script split into statements as written: quotes, comments, comment-only pieces, `DELIMITER` |
 | `ResultEditingSourceTests`, `ResultEditTargetTests` | always | when a Query-tab result can be edited: one table's rows, each result column matched to a table column, the primary key in the result; the `UPDATE` keyed by the row |
 | `QueryResultEditTests` | always (SQLite) / `SB_PG_VERIFY`, `SB_MYSQL_VERIFY` | a Query-tab result edit end to end: the engine's check, the `UPDATE`, read back |
 

@@ -25,6 +25,9 @@ chown tunneluser:tunneluser /home/tunneluser/.ssh/authorized_keys
 chmod 600 /home/tunneluser/.ssh/authorized_keys
 adduser -D -s /bin/sh pwuser
 echo 'pwuser:sbssh123' | chpasswd               # the password-login account
+install -d -m 700 -o pwuser -g pwuser /home/pwuser/.ssh   # and the passphrase key, to skip
+printf '%s\n' "$TEST_PHRASE_PUBKEY" > /home/pwuser/.ssh/authorized_keys
+chown pwuser:pwuser /home/pwuser/.ssh/authorized_keys && chmod 600 /home/pwuser/.ssh/authorized_keys
 
 common='PasswordAuthentication no
 KbdInteractiveAuthentication no

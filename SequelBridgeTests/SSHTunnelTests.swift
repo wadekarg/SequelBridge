@@ -202,6 +202,16 @@ struct SSHTunnelTests {
         #expect(Date().timeIntervalSince(started) < 15)
     }
 
+    @Test("Cancel on a key's passphrase moves on to the password, as ssh does at a terminal",
+          .enabled(if: SSHEnv.enabled && !SSHEnv.phraseKeyPath.isEmpty))
+    func cancelPassphraseThenPassword() async throws {
+        // pwuser accepts the passphrase key and a password: skipping the key leaves the password.
+        var c = passwordConnection(alias: "sshskip")
+        c.sshKeyPath = SSHEnv.phraseKeyPath
+        let asked = try await answering({ $0.kind == .passphrase ? nil : "sbssh123" }) { try await attachAndQuery(c) }
+        #expect(asked.map(\.kind) == [.passphrase, .password], "asked: \(asked.map(\.prompt))")
+    }
+
     @Test("a wrong password is asked again, then the login fails with the server's reason",
           .enabled(if: SSHEnv.enabled && !SSHEnv.keyPath.isEmpty))
     func wrongPassword() async throws {

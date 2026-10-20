@@ -32,13 +32,25 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   BatchMode, so a server that asked for a password, a key's passphrase or a one-time
   code from an RSA token got no answer and the login failed. Each question now opens
   a dialog with the server's own words; Remember in Keychain saves a password or a
-  passphrase (never a one-time code), and Cancel stops the login at once. Reported by
-  a tester who logs in with an RSA token.
+  passphrase (never a one-time code). Cancel on a password or a code stops the login
+  at once; on a key's passphrase it skips that key, as ssh does. Reported by a tester
+  who logs in with an RSA token.
+- Several statements run at once on a MySQL or PostgreSQL connection, such as
+  `SELECT 1; SELECT 2`, failed with a syntax error: a read went to the server as one
+  prepared statement. Now each statement runs in turn, as in Sequel Ace; the first
+  that fails stops the run and says which it was, and `DELIMITER` works for procedure
+  bodies.
+- Copy as SQL INSERT turned a text value that reads NULL into a real NULL.
+- Highlighting: `--` inside a string greyed out the rest of it, `#` and `/* */`
+  comments weren't marked, and a backticked name such as `from` showed as a keyword.
 
 ### Changed
 - The connection tabs at the top of the left panel wrap onto more rows instead of
   scrolling sideways, so with several servers open none slides out of sight. A tab's
   tooltip shows the connection's name and the database picked on it.
+- The table filter ignores spaces around what you type.
+- A Sequel Ace checklist in the guide: each of its features, whether SequelBridge has it,
+  and the test that proves it.
 
 ## 1.2.1 — 2026-10-19
 

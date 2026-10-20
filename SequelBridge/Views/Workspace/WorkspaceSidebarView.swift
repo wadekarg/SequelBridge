@@ -387,11 +387,8 @@ struct WorkspaceSidebarView: View {
     private func tableList(_ conn: Connection) -> some View {
         let filter = session.tableFilter[conn.alias] ?? ""
         let allTables = session.sidebarTrees[conn.alias] ?? []
-        let filtered = filter.isEmpty
-            ? allTables
-            : allTables.filter { $0.name.localizedCaseInsensitiveContains(filter) }
-        let tables = filtered.filter { $0.type == .table }
-        let views  = filtered.filter { $0.type == .view }
+        let (tables, views) = TableListFilter.listed(allTables, filter: filter)
+        let filtered = tables + views
 
         return List {
             if let problem = session.tableListError[conn.alias] {

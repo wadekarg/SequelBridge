@@ -21,6 +21,11 @@ nonisolated enum SSHLogin {
         return .code
     }
 
+    /// Whether Cancel on this question ends the whole login. ssh asks a password or a code
+    /// again (up to three times), so Cancel ends it; a key's passphrase is asked once, and
+    /// skipping it moves ssh on to the next key or the password.
+    static func cancelEndsLogin(_ kind: Kind) -> Bool { kind != .passphrase }
+
     /// A saved password or passphrase answers the first time it is asked in a login.
     /// Asked again in the same login, the saved one was wrong, so the user is asked. A
     /// one-time code is never saved.

@@ -131,6 +131,7 @@ start_sshd() {
   docker rm -f "$SSHD" >/dev/null 2>&1 || true
   docker run -d --name "$SSHD" -p "$SSH_PORT:2222" -p "$SSH_LEGACY_PORT:2223" \
     -e TEST_PUBKEY="$(cat "$SSH_DIR/sb_test_key.pub" "$SSH_DIR/sb_phrase_key.pub")" \
+    -e TEST_PHRASE_PUBKEY="$(cat "$SSH_DIR/sb_phrase_key.pub")" \
     -v "$FIX/ssh/sshd-setup.sh:/sshd-setup.sh:ro" -v "$SSH_DIR/hostkeys:/hostkeys:ro" \
     "$SSHD_IMG" sh /sshd-setup.sh >/dev/null
   # Docker accepts connections on a published port before anything listens behind it,
@@ -233,7 +234,7 @@ run_tests() {
 
 # The MySQL family suites again, with their server pointed at MySQL 8.4. MariaDB stays
 # the second server, so MultiServer joins MySQL 8 with MariaDB.
-MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests
+MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests ContentBrowseTests ServerToolsTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests
               RealSchemaTests MultiServerTests DestructiveDDLVerifyTests QueryResultEditTests PostgresTests
               ClickHouseBridgeTests CrossEngineJoinTests CrossJoinReductionTests FallbackMaterializeDBTests
               QueryCancelTests PushdownDBTests)
