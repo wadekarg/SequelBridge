@@ -77,6 +77,29 @@ extension WorkspaceSession {
         }
     }
 
+    /// Add Database…: makes it, lists it and picks it, as in Sequel Ace. Returns the
+    /// server's reason when it refuses.
+    func createDatabase(_ name: String, charset: String, collation: String, on conn: Connection,
+                        manager: ConnectionManager) async -> String? {
+        let sql = SQLBuilder.createDatabase(name, charset: charset, collation: collation)
+        do { _ = try await manager.queryEngine.runAsTyped(alias: conn.alias, sql: sql) }
+        catch { return QueryEngine.extractReason(from: error) }
+        await followRun(sql, on: conn, manager: manager)       // re-reads the database list
+        await showDatabase(name, for: conn, manager: manager)
+        return nil
+    }
+
+    /// Delete Database…: drops it. When it was the one picked, the connection's own
+    /// database is picked again, as after a typed DROP DATABASE. Returns the server's
+    /// reason when it refuses.
+    func deleteDatabase(_ name: String, on conn: Connection, manager: ConnectionManager) async -> String? {
+        let sql = SQLBuilder.dropDatabase(name)
+        do { _ = try await manager.queryEngine.runAsTyped(alias: conn.alias, sql: sql) }
+        catch { return QueryEngine.extractReason(from: error) }
+        await followRun(sql, on: conn, manager: manager)
+        return nil
+    }
+
     /// Refresh Tables (⌃⌘R): re-reads the picked database's tables.
     func refreshTables(for conn: Connection, manager: ConnectionManager) async {
         await loadTables(for: conn, manager: manager)

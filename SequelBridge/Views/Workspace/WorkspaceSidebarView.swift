@@ -14,6 +14,8 @@ struct WorkspaceSidebarView: View {
     @State private var copiedTableId: String? = nil   // shows "Copied!" badge briefly
     @State private var showCreateTable = false
     @State private var destructTarget: DestructTarget? = nil   // pending drop/truncate awaiting confirm
+    @State private var addDatabaseRequest: AddDatabaseRequest?    // Add Database…
+    @State private var databaseToDelete: DatabaseToDelete?        // Delete Database…, awaiting confirm
     @State private var tableNameRequest: TableNameRequest?   // Rename / Duplicate Table…
     @State private var importProgress: ImportProgress?             // Import SQL file…, while it runs
     @State private var importTask: Task<Void, Never>?
@@ -34,6 +36,23 @@ struct WorkspaceSidebarView: View {
                 // One per connection: a keyboard shortcut runs the action its button had
                 // when first drawn, so ⇧⌘R and ⌃⌘R refreshed the first connection shown.
                 .id(conn.alias)
+                // Delete Database… confirms first (here: the table drop has the outer view's).
+                .confirmationDialog(
+                    "Delete this database?",
+                    isPresented: Binding(get: { databaseToDelete != nil }, set: { if !$0 { databaseToDelete = nil } }),
+                    presenting: databaseToDelete
+                ) { target in
+                    Button("Delete “\(target.name)”", role: .destructive) {
+                        Task {
+                            if let failure = await session.deleteDatabase(target.name, on: target.conn, manager: manager) {
+                                destructError = failure
+                            }
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: { target in
+                    Text("This permanently deletes the database “\(target.name)” with all of its tables and data. This cannot be undone.")
+                }
             } else {
                 Spacer()
                 Text("No active connection").font(.caption).foregroundColor(.secondary)
@@ -68,6 +87,11 @@ struct WorkspaceSidebarView: View {
         }
         .sheet(item: $importProgress) { progress in
             ImportProgressSheet(progress: progress) { importTask?.cancel() }
+        }
+        .sheet(item: $addDatabaseRequest) { request in
+            AddDatabaseSheet(request: request, engine: manager.queryEngine) { name, charset, collation in
+                await session.createDatabase(name, charset: charset, collation: collation, on: request.conn, manager: manager)
+            }
         }
         .sheet(item: $tableNameRequest) { request in
             TableNameSheet(request: request) { name, withRows in
@@ -424,6 +448,15 @@ struct WorkspaceSidebarView: View {
 
                     if !conn.engine.isNative {
                         Menu {
+                            if conn.engine == .mysql {
+                                Button("Add Database…") { addDatabaseRequest = AddDatabaseRequest(conn: conn) }
+                                    .disabled(conn.readOnly)
+                                if let db = session.selectedDatabase[conn.alias], !db.isEmpty {
+                                    Button("Delete Database “\(db)”…") { databaseToDelete = DatabaseToDelete(conn: conn, name: db) }
+                                        .disabled(conn.readOnly)
+                                }
+                                Divider()
+                            }
                             Button("Export database as SQL…") { exportDatabaseSQL(conn) }
                             if conn.engine == .mysql || conn.engine == .postgres {
                                 Button("Import SQL file…") { importSQLFile(conn) }

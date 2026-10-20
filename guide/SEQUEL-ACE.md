@@ -35,8 +35,8 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 |---|---|---|
 | ● Choose a database | ✓ one switch at a time, the last pick wins; one that can't be opened says why; another database closes the table open from the one before (fixed: Content kept its rows while edits went to the new database) | `DatabaseSwitchTests`, `MySQLWorkflowUITests` |
 | ● `USE db` in a query selects it | ✓ | `DatabaseSwitchTests.useFollows`, `QueryEffectsTests`, `MySQLWorkflowUITests` |
-| Add database (with encoding and collation) | ◐ typed `CREATE DATABASE` only; the list refreshes | `DatabaseSwitchTests.databaseDDL` |
-| Delete database | ◐ typed `DROP DATABASE` only; a dropped selection goes back to the connection's own | `DatabaseSwitchTests.databaseDDL` |
+| Add database (with encoding and collation) | ✓ Add Database… in the database menu: a name, and the server's encodings and collations, each starting at its default; the new database is picked (MySQL) | `DatabaseSheetTests`, `DatabaseSwitchTests`, `MySQLWorkflowUITests` |
+| Delete database | ✓ Delete Database… in the database menu, after a confirmation; the connection's own database is picked again (MySQL) | `DatabaseSheetTests`, `DatabaseSwitchTests`, `MySQLWorkflowUITests` |
 | Duplicate, rename or alter a database | ✗ | |
 | Refresh databases, refresh tables | ✓ ↻ beside the database picker: ⇧⌘R both, ⌃⌘R the tables, as in Sequel Ace (fixed: the keys refreshed the first connection shown) | `DatabaseSwitchTests.refresh`, `MySQLRefreshUITests` |
 | Open a database in a new tab | ✗ | |

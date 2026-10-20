@@ -104,6 +104,18 @@ nonisolated enum SQLBuilder {
         "\"\(s.replacingOccurrences(of: "\"", with: "\"\""))\""
     }
 
+    /// CREATE DATABASE for MySQL; an empty encoding or collation takes the server's default.
+    /// Both come from the server's own lists.
+    static func createDatabase(_ name: String, charset: String, collation: String) -> String {
+        var sql = "CREATE DATABASE \(mysqlIdent(name))"
+        if !charset.isEmpty { sql += " CHARACTER SET \(charset)" }
+        if !collation.isEmpty { sql += " COLLATE \(collation)" }
+        return sql
+    }
+
+    /// DROP DATABASE for MySQL.
+    static func dropDatabase(_ name: String) -> String { "DROP DATABASE \(mysqlIdent(name))" }
+
     /// Backtick-quoted identifier for SQL passed through to MySQL.
     static func mysqlIdent(_ s: String) -> String {
         "`\(s.replacingOccurrences(of: "`", with: "``"))`"

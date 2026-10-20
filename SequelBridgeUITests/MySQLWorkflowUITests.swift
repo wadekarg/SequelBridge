@@ -326,6 +326,31 @@ final class MySQLWorkflowUITests: XCTestCase {
         XCTAssertEqual(element("content.filterValue").value as? String, "2", "the filter doesn't show the key's value")
     }
 
+    func testAddADatabaseWithItsEncodingThenDeleteIt() {
+        run("DROP DATABASE IF EXISTS ui_added")       // what a run that failed half-way left
+        element("sidebar.databaseMenu").click()
+        app.menuItems["Add Database…"].click()
+        let name = element("addDatabase.name")
+        XCTAssertTrue(name.waitForExistence(timeout: 10), "no Add Database sheet")
+        name.click()
+        name.typeText("ui_added")
+        element("addDatabase.charset").click()
+        app.menuItems["latin1"].click()
+        element("addDatabase.collation").click()
+        app.menuItems["latin1_general_ci"].click()
+        element("addDatabase.add").click()
+        XCTAssertTrue(waitForValue(element("sidebar.database"), "ui_added"), "the new database isn't picked")
+        run("SELECT CONCAT('cs=', DEFAULT_CHARACTER_SET_NAME, ' co=', DEFAULT_COLLATION_NAME) AS v FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = 'ui_added'")
+        XCTAssertTrue(text(containing: "cs=latin1 co=latin1_general_ci").waitForExistence(timeout: 30), "not made with the encoding picked")
+
+        element("sidebar.databaseMenu").click()
+        app.menuItems["Delete Database “ui_added”…"].click()
+        let confirm = app.buttons["Delete “ui_added”"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "no confirmation")
+        confirm.click()
+        XCTAssertTrue(waitForValue(element("sidebar.database"), "sbtest"), "didn't go back to the connection's own database")
+    }
+
     func testJumpToAPageAndChangeTheRowsPerPage() {
         pick(database: "sbwrite")
         // Rows 1001–1300; a page starts with the id of its first row.
@@ -377,6 +402,11 @@ final class MySQLWorkflowUITests: XCTestCase {
         run("SELECT CONCAT('copies=', COUNT(*), ' nulls=', SUM(note IS NULL), ' ids=', GROUP_CONCAT(id ORDER BY id)) AS v FROM ui_dup WHERE status = 'dup-paid'")
         XCTAssertTrue(text(containing: "copies=2 nulls=2 ids=1,2").waitForExistence(timeout: 30), "the row wasn't duplicated as it was")
         run("DROP TABLE ui_dup")
+    }
+
+    private func waitForValue(_ e: XCUIElement, _ value: String, timeout: TimeInterval = 30) -> Bool {
+        let shown = expectation(for: NSPredicate(format: "value == %@", value), evaluatedWith: e)
+        return XCTWaiter.wait(for: [shown], timeout: timeout) == .completed
     }
 
     private func waitForGone(_ e: XCUIElement, timeout: TimeInterval = 15) -> Bool {

@@ -1781,6 +1781,34 @@ final class QueryEngine {
         }
     }
 
+    /// The server's encodings, for Add Database (MySQL).
+    func fetchCharsets(alias: String) async throws -> [String] {
+        try await mysqlMeta(alias, "SELECT CHARACTER_SET_NAME FROM information_schema.CHARACTER_SETS ORDER BY CHARACTER_SET_NAME")
+            .rows.compactMap(\.first).filter { !$0.isEmpty }
+    }
+
+    /// The server's collations, for Add Database (MySQL).
+    func fetchCollations(alias: String) async throws -> [DatabaseCollation] {
+        try await mysqlMeta(alias, "SELECT COLLATION_NAME, CHARACTER_SET_NAME, IS_DEFAULT FROM information_schema.COLLATIONS")
+            .rows.compactMap { r in
+                guard r.count >= 3, !r[0].isEmpty else { return nil }
+                return DatabaseCollation(name: r[0], charset: r[1], isDefault: r[2].caseInsensitiveCompare("Yes") == .orderedSame)
+            }
+    }
+
+    /// The encoding and collation a new database gets by default (MySQL).
+    func serverDefaults(alias: String) async throws -> (charset: String, collation: String) {
+        let row = try await mysqlMeta(alias, "SELECT @@character_set_server, @@collation_server").rows.first ?? []
+        return (row.first ?? "", row.count > 1 ? row[1] : "")
+    }
+
+    /// A read on `alias`'s MySQL server through the passthrough, on the metadata lane.
+    /// `serverSQL` mustn't hold a single quote: it goes inside mysql_query('…').
+    private func mysqlMeta(_ alias: String, _ serverSQL: String) async throws -> QueryResult {
+        let aliasEsc = alias.replacingOccurrences(of: "'", with: "''")
+        return try await metaQuery("SELECT * FROM mysql_query('\(aliasEsc)', '\(serverSQL)')")
+    }
+
     func fetchDatabasesMySQL(alias: String) async throws -> [String] {
         // Use SHOW DATABASES via mysql_query() — bypasses DuckDB's virtual information_schema
         // which only reflects schemas loaded at ATTACH time (often just the one in the DSN).

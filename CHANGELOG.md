@@ -81,6 +81,10 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   Table Info, Query), and ⌘7–⌘9 open Routines, Server and Console.
 
 ### Added
+- Add Database… and Delete Database… in the database menu, as in Sequel Ace (MySQL):
+  a new database takes the encoding and collation picked from the server's own lists,
+  each starting at its default, and is picked; deleting one asks first, then goes back
+  to the connection's own database.
 - A cell of a foreign key's column leads to the row it points at, as in Sequel Ace: its
   right-click menu has Go to customers where id = 2, which opens that table's Content
   tab filtered to the row. Keys of several columns too.

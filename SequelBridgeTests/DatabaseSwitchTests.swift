@@ -90,6 +90,33 @@ struct DatabaseSwitchTests {
         #expect(session.selectedTable == nil)
     }
 
+    @Test("Add Database offers the server's encodings and collations, makes the database with those picked, and picks it; Delete drops it")
+    func addAndDelete() async throws {
+        let (manager, conn, session) = try await connect("sw21")
+        let q = manager.queryEngine
+        #expect(try await q.fetchCharsets(alias: conn.alias).contains("utf8mb4"))
+        let collations = try await q.fetchCollations(alias: conn.alias)
+        #expect(DatabaseCollation.offered(collations, charset: "latin1").contains("latin1_general_ci"))
+        let defaults = try await q.serverDefaults(alias: conn.alias)
+        #expect(!defaults.charset.isEmpty && !defaults.collation.isEmpty, "\(defaults)")
+
+        _ = try? await q.runAsTyped(alias: conn.alias, sql: SQLBuilder.dropDatabase("sb_added"))
+        let failed = await session.createDatabase("sb_added", charset: "latin1", collation: "latin1_general_ci", on: conn, manager: manager)
+        #expect(failed == nil, "\(failed ?? "")")
+        #expect(session.selectedDatabase[conn.alias] == "sb_added")
+        #expect(session.availableDatabases[conn.alias]?.contains("sb_added") == true)
+        let made = try await q.serverPassthroughQuery(alias: conn.alias, serverSQL: """
+            SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = 'sb_added'
+            """).rows.first
+        #expect(made == ["latin1", "latin1_general_ci"])
+
+        #expect(await session.deleteDatabase("sb_added", on: conn, manager: manager) == nil)
+        #expect(session.selectedDatabase[conn.alias] == SwitchEnv.db, "didn't go back to the connection's own database")
+        #expect(session.availableDatabases[conn.alias]?.contains("sb_added") == false)
+        #expect(await session.createDatabase(SwitchEnv.db, charset: "", collation: "", on: conn, manager: manager)?.contains("exists") == true,
+                "a database that exists already should say so")
+    }
+
     @Test("two picks close together: the second one wins, and nothing fails")
     func quickPicks() async throws {
         let (manager, conn, session) = try await connect("sw2")
