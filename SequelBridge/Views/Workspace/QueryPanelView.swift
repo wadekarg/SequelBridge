@@ -304,6 +304,7 @@ struct QueryPanelView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .accessibilityIdentifier("query.explain")
                     .help("Show the server's native query plan (EXPLAIN)")
 
                     // Sequel Ace's keys: ⌘R runs the statement under the cursor (or the

@@ -126,6 +126,22 @@ struct SQLitePromisesTests {
         #expect(sqlite(f.url, "SELECT group_concat(id) FROM t") == "2,3,4,5")
     }
 
+    @Test("Content: a foreign key's cell leads to the row it points at")
+    func followForeignKey() async throws {
+        let f = try await open("""
+            CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT);
+            CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER REFERENCES customers (id));
+            INSERT INTO customers VALUES (1, 'Ada'), (2, 'Alan'); INSERT INTO orders VALUES (10, 2);
+            """, alias: "lc7")
+        let targets = ForeignKeyFollow.targets(try await f.engine.fetchRelations(alias: "lc7", database: "main", table: "orders"))
+        let target = try #require(targets["customer_id"], "\(targets)")
+        #expect(target.table == "customers")
+        let condition = try #require(ForeignKeyFollow.condition(target, values: ["customer_id": "2"],
+                                                                dialect: ContentFilter.dialect(engine: .sqlite, passthrough: false)))
+        let rows = try await f.engine.query(#"SELECT name FROM "lc7"."main"."customers" WHERE \#(condition)"#, lane: .content).rows
+        #expect(rows == [["Alan"]], "\(condition) → \(rows)")
+    }
+
     @Test("Export database as SQL dumps the file's tables and rows")
     func export() async throws {
         let f = try await open("CREATE TABLE t (id INTEGER PRIMARY KEY, note TEXT); INSERT INTO t VALUES (1, 'it''s');", alias: "lc4")
@@ -146,6 +162,9 @@ struct SQLitePromisesTests {
         try await f.engine.executeDDL(alias: "lc5", sql: block)
         let rows = try await f.engine.fetchTriggers(alias: "lc5", database: "main", table: "t")
         #expect(Set(rows.compactMap(\.first)) == ["t_ins", "t_del"], "\(rows)")
+        // Name, timing, event, as the Triggers tab reads them; t_del's body has an INSERT.
+        #expect(rows.first { $0.first == "t_ins" }.map { Array($0.prefix(3)) } == ["t_ins", "AFTER", "INSERT"], "\(rows)")
+        #expect(rows.first { $0.first == "t_del" }.map { Array($0.prefix(3)) } == ["t_del", "BEFORE", "DELETE"], "\(rows)")
         _ = try await f.engine.query(#"INSERT INTO "lc5"."main"."t" (id) VALUES (7)"#)
         _ = try await f.engine.query(#"DELETE FROM "lc5"."main"."t" WHERE id = 7"#)
         #expect(sqlite(f.url, "SELECT group_concat(msg, ', ') FROM log") == "added 7, gone 7")

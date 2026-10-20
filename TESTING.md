@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 724 tests in 144 suites (about three minutes of tests after the build).
+at them, and runs all 734 tests in 145 suites (about three minutes of tests after the build).
 Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
 MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
@@ -55,7 +55,12 @@ Homebrew and seeds from `scripts/fixtures/mysql.sql`: pick a database, `USE`, se
 statements, Run Current, filter tables, edit a cell in place and set it to NULL, rename
 and duplicate a table, ⌘/, Table Info's `CREATE TABLE`, ⌘1–⌘6, the Console, MySQL's
 own syntax run as typed, ⌘R on the table on screen after another was opened, and the
-Content tab's ⌘J (page and rows per page), ⌘D (duplicate a row), its column-operator-value filter, and following a foreign key, Add Database with an encoding and Delete Database, Table Maintenance's answer;
+Content tab's ⌘J (page and rows per page), ⌘D (duplicate a row), its column-operator-value filter, and following a foreign key, Add Database with an encoding and Delete Database, Table Maintenance's answer, `SHOW CREATE TABLE` and `SHOW FULL PROCESSLIST` typed in the Query tab.
+`PostgresWorkflowUITests` (with `SB_UI_PG_PORT`) picks a schema, shows Content and
+Structure, Explain's plan and a typed `SHOW`, and edits a cell in place;
+`ClickHouseWorkflowUITests` (with `SB_UI_CH_PORT`) shows Content and why a cell can't be
+edited there, runs a query and finds it in the Server tab's insights. On GitHub neither
+has a server, so both are skipped there;
 `MySQLRefreshUITests` refreshes one connection after a change through another, by
 the button, by ⇧⌘R and by ⌃⌘R, and checks ⌘R (the statement under the cursor) against
 ⌥⌘R (all). `VisualTourUITests` takes a screenshot of every screen and sheet in light and
@@ -73,7 +78,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-724 tests across 107 files.
+734 tests across 108 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -101,7 +106,8 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `NativeRoutingTests`, `PostgresLoginTests` | always | which typed statements go to the app's own client (MySQL's SHOW, HELP, CHECK; PostgreSQL's SHOW, EXPLAIN); the PostgreSQL client's MD5 and SCRAM-SHA-256 logins against reference values (RFC 7677's example), a server that can't prove the password, an error's message |
 | `PostgresNativeTests`, `PostgresNativeSSLTests` | `SB_PG_VERIFY`, `SB_PG_SSL_PORT` | PostgreSQL's own client on a real server: the Explain button's plan, a typed `SHOW` in the schema picked, a server error's message, a read-only session, a Unix socket; over SSL with Use SSL and without it (encrypted when the server offers it, as libpq does), and Use SSL refused against a server without SSL before any password is sent |
 | `MySQLNativeStatementTests` | `SB_MYSQL_VERIFY` | `SHOW CREATE TABLE`, `SHOW FULL PROCESSLIST`, `SHOW GRANTS`, `SHOW WARNINGS`, `CHECK TABLE`, `CHECKSUM TABLE` typed in the Query tab, on the app's own client, in the database picked (on all four MySQL-family servers) |
-| `SQLitePromisesTests` | always | what the guide promises for a SQLite file, on one: Create Table (the types picked, an integer key that numbers rows), Structure's add, rename and drop of columns and indexes and its refusals, Content, export, triggers added, fired and dropped, a busy file |
+| `PostgresWorkspaceTests` | `SB_PG_VERIFY` | what the guide promises for PostgreSQL, the way the panels run it: the picker's schemas and their tables (the connection stays on its database), Content's filter and sort, following a foreign key, Routines, the Server tab and Kill ending a running statement, export, CSV import, triggers listed and dropped |
+| `SQLitePromisesTests` | always | what the guide promises for a SQLite file, on one: Create Table (the types picked, an integer key that numbers rows), Structure's add, rename and drop of columns and indexes and its refusals, Content, following a foreign key, export, triggers added, fired, listed (timing and event from the header, not the body) and dropped, a busy file |
 | `DatabaseDumpTests` | `SB_MYSQL_VERIFY` | whole-database SQL dump (all tables, schema + data) |
 | `PostgresTests` | `SB_PG_VERIFY` | PostgreSQL attach, query, joins |
 | `CrossEngineBenchmark` | `SB_BENCH` | timing (not correctness) for the MySQL×Postgres JOIN |

@@ -231,4 +231,20 @@ enum SQLiteSchema {
         }
         return out
     }
+
+    /// A trigger's timing and event, from its CREATE TRIGGER header: the body may hold any
+    /// word (an INSERT in a DELETE trigger). SQLite's timing is BEFORE when none is given.
+    static func triggerTimingAndEvent(_ sql: String) -> (timing: String, event: String) {
+        let name = #"(?:"(?:[^"]|"")*"|\[[^\]]*\]|`[^`]*`|[^\s.(]+)"#
+        let header = #"^\s*CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"# + name + #"\s*\.\s*)?"#
+            + name + #"\s+(BEFORE|AFTER|INSTEAD\s+OF)?\s*(DELETE|INSERT|UPDATE)\b"#
+        guard let regex = try? NSRegularExpression(pattern: header, options: [.caseInsensitive]),
+              let m = regex.firstMatch(in: sql, range: NSRange(sql.startIndex..., in: sql)) else { return ("", "") }
+        func group(_ i: Int) -> String {
+            guard let r = Range(m.range(at: i), in: sql) else { return "" }
+            return sql[r].uppercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        let timing = group(1)
+        return (timing.isEmpty ? "BEFORE" : timing, group(2))
+    }
 }

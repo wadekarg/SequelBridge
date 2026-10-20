@@ -5,6 +5,14 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 ## 1.2.2 — 2026-10-19
 
 ### Fixed
+- On PostgreSQL the left panel listed no tables: its picker lists the database's
+  schemas, and picking one, `public` included right after connecting, tried to open a
+  database of that name ("database "public" does not exist"). Picking a schema now lists
+  its tables, and the connection stays on its database.
+- On PostgreSQL, Routines failed ("duplicate column name coalesce"), and the Triggers tab
+  showed a trigger's event as its timing and its table as its event, as it did on a
+  SQLite file, where a trigger whose body inserts also read as an INSERT trigger. A
+  trigger that fires on several events lists them all (INSERT OR UPDATE).
 - On PostgreSQL the Explain button, and a typed `EXPLAIN` or `SHOW`, failed: DuckDB's
   passthrough nests every statement in a subquery, where PostgreSQL takes neither. They
   run on the app's own PostgreSQL client now, which logs in with SCRAM-SHA-256, MD5 or a

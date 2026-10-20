@@ -31,7 +31,7 @@ Screenshots come from a demo instance on synthetic data.
 | Import CSV into an existing table | ✓ | ✓ | | |
 | Import CSV into a new table | ✓ | | | |
 | One side of a cross-server join | ✓ | ✓ | ✓ (probe side) | ✓ (copied) |
-| Follow a foreign key from Content | ✓ | | | |
+| Follow a foreign key from Content | ✓ | ✓ | ✓ | |
 | Add and delete a database | ✓ | | | |
 | Table Maintenance | ✓ | | | |
 | Results: streaming grid, filter, charts, export | ✓ | ✓ | ✓ | ✓ |
@@ -124,7 +124,7 @@ page shows (100 to 5,000, kept across launches). **Filter** picks a column, an o
 is NULL, isn't NULL) and a value, as in Sequel Ace; a `%`, `_`, quote or backslash in
 the value matches as itself. **Type WHERE** shows the rule as SQL, to adjust or
 replace. Click a column header to sort, which reruns the page on the server with an
-`ORDER BY`. On MySQL, a cell of a foreign key's column leads to the row it points at:
+`ORDER BY`. A cell of a foreign key's column leads to the row it points at:
 its right-click menu has **Go to customers where id = 2**, which opens that table's
 Content tab filtered to the row.
 

@@ -204,10 +204,12 @@ extension QueryEngine {
         let t = table.replacingOccurrences(of: "'", with: "''")
         let sql = """
             SELECT tg.tgname AS trg_name,
-                   CASE WHEN (tg.tgtype & 4) > 0 THEN 'INSERT'
-                        WHEN (tg.tgtype & 8) > 0 THEN 'DELETE'
-                        WHEN (tg.tgtype & 16) > 0 THEN 'UPDATE' ELSE 'TRUNCATE' END AS trg_event,
-                   CASE WHEN (tg.tgtype & 2) > 0 THEN 'BEFORE' ELSE 'AFTER' END AS trg_timing,
+                   concat_ws(' OR ', CASE WHEN (tg.tgtype & 4) > 0 THEN 'INSERT' END,
+                                     CASE WHEN (tg.tgtype & 16) > 0 THEN 'UPDATE' END,
+                                     CASE WHEN (tg.tgtype & 8) > 0 THEN 'DELETE' END,
+                                     CASE WHEN (tg.tgtype & 32) > 0 THEN 'TRUNCATE' END) AS trg_event,
+                   CASE WHEN (tg.tgtype & 2) > 0 THEN 'BEFORE'
+                        WHEN (tg.tgtype & 64) > 0 THEN 'INSTEAD OF' ELSE 'AFTER' END AS trg_timing,
                    pg_get_functiondef(tg.tgfoid) AS trg_body,
                    pg_get_userbyid(c.relowner) AS trg_owner
             FROM pg_trigger tg
@@ -217,10 +219,11 @@ extension QueryEngine {
             ORDER BY tg.tgname
             """
         let r = try await metaQueryPublic(pgQuery(alias, sql))
-        // Callers expect [name, event, table, timing, statement, definer]
+        // [name, timing, event, definer, statement, created], as the Triggers tab reads them
+        // (MySQL's order); the function the trigger runs is its statement.
         return r.rows.compactMap { row in
             guard row.count >= 5 else { return nil }
-            return [row[0], row[1], table, row[2], row[3], row[4]]
+            return [row[0], row[2], row[1], row[4], row[3], ""]
         }
     }
 

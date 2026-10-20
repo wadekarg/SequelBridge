@@ -110,6 +110,7 @@ struct ServerPanel: View {
             }
             Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.plain).foregroundColor(.secondary).help("Refresh")
+                .accessibilityIdentifier("server.refresh")
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
         .background(Color(NSColor.controlBackgroundColor))

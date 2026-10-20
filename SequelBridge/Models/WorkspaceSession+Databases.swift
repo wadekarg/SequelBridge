@@ -14,7 +14,9 @@ extension WorkspaceSession {
         do {
             let dbs = try await manager.queryEngine.fetchDatabases(alias: conn.alias)
             availableDatabases[conn.alias] = dbs
-            let picked = selectedDatabase[conn.alias] ?? dbs.first(where: { $0 == conn.database }) ?? dbs.first ?? ""
+            // PostgreSQL's picker lists schemas; its own default is public.
+            let picked = selectedDatabase[conn.alias] ?? dbs.first(where: { $0 == conn.database })
+                ?? (conn.engine == .postgres ? dbs.first(where: { $0 == "public" }) : nil) ?? dbs.first ?? ""
             await showDatabase(picked, for: conn, manager: manager)
         } catch { availableDatabases[conn.alias] = [] }
     }

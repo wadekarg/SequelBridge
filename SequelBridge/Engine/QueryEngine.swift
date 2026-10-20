@@ -1689,7 +1689,8 @@ final class QueryEngine {
     /// MySQL/Postgres only; other engines return []. Does not touch table stats, so
     /// it stays fast even on schemas with thousands of tables.
     func fetchRoutines(alias: String, database: String) async throws -> [[String]] {
-        let inner = "SELECT ROUTINE_NAME, ROUTINE_TYPE, COALESCE(DTD_IDENTIFIER,''), COALESCE(ROUTINE_DEFINITION,'') "
+        // Each column named: PostgreSQL calls both COALESCEs "coalesce", which DuckDB refuses.
+        let inner = "SELECT ROUTINE_NAME, ROUTINE_TYPE, COALESCE(DTD_IDENTIFIER,'') AS RETURNS_TYPE, COALESCE(ROUTINE_DEFINITION,'') AS BODY "
             + "FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = \(SQLBuilder.literal(database)) "
             + "ORDER BY ROUTINE_TYPE, ROUTINE_NAME"
         let wrapped: String

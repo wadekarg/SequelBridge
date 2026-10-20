@@ -118,12 +118,9 @@ extension QueryEngine {
         return rows.compactMap { row -> [String]? in
             guard row.count >= 4, row[0] == "trigger", row[2] == table else { return nil }
             let sql = row[3]
-            let upper = sql.uppercased()
-            let event = ["INSERT", "UPDATE", "DELETE"].first { upper.contains($0) } ?? ""
-            let timing = upper.contains("INSTEAD OF") ? "INSTEAD OF"
-                       : upper.contains("AFTER") ? "AFTER" : "BEFORE"
-            // [name, event, table, timing, statement, definer]
-            return [row[1], event, table, timing, sql, ""]
+            let (timing, event) = SQLiteSchema.triggerTimingAndEvent(sql)
+            // [name, timing, event, definer, statement, created], as the Triggers tab reads them
+            return [row[1], timing, event, "", sql, ""]
         }
     }
 

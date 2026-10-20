@@ -161,13 +161,14 @@ class ConnectionManager: ObservableObject {
         }
     }
 
-    /// Attaches a MySQL/Postgres `alias` again with `database` as its default. A failed
-    /// attach puts the previous one back before the error is thrown. Other engines, and
-    /// a connection already on `database`, are left as they are.
+    /// Attaches a MySQL `alias` again with `database` as its default. A failed attach puts
+    /// the previous one back before the error is thrown. Other engines, and a connection
+    /// already on `database`, are left as they are: on PostgreSQL the picker lists schemas
+    /// of the one database the connection opened, so picking one opens nothing new.
     private func reattach(_ alias: String, on database: String) async throws {
         guard let idx = active.firstIndex(where: { $0.alias == alias }) else { return }
         let current = active[idx]
-        guard current.engine == .mysql || current.engine == .postgres,
+        guard current.engine == .mysql,
               queryEngine.attachedDatabase(alias) != database,
               let password = password(for: current) else { return }
         var target = current
