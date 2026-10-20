@@ -87,7 +87,7 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 |---|---|---|
 | ● Browse rows a page at a time | ✓ | `ContentBrowseTests` |
 | Page size, jump to a page | ✓ ⌘J: a page number, and 100 to 5,000 rows a page, kept across launches | `ContentPagingTests`, `MySQLWorkflowUITests` |
-| ● Filter rows | ◐ a typed `WHERE` condition, not field-operator-value pickers; a condition the server can't read says why | `ContentBrowseTests` |
+| ● Filter rows | ✓ a column, an operator (=, ≠, <, >, contains, begins with, is in, between, is NULL …) and a value, as in Sequel Ace; Type WHERE shows the rule as SQL to adjust; a condition the server can't read says why | `ContentFilterTests`, `ContentBrowseTests`, `MySQLWorkflowUITests` |
 | Saved filters | ✗ | |
 | ● Sort by a column | ✓ on the server | `DestructiveDDLVerifyTests`, `ContentDMLTests` |
 | ● Edit a cell in place | ✓ Return or a click away saves, Esc cancels | `InlineCellEditTests`, `ContentEditTests`, `MySQLWorkflowUITests` |

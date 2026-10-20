@@ -397,6 +397,7 @@ struct StructurePanel: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 12, weight: edit.keyType == "PRI" ? .semibold : .regular))
                 .frame(width: wName - 4).padding(.horizontal, 2)
+                .accessibilityIdentifier("structure.name.\(edit.name)")
 
             // Type — compact monospaced text, menu on tap
             if isSelected {
@@ -414,14 +415,23 @@ struct StructurePanel: View {
                     .frame(width: wType - 4, alignment: .leading).padding(.horizontal, 2)
             }
 
-            // Length — compact number field
-            TextField("", text: binding.length)
-                .textFieldStyle(.plain)
-                .font(Theme.mono(10)).foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .lineLimit(1).truncationMode(.tail)
-                .frame(width: wLen - 4)
-                .help(binding.length.wrappedValue)
+            // Length — editable when selected; otherwise one line, the whole value in a tooltip
+            // (a line-limited field sat below its row).
+            if isSelected {
+                TextField("", text: binding.length)
+                    .textFieldStyle(.plain)
+                    .font(Theme.mono(10)).foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(width: wLen - 4)
+                    .accessibilityIdentifier("structure.length.\(edit.name)")
+            } else {
+                Text(binding.length.wrappedValue)
+                    .font(Theme.mono(10)).foregroundColor(.secondary)
+                    .lineLimit(1).truncationMode(.tail)
+                    .frame(width: wLen - 4)
+                    .help(binding.length.wrappedValue)
+                    .accessibilityIdentifier("structure.length.\(edit.name)")
+            }
 
             // Null — checkbox always shown
             Toggle("", isOn: binding.nullable)

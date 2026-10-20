@@ -28,10 +28,15 @@ struct ContentPanel: View {
     /// Bumped after each saved cell edit, so the grid redraws the changed row.
     @State private var editRevision = 0
 
-    // Filter
+    // Filter: a column, an operator and a value, as in Sequel Ace; or a typed WHERE.
     @State private var filterText    = ""
     @State private var appliedFilter = ""
     @State private var showFilter    = false
+    @State private var typedWhere    = false
+    @State private var ruleColumn    = ""
+    @State private var ruleOp: ContentFilter.Op = .equals
+    @State private var ruleValue     = ""
+    @State private var ruleValue2    = ""
 
     // The row sheet: Add Row, or Duplicate Row (⌘D) starting from the selected row.
     @State private var rowSheet: RowSheetRequest?
@@ -189,6 +194,8 @@ struct ContentPanel: View {
                     .foregroundColor(appliedFilter.isEmpty ? .secondary : .accentColor)
             }
             .buttonStyle(.plain)
+            .help("Show only the rows that match a rule")
+            .accessibilityIdentifier("content.filterToggle")
 
             Spacer()
 
@@ -207,7 +214,7 @@ struct ContentPanel: View {
             Button {
                 Task { await deleteSelectedRows() }
             } label: {
-                Image(systemName: "minus")
+                Image(systemName: "minus").modifier(RowButtonIcon())
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -218,7 +225,7 @@ struct ContentPanel: View {
             // Duplicate the selected row (⌘D), as in Sequel Ace: the copy opens in the row
             // sheet, without what the server fills in itself.
             Button { duplicateSelectedRow() } label: {
-                Image(systemName: "plus.square.on.square")
+                Image(systemName: "plus.square.on.square").modifier(RowButtonIcon())
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -231,7 +238,7 @@ struct ContentPanel: View {
             Button {
                 rowSheet = RowSheetRequest(title: "Add Row", initial: [:])
             } label: {
-                Image(systemName: "plus")
+                Image(systemName: "plus").modifier(RowButtonIcon())
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
@@ -241,7 +248,7 @@ struct ContentPanel: View {
 
             // Reload
             Button { Task { await load() } } label: {
-                Image(systemName: "arrow.clockwise")
+                Image(systemName: "arrow.clockwise").modifier(RowButtonIcon())
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -286,16 +293,44 @@ struct ContentPanel: View {
 
     private var filterBar: some View {
         HStack(spacing: 8) {
-            Text("WHERE").font(.system(size: 12, weight: .semibold)).foregroundColor(.secondary)
-            TextField("status = 'active' AND created_at > '2025-01-01'", text: $filterText)
-                .accessibilityIdentifier("content.filter")
-                .textFieldStyle(.roundedBorder)
-                .font(Theme.mono(12))
-                .onSubmit { applyFilter() }
-            Button("Apply") { applyFilter() }
+            if typedWhere {
+                Text("WHERE").font(.system(size: 12, weight: .semibold)).foregroundColor(.secondary)
+                TextField("status = 'active' AND created_at > '2025-01-01'", text: $filterText)
+                    .accessibilityIdentifier("content.filter")
+                    .textFieldStyle(.roundedBorder)
+                    .font(Theme.mono(12))
+                    .onSubmit { applyFilter() }
+            } else {
+                Picker("Column", selection: $ruleColumn) {
+                    ForEach(columns, id: \.self) { Text($0).tag($0) }
+                }
+                .labelsHidden().fixedSize()
+                .accessibilityIdentifier("content.filterColumn")
+                Picker("Operator", selection: $ruleOp) {
+                    ForEach(ContentFilter.Op.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .labelsHidden().fixedSize()
+                .accessibilityIdentifier("content.filterOperator")
+                if ruleOp.takesValue {
+                    TextField(ruleOp == .isIn ? "a, b, c" : "value", text: $ruleValue)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { applyRule() }
+                        .accessibilityIdentifier("content.filterValue")
+                    if ruleOp == .between {
+                        Text("and").foregroundColor(.secondary)
+                        TextField("value", text: $ruleValue2)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit { applyRule() }
+                            .accessibilityIdentifier("content.filterValue2")
+                    }
+                } else {
+                    Spacer()
+                }
+            }
+            Button("Apply") { typedWhere ? applyFilter() : applyRule() }
                 .accessibilityIdentifier("content.apply")
                 .buttonStyle(.borderedProminent).controlSize(.small)
-                .disabled(filterText == appliedFilter)
+                .disabled(typedWhere ? filterText == appliedFilter : (ruleCondition == nil || ruleCondition == appliedFilter))
             if !appliedFilter.isEmpty {
                 Button("Clear") {
                     filterText = ""; appliedFilter = ""; page = 0; Task { await load() }
@@ -303,10 +338,30 @@ struct ContentPanel: View {
                 .buttonStyle(.bordered).controlSize(.small)
                 .foregroundColor(.red)
             }
+            // The rule, written out, can be adjusted by hand; a typed WHERE takes any condition.
+            Button(typedWhere ? "Use a rule" : "Type WHERE") { typedWhere.toggle() }
+                .buttonStyle(.borderless).controlSize(.small)
+                .help(typedWhere ? "Pick a column, an operator and a value" : "Type the WHERE condition yourself")
+                .accessibilityIdentifier("content.filterMode")
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
         .background(Color.accentColor.opacity(0.04))
         .overlay(Divider(), alignment: .bottom)
+        .onAppear { if !columns.contains(ruleColumn) { ruleColumn = columns.first ?? "" } }
+        .onChange(of: columns) { _, now in if !now.contains(ruleColumn) { ruleColumn = now.first ?? "" } }
+    }
+
+    /// The rule as the WHERE condition of whichever server reads the page; nil until it is whole.
+    private var ruleCondition: String? {
+        ContentFilter.condition(column: ruleColumn, op: ruleOp, value: ruleValue, value2: ruleValue2,
+                                dialect: ContentFilter.dialect(engine: conn.engine, passthrough: passthroughEligible))
+    }
+
+    /// Applies the rule; the typed WHERE then shows it, to adjust by hand.
+    private func applyRule() {
+        guard !ruleColumn.isEmpty, let condition = ruleCondition else { return }
+        filterText = condition
+        appliedFilter = condition; page = 0; Task { await load() }
     }
 
     // MARK: - No-PK warning
@@ -510,6 +565,16 @@ struct ContentPanel: View {
             let isNull = rowIndex < nullMask.count && ci < nullMask[rowIndex].count && nullMask[rowIndex][ci]
             return (column: pk, value: isNull ? nil : row[ci])
         }
+    }
+}
+
+// MARK: - Row buttons
+
+/// One size for the icons of the row buttons (−, duplicate, +, refresh): a taller symbol,
+/// arrow.clockwise, made its button taller than the others.
+private struct RowButtonIcon: ViewModifier {
+    func body(content: Content) -> some View {
+        content.font(.system(size: 11, weight: .medium)).frame(width: 14, height: 14)
     }
 }
 

@@ -60,6 +60,29 @@ struct ContentBrowseTests {
         #expect(reason.contains("no_such_column"), "got: \(reason)")
     }
 
+    @Test("a column-operator-value filter finds awkward values as themselves on the server")
+    func filterRules() async throws {
+        let e = try QueryEngine()
+        try await e.attach(Connection(name: "cb4", alias: "cb4", host: CEnv.host, port: CEnv.port,
+                                      username: CEnv.user, database: CEnv.writeDB), password: CEnv.pass)
+        let t = SQLBuilder.mysqlTable(database: CEnv.writeDB, table: "cb_rules")
+        try await e.mysqlExecute(alias: "cb4", sql: "DROP TABLE IF EXISTS \(t)")
+        try await e.mysqlExecute(alias: "cb4", sql: "CREATE TABLE \(t) (id INT PRIMARY KEY, note VARCHAR(20)) ENGINE=InnoDB")
+        try await e.mysqlExecute(alias: "cb4", sql: #"INSERT INTO \#(t) VALUES (1, '50%'), (2, '50 off'), (3, 'a_b'), (4, 'axb'), (5, 'C:\\new'), (6, 'O''Brien'), (7, NULL)"#)
+        func ids(_ op: ContentFilter.Op, _ value: String) async throws -> [String] {
+            let condition = try #require(ContentFilter.condition(column: "note", op: op, value: value, dialect: .mysql))
+            return try await e.serverContentPage(alias: "cb4", database: CEnv.writeDB, table: "cb_rules", filter: condition,
+                                                 sortColumn: "id", sortAscending: true, limit: 100, offset: 0).rows.map { $0[0] }
+        }
+        #expect(try await ids(.contains, "50%") == ["1"])
+        #expect(try await ids(.beginsWith, "a_") == ["3"])
+        #expect(try await ids(.equals, #"C:\new"#) == ["5"])
+        #expect(try await ids(.equals, "O'Brien") == ["6"])
+        #expect(try await ids(.isNull, "") == ["7"])
+        #expect(try await ids(.isIn, "axb, a_b") == ["3", "4"])
+        try await e.mysqlExecute(alias: "cb4", sql: "DROP TABLE \(t)")
+    }
+
     @Test("Set to NULL stores NULL, not an empty string")
     func setNull() async throws {
         let e = try await makeEngine("cb3")

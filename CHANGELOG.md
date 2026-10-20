@@ -81,6 +81,10 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   Table Info, Query), and ⌘7–⌘9 open Routines, Server and Console.
 
 ### Added
+- The Content tab's Filter picks a column, an operator (=, ≠, <, >, ≤, ≥, contains,
+  doesn't contain, begins with, ends with, is in, between, is NULL, isn't NULL) and a
+  value, as in Sequel Ace. A `%`, `_`, quote or backslash in the value is matched as
+  itself. Type WHERE shows the rule as SQL, to adjust or replace by hand.
 - In the Content tab, ⌘J jumps to a page and sets the rows a page shows (100 to 5,000,
   kept across launches); ⌘D duplicates the selected row in the row sheet, its
   auto-increment key left to the server. Both as in Sequel Ace.

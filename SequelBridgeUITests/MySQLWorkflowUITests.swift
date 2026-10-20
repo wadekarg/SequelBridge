@@ -286,6 +286,31 @@ final class MySQLWorkflowUITests: XCTestCase {
         app.typeKey(.escape, modifierFlags: [])
     }
 
+    func testFilterRowsWithAColumnAnOperatorAndAValue() {
+        table("orders").click()
+        app.typeKey("2", modifierFlags: .command)
+        let grid = element("results.grid")
+        XCTAssertTrue(grid.staticTexts["shipped"].waitForExistence(timeout: 30), "the Content tab didn't show the rows")
+        element("content.filterToggle").click()
+        let column = element("content.filterColumn")
+        XCTAssertTrue(column.waitForExistence(timeout: 10), "no column picker")
+        column.click()
+        app.menuItems["status"].click()
+        let value = element("content.filterValue")
+        value.click()
+        value.typeText("paid\r")
+        XCTAssertTrue(waitForGone(grid.staticTexts["shipped"]), "status = paid didn't filter the rows")
+        XCTAssertTrue(grid.staticTexts["paid"].exists)
+
+        element("content.filterOperator").click()
+        app.menuItems["contains"].click()
+        value.click()
+        value.typeKey("a", modifierFlags: .command)
+        value.typeText("ipp\r")
+        XCTAssertTrue(grid.staticTexts["shipped"].waitForExistence(timeout: 30), "contains ipp didn't find shipped")
+        XCTAssertFalse(grid.staticTexts["paid"].exists)
+    }
+
     func testJumpToAPageAndChangeTheRowsPerPage() {
         pick(database: "sbwrite")
         // Rows 1001–1300; a page starts with the id of its first row.
