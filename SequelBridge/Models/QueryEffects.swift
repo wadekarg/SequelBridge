@@ -55,6 +55,20 @@ nonisolated enum QueryEffects {
         return !matches(transactionControl, statement)
     }
 
+    /// Whether the Query tab runs `sql` on the app's own client for the server, since the
+    /// passthrough can't: mysql_query prepares every statement, and MySQL can't prepare
+    /// SHOW CREATE TABLE, SHOW PROCESSLIST, SHOW GRANTS, SHOW WARNINGS, HELP or CHECK
+    /// TABLE; postgres_query nests every statement as a subquery, where PostgreSQL takes
+    /// neither SHOW nor EXPLAIN. Their results are small, so they come back whole.
+    static func runsOnNativeClient(_ sql: String, engine: DatabaseEngine) -> Bool {
+        guard let statement = statements(sql).first else { return false }
+        switch engine {
+        case .mysql:               return ["SHOW", "HELP", "CHECK", "CHECKSUM"].contains(firstWord(statement))
+        case .postgres:            return ["SHOW", "EXPLAIN"].contains(firstWord(statement))
+        case .sqlite, .clickhouse: return false
+        }
+    }
+
     /// Whether `sql` begins a transaction (true) or ends one (false); nil for any other.
     static func transactionChange(_ sql: String) -> Bool? {
         guard let statement = statements(sql).first, matches(transactionControl, statement) else { return nil }

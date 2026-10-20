@@ -244,6 +244,7 @@ final class QueryEngine {
     private var attachedDSN: [String: String] = [:]
     /// File backing each attached SQLite alias; sqlite_scan needs the path.
     private var sqlitePaths: [String: String] = [:]     // alias → the SQLite file's path
+    private var postgresConfigs: [String: PostgresClient.Config] = [:]   // alias → PostgreSQL's own client
     /// How long a change to a SQLite file waits for a lock another connection holds.
     var sqliteBusyTimeout: TimeInterval = 5
     /// Native-client TCP params per MySQL alias (effective host/port after any SSH
@@ -559,6 +560,14 @@ final class QueryEngine {
                     password: password, database: c.database, useTLS: c.useSSL,
                     socketPath: nativeSocket, readOnly: c.readOnly)
             }
+            // And for PostgreSQL's own client (EXPLAIN, SHOW).
+            if c.engine == .postgres {
+                let socket = nativeSocket.map { Self.postgresSocket($0, defaultPort: c.port) }
+                postgresConfigs[c.alias] = PostgresClient.Config(
+                    host: nativeHost, port: socket?.port ?? nativePort, user: c.username,
+                    password: password, database: c.database, useTLS: c.useSSL,
+                    socketDirectory: socket?.directory, readOnly: c.readOnly)
+            }
 
             let sql = "ATTACH '\(dsnParts)' AS \(sqlIdentifierQuote(c.alias)) \(Self.attachOptions(c))"
             Log.engine.info("ATTACH alias=\(c.alias, privacy: .public) host=\(c.host) type=\(c.connectionType.rawValue, privacy: .public)")
@@ -576,6 +585,7 @@ final class QueryEngine {
             // (extension load / ATTACH) failed, the tunnel would otherwise leak.
             stopTunnel(c.alias)
             mysqlConfigs.removeValue(forKey: c.alias)
+            postgresConfigs.removeValue(forKey: c.alias)
             engines.removeValue(forKey: c.alias)
             readOnlyAliases.remove(c.alias)   // don't leave safe-mode state for a failed attach
             let reason = Self.connectionError(Self.extractReason(from: error), password: password)
@@ -753,6 +763,7 @@ final class QueryEngine {
             engines.removeValue(forKey: alias)
             attachedDSN.removeValue(forKey: alias)
             mysqlConfigs.removeValue(forKey: alias)
+            postgresConfigs.removeValue(forKey: alias)
             readOnlyAliases.remove(alias)
             stopTunnel(alias)
         }
@@ -1772,15 +1783,51 @@ final class QueryEngine {
         return TableMaintenance.summary(columns: answer.columns, rows: answer.rows)
     }
 
-    func nativeMySQLQuery(alias: String, sql: String, logSQL: String? = nil) async throws -> QueryResult {
+    func nativeMySQLQuery(alias: String, sql: String, logSQL: String? = nil, database: String? = nil) async throws -> QueryResult {
         try ensureReads(sql, alias: alias)
-        return try await nativeMySQLRun(alias: alias, sql: sql, logSQL: logSQL)
+        return try await nativeMySQLRun(alias: alias, sql: sql, logSQL: logSQL, database: database)
     }
 
-    private func nativeMySQLRun(alias: String, sql: String, logSQL: String? = nil) async throws -> QueryResult {
-        guard let cfg = mysqlConfigs[alias] else {
+    /// A statement the passthrough can't run (QueryEffects.runsOnNativeClient), on the
+    /// app's own client for the server: in `database` when given, a MySQL database or a
+    /// PostgreSQL schema.
+    func nativeQuery(alias: String, sql: String, database: String?) async throws -> QueryResult {
+        switch engine(for: alias) {
+        case .mysql:    return try await nativeMySQLQuery(alias: alias, sql: sql, database: database)
+        case .postgres: return try await nativePostgresQuery(alias: alias, sql: sql, schema: database)
+        case .sqlite, .clickhouse:
+            throw SequelBridgeError.attachFailed("This connection has no client of the app's own.")
+        }
+    }
+
+    /// Runs `sql` on PostgreSQL's own client (see PostgresClient), in `schema` when given.
+    func nativePostgresQuery(alias: String, sql: String, schema: String? = nil, logSQL: String? = nil) async throws -> QueryResult {
+        try ensureReads(sql, alias: alias)
+        guard let cfg = postgresConfigs[alias] else {
+            throw SequelBridgeError.attachFailed("No PostgreSQL connection named '\(alias)'.")
+        }
+        let sent = schema.map { "SET search_path TO \(SQLBuilder.duckIdent($0)); \(sql)" } ?? sql
+        let start = Date()
+        do {
+            let (cols, rows) = try await PostgresClient(cfg).query(sent)
+            var result = QueryResult(columns: cols,
+                                     rows: rows.map { $0.map { $0 ?? "NULL" } },
+                                     executionTime: Date().timeIntervalSince(start))
+            result.nullMask = rows.map { $0.map { $0 == nil } }
+            result.totalRowCount = rows.count
+            logStatement(logSQL ?? sql, rows.count, nil, result.executionTime)
+            return result
+        } catch {
+            logStatement(logSQL ?? sql, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
+            throw error
+        }
+    }
+
+    private func nativeMySQLRun(alias: String, sql: String, logSQL: String? = nil, database: String? = nil) async throws -> QueryResult {
+        guard var cfg = mysqlConfigs[alias] else {
             throw SequelBridgeError.attachFailed("No MySQL connection named '\(alias)'.")
         }
+        if let database, !database.isEmpty { cfg.database = database }
         let start = Date()
         do {
             let (cols, rows) = try await MySQLClient(cfg).query(sql)
@@ -1801,7 +1848,7 @@ final class QueryEngine {
     /// plan grid (MySQL: id/select_type/table/type/key/rows/Extra; Postgres: the
     /// query plan text). `serverSQL` must already have the DuckDB alias prefix
     /// stripped, since it executes on the server directly against its default db.
-    func explain(alias: String, serverSQL: String) async throws -> QueryResult {
+    func explain(alias: String, serverSQL: String, database: String? = nil) async throws -> QueryResult {
         let explainSQL = "EXPLAIN \(serverSQL)"
         try ensureReads(explainSQL, alias: alias)
         switch engine(for: alias) {
@@ -1809,9 +1856,11 @@ final class QueryEngine {
             // mysql_scanner can't run EXPLAIN through mysql_query on MariaDB (it prepares
             // every statement to learn its result types, and EXPLAIN isn't preparable), so
             // run it on the native client instead — full server-native EXPLAIN, no degrade.
-            return try await nativeMySQLQuery(alias: alias, sql: explainSQL, logSQL: explainSQL)
+            return try await nativeMySQLQuery(alias: alias, sql: explainSQL, logSQL: explainSQL, database: database)
         case .postgres:
-            return try await query("SELECT * FROM postgres_query(\(SQLBuilder.literal(alias)), \(SQLBuilder.literal(explainSQL)))")
+            // postgres_query nests every statement as a subquery, where PostgreSQL takes no
+            // EXPLAIN, so it runs on PostgreSQL's own client.
+            return try await nativePostgresQuery(alias: alias, sql: explainSQL, schema: database, logSQL: explainSQL)
         case .clickhouse:
             return try await clickhouseQuery(alias: alias, sql: explainSQL)
         case .sqlite:

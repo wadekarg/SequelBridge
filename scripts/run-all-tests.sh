@@ -44,6 +44,7 @@ MYSQL80=sb-mysql80      ; MYSQL80_PORT=3313 ; MYSQL80_IMG=mysql:8.0
 MY_ROOT_PW=sbverify123
 PG=sb-postgres          ; PG_PORT=5433      ; PG_IMG=postgres:16
 PG_USER=sbuser          ; PG_PW=sbpass123   ; PG_DB=sbtest
+PGSSL=sb-postgres-ssl   ; PGSSL_PORT=5434   # the same, with TLS on
 CH=sb-clickhouse        ; CH_HTTP=8123      ; CH_NATIVE=9000        ; CH_IMG=clickhouse/clickhouse-server:latest
 CH_USER=sbuser          ; CH_PW=sbpass123
 # SSH server for the tunnel tests: today's defaults on SSH_PORT, an old server that
@@ -94,7 +95,7 @@ wait_for() { # name cmd...
 provision() {
   need_docker
   say "Provisioning throwaway containers (fresh)"
-  docker rm -f "$MARIA" "$MARIA2" "$MYSQL8" "$MARIA11" "$MYSQL80" "$PG" "$CH" >/dev/null 2>&1 || true
+  docker rm -f "$MARIA" "$MARIA2" "$MYSQL8" "$MARIA11" "$MYSQL80" "$PG" "$PGSSL" "$CH" >/dev/null 2>&1 || true
 
   docker run -d --name "$MARIA"  -e MYSQL_ROOT_PASSWORD="$MY_ROOT_PW" -p "$MARIA_PORT:3306"  "$MARIA_IMG"  >/dev/null
   docker run -d --name "$MARIA2" -e MYSQL_ROOT_PASSWORD="$MY_ROOT_PW" -p "$MARIA2_PORT:3306" "$MARIA_IMG"  >/dev/null
@@ -115,6 +116,7 @@ provision() {
   start_mysql8
   start_mariadb11
   start_mysql80
+  start_pgssl
 }
 
 # MySQL 8.4: caching_sha2_password at login, strict SQL mode, utf8mb4_0900 collations.
@@ -135,6 +137,17 @@ start_mariadb11() {
   docker run -d --name "$MARIA11" -e MARIADB_ROOT_PASSWORD="$MY_ROOT_PW" -p "$MARIA11_PORT:3306" "$MARIA11_IMG" >/dev/null
   wait_for "$MARIA11" docker exec "$MARIA11" mariadb --protocol=TCP -h127.0.0.1 -uroot -p"$MY_ROOT_PW" -e "SELECT 1"
   docker exec -i "$MARIA11" mariadb -uroot -p"$MY_ROOT_PW" < "$FIX/mysql.sql"; ok "mariadb 11.4 $MARIA11_PORT (sbtest/sbwrite/sbreal)"
+}
+
+# PostgreSQL with TLS on, using the image's own snakeoil certificate: Use SSL and the
+# app's own PostgreSQL client switching to TLS.
+start_pgssl() {
+  docker rm -f "$PGSSL" >/dev/null 2>&1 || true
+  docker run -d --name "$PGSSL" -e POSTGRES_USER="$PG_USER" -e POSTGRES_PASSWORD="$PG_PW" -e POSTGRES_DB="$PG_DB" \
+    -p "$PGSSL_PORT:5432" "$PG_IMG" -c ssl=on \
+    -c ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key >/dev/null
+  wait_for "$PGSSL" docker exec "$PGSSL" psql -U "$PG_USER" -d "$PG_DB" -c "SELECT 1"
+  ok "postgres with SSL $PGSSL_PORT"
 }
 
 # MySQL 8.0: caching_sha2_password at login, mysql_native_password still built in.
@@ -198,8 +211,8 @@ seed() {
 teardown() {
   need_docker
   say "Tearing containers down"
-  docker rm -f "$MARIA" "$MARIA2" "$MYSQL8" "$MARIA11" "$MYSQL80" "$PG" "$CH" "$SSHD" >/dev/null 2>&1 || true
-  ok "removed $MARIA $MARIA2 $MYSQL8 $MARIA11 $MYSQL80 $PG $CH $SSHD"
+  docker rm -f "$MARIA" "$MARIA2" "$MYSQL8" "$MARIA11" "$MYSQL80" "$PG" "$PGSSL" "$CH" "$SSHD" >/dev/null 2>&1 || true
+  ok "removed $MARIA $MARIA2 $MYSQL8 $MARIA11 $MYSQL80 $PG $PGSSL $CH $SSHD"
 }
 
 # ---- the env every gated suite reads (TEST_RUNNER_ prefix stripped by Xcode)-
@@ -240,6 +253,7 @@ export_db_env() {
   export TEST_RUNNER_SB_MYSQL8_VERIFY=1       TEST_RUNNER_SB_MYSQL8_PORT=$MYSQL8_PORT  TEST_RUNNER_SB_MYSQL8_PASS=$MY_ROOT_PW
   # Use SSL: MySQL 8.4 offers TLS; MariaDB 10.0 and PostgreSQL 16 here don't
   export TEST_RUNNER_SB_SSL_VERIFY=1          TEST_RUNNER_SB_SSL_TLS_PORT=$MYSQL8_PORT TEST_RUNNER_SB_SSL_PLAIN_PORT=$MARIA_PORT
+  export TEST_RUNNER_SB_PG_SSL_PORT=$PGSSL_PORT
   if [ "$RUN_BENCH" = 1 ]; then
     export TEST_RUNNER_SB_BENCH=1 TEST_RUNNER_SB_BENCH_OUT="$ROOT/.build/sb_bench.json"
     [ "$CONFIG" = Release ] || warn "benchmark wants --release for honest numbers"
@@ -269,7 +283,7 @@ run_tests() {
 # The MySQL family suites again, with their server pointed at MySQL 8.4, MariaDB 11.4
 # and MySQL 8.0 in turn. MariaDB 10.0 stays the second server, so MultiServer joins
 # across versions.
-MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests ContentBrowseTests ServerToolsTests QueryTabAsTypedTests SSLConnectionTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests ReadOnlyMySQLTests
+MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests ContentBrowseTests ServerToolsTests QueryTabAsTypedTests SSLConnectionTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests ReadOnlyMySQLTests MySQLNativeStatementTests
               RealSchemaTests MultiServerTests DestructiveDDLVerifyTests QueryResultEditTests PostgresTests
               ClickHouseBridgeTests CrossEngineJoinTests CrossJoinReductionTests FallbackMaterializeDBTests
               QueryCancelTests PushdownDBTests)
@@ -302,6 +316,7 @@ docker ps --format '{{.Names}}' | grep -qx "$SSHD" || start_sshd
 docker ps --format '{{.Names}}' | grep -qx "$MYSQL8" || start_mysql8
 docker ps --format '{{.Names}}' | grep -qx "$MARIA11" || start_mariadb11
 docker ps --format '{{.Names}}' | grep -qx "$MYSQL80" || start_mysql80
+docker ps --format '{{.Names}}' | grep -qx "$PGSSL" || start_pgssl
 start_socket_relay
 
 export_db_env

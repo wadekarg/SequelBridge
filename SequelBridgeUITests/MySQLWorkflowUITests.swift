@@ -229,6 +229,18 @@ final class MySQLWorkflowUITests: XCTestCase {
         run("DROP TABLE ui_typed")
     }
 
+    // MySQL can't prepare these, and the passthrough prepares every statement: typed in
+    // the Query tab they failed ("Failed to fetch return types"). The app's own client
+    // runs them now.
+    func testShowCreateTableAndProcesslistTypedInTheQueryTab() {
+        pick(database: "sbtest")
+        run("SHOW CREATE TABLE customers")
+        XCTAssertTrue(element("results.grid").buttons["Create Table"].waitForExistence(timeout: 30), "SHOW CREATE TABLE showed no statement")
+        XCTAssertTrue(text(containing: "CREATE TABLE `customers`").waitForExistence(timeout: 10))
+        run("SHOW FULL PROCESSLIST")
+        XCTAssertTrue(element("results.grid").buttons["Command"].waitForExistence(timeout: 30), "SHOW FULL PROCESSLIST showed no processes")
+    }
+
     // A keyboard shortcut runs the action its button had when first drawn. Before each
     // table had a panel of its own, ⌘R on the second table opened in Content or Structure
     // reloaded the first table's rows or columns, under the second table's name.

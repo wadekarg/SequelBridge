@@ -661,6 +661,13 @@ struct QueryPanelView: View {
         // connection's DSN default (the passthrough pool ignores server-side USE, so
         // only then do unqualified names resolve correctly on the server).
         var passthrough: (alias: String, serverSQL: String)? = nil
+        // A statement the passthrough can't run (SHOW CREATE TABLE on MySQL, SHOW on
+        // PostgreSQL): the app's own client for that server runs it, in the database picked.
+        var native: (alias: String, serverSQL: String, database: String)? = nil
+        func nativeIfNeeded(_ conn: Connection) -> (alias: String, serverSQL: String, database: String)? {
+            guard QueryEffects.runsOnNativeClient(baseSQL, engine: conn.engine) else { return nil }
+            return (conn.alias, SQLBuilder.stripAliasPrefix(baseSQL, alias: conn.alias), catalogDatabase(for: conn.alias))
+        }
         func passthroughIfEligible(_ conn: Connection) -> (alias: String, serverSQL: String)? {
             // Use the database the connection is actually ATTACHED with (the DSN default),
             // which the sidebar keeps in sync by re-attaching when you pick a database.
@@ -684,6 +691,8 @@ struct QueryPanelView: View {
                                                 active: session.activeConnectionAlias) {
                 if conn.engine == .clickhouse {
                     clickhouseAlias = conn.alias
+                } else if let nat = nativeIfNeeded(conn) {
+                    native = nat
                 } else if let pt = passthroughIfEligible(conn) {
                     passthrough = pt
                 } else if conn.engine == .mysql || conn.engine == .postgres,
@@ -705,6 +714,9 @@ struct QueryPanelView: View {
                 clickhouseAlias = referenced[0].alias
                 sql = SQLBuilder.clickhouseSoleServerSQL(baseSQL, alias: referenced[0].alias,
                                                          database: catalogDatabase(for: referenced[0].alias))
+            } else if referenced.count == 1, let nat = nativeIfNeeded(referenced[0]) {
+                native = nat
+                sql = baseSQL
             } else if referenced.count == 1, let pt = passthroughIfEligible(referenced[0]) {
                 // Only one server is referenced, so there is nothing to join across —
                 // push it to that server for the same speed as a lone connection.
@@ -820,6 +832,10 @@ struct QueryPanelView: View {
                     let changed = try await manager.queryEngine.runAsTyped(alias: typed.alias, sql: typed.serverSQL)
                     let result = changed.map { QueryResult(columns: ["Affected rows"], rows: [["\($0)"]], executionTime: 0) }
                         ?? QueryResult(columns: ["Result"], rows: [["Done"]], executionTime: 0)
+                    setTab { $0.result = runClock.stamped(result); $0.isRunning = false }
+                } else if let nat = native {
+                    let result = try await manager.queryEngine.nativeQuery(alias: nat.alias, sql: nat.serverSQL,
+                                                                           database: nat.database)
                     setTab { $0.result = runClock.stamped(result); $0.isRunning = false }
                 } else if let chAlias = clickhouseAlias {
                     // ClickHouse runs on its own native client — no DuckDB streaming.
@@ -1155,7 +1171,8 @@ struct QueryPanelView: View {
         startElapsedTimer()
         let task = Task {
             do {
-                let result = try await manager.queryEngine.explain(alias: conn.alias, serverSQL: serverSQL)
+                let result = try await manager.queryEngine.explain(alias: conn.alias, serverSQL: serverSQL,
+                                                                   database: catalogDatabase(for: conn.alias))
                 setTab { $0.result = runClock.stamped(result) }
             } catch is CancellationError {
                 setTab { $0.error = "Cancelled" }

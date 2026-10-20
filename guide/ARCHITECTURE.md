@@ -49,7 +49,7 @@ app tells you exactly what it sent to each server.
 | Connections | `Engine/ConnectionManager.swift`, `Utilities/ConnectionStore.swift`, `Keychain.swift`, `Engine/SSHTunnel.swift`, `Utilities/SupportDirectory.swift` | The saved list (`connections.json`), passwords (one Keychain item per connection id under the service "SequelBridge"), connect and disconnect, SSH port forwards, where the app's files live. |
 | Engine | `Engine/QueryEngine.swift` and its `+Postgres`, `+SQLite`, `+ClickHouse` extensions | One DuckDB, four connections to it, attach and detach, streaming results, the planner's entry points, per-engine metadata. |
 | Planner | `Engine/SQLBuilder.swift` (+ `SQLBuilder+Postgres.swift`), `Engine/SQLPushdown.swift` | Statement classification (`isReadOnly`, `isRowReturning`, `referencesAlias`, `detectCrossJoin`, `detectSemiJoin`), the rewrites (`crossJoinRewrite`, `planFallback`), per-dialect quoting and DDL, and which WHERE conditions each server can be trusted with. |
-| Native clients | `Engine/ClickHouseClient.swift`, `Engine/MySQLClient.swift`, `Engine/MySQLDirectConnection.swift` | ClickHouse over HTTP; a minimal MySQL wire-protocol client for the two statements the scanner cannot prepare (`EXPLAIN`, `SHOW CREATE TABLE`). |
+| Native clients | `Engine/ClickHouseClient.swift`, `Engine/MySQLClient.swift`, `Engine/MySQLDirectConnection.swift`, `Engine/PostgresClient.swift`, `Engine/WireLink.swift` | ClickHouse over HTTP; minimal MySQL and PostgreSQL wire-protocol clients for the statements the scanner cannot run (`EXPLAIN`, `SHOW`, MySQL's `HELP` and `CHECK TABLE`), over one shared byte stream that can switch to TLS part-way. |
 | Results | `Models/QueryResult.swift`, `CellTable.swift`, `StreamBatcher.swift`, `RunClock.swift`, `ChartData.swift`, `Engine/ResultExporter.swift` | The result's columnar storage, when streamed chunks reach the screen, one clock per run, chart series, CSV/JSON/Markdown/SQL export. |
 | Views | `Views/Home/*`, `Views/Workspace/*` | Home and the connection form; the workspace: toolbar tabs (`WorkspaceView`), sidebar, the Query tab (`QueryPanelView`, which also dispatches each statement), editor, results grid and chart, and one file per panel. |
 | Stores | `Utilities/HistoryStore.swift`, `SavedQueryStore.swift`, `CSVParser.swift`, `ConsoleExporter.swift` | Statement history (`history.jsonl`, append-only, compacted at 1,000 entries), saved queries (`saved_queries.json`), an RFC 4180 CSV reader, the console's `.sql` export. |
@@ -97,7 +97,11 @@ app tells you exactly what it sent to each server.
    its tunnel.
 
 A read-only connection is remembered by the engine at attach time; every write path
-checks it (`ensureWritable`) before anything reaches a server.
+checks it (`ensureWritable`) before anything reaches a server. Below that, DuckDB
+attaches it `READ_ONLY` (DuckDB refuses a write to it, `mysql_execute` included, and
+the scanners' transactions are read-only on the server), the native MySQL and
+PostgreSQL sessions are read-only, and ClickHouse gets `readonly=2`, unless the account
+is read-only on the server already.
 
 ## How a statement is dispatched
 
@@ -106,8 +110,8 @@ checks it (`ensureWritable`) before anything reaches a server.
 1. If it writes (`SQLBuilder.isReadOnly` says no) and any open connection is read-only,
    it is refused with the connection's name.
 2. A typed `EXPLAIN …` that names one MySQL or PostgreSQL server takes the Explain
-   button's path: the server's own plan, on the native MySQL client where the scanner
-   cannot prepare it.
+   button's path: the server's own plan, on that server's native client, since the
+   scanner can run it on neither.
 3. Otherwise the servers it names are counted (`referencesAlias` per alias) and the
    statement goes down one of these paths. Every path keeps a plain form of the
    statement as its backstop, so a plan that cannot proceed falls back rather than
@@ -116,6 +120,7 @@ checks it (`ensureWritable`) before anything reaches a server.
 | The statement | Path | What the servers see |
 |---|---|---|
 | names one MySQL or PostgreSQL server | passthrough | the statement, as written, inside `mysql_query('alias', '…')` or `postgres_query(…)`; the server executes it, DuckDB streams the result |
+| `SHOW`, `HELP`, `CHECK` or `CHECKSUM` on one MySQL server; `SHOW` on one PostgreSQL server | native | the statement as written, on the server's native client, in the database (PostgreSQL: schema) picked; the whole result comes back |
 | names one ClickHouse server | native | the statement on ClickHouse over HTTP, with `alias.table` turned into `database.table` |
 | names only a SQLite file | DuckDB | DuckDB reads the file |
 | `… WHERE x IN (SELECT … FROM other.table)` across two servers | semi-join | the subquery on its server first, its values inlined (up to 10,000), then the outer statement on its own server |
@@ -371,7 +376,25 @@ SSLRequest, switches the same connection to TLS (a `URLSessionStreamTask`, whose
 first `caching_sha2_password` login sends the password itself. Like the scanner's
 `ssl_mode=required`, it encrypts without checking the server's certificate, and a
 server that doesn't offer SSL is refused, never asked in clear. A refused or
-unreachable server fails at once, and no connect waits longer than ten seconds. Everything else goes through the scanner.
+unreachable server fails at once, and no connect waits longer than ten seconds. Typed in
+the Query tab, `SHOW` (MySQL can't prepare `SHOW CREATE TABLE`, `SHOW PROCESSLIST`,
+`SHOW GRANTS` or `SHOW WARNINGS`), `HELP`, `CHECK TABLE` and `CHECKSUM TABLE` run on it
+too. On a read-only connection its session is read-only on the server. Everything else
+goes through the scanner.
+
+## The native PostgreSQL client
+
+`postgres_query` nests every statement as a subquery (`SELECT … FROM (statement)`), and
+PostgreSQL takes neither `EXPLAIN` nor `SHOW` there, nor in any function a query can
+call. `PostgresClient` speaks protocol 3.0: the startup message, a login with what the
+server asks for (SCRAM-SHA-256, MD5 or the password itself; the server's SCRAM proof is
+checked), one simple query, one short-lived connection per call. SSL is libpq's: it
+sends the SSLRequest first and switches to TLS when the server says yes; with Use SSL
+a server that says no is refused before any password is sent, and without it the
+connection goes on in plain text, as `sslmode=prefer` does. Like the scanner's
+`sslmode=require`, it doesn't check the certificate. A read-only connection starts its
+sessions with `default_transaction_read_only=on`; the schema picked in the left panel
+becomes the `search_path`.
 
 ## Metadata
 

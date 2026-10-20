@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 708 tests in 139 suites (about three minutes of tests after the build).
+at them, and runs all 724 tests in 144 suites (about three minutes of tests after the build).
 Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
 MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
@@ -32,7 +32,8 @@ on `mysql_native_password` (`scripts/fixtures/mysql8.sql`); MariaDB 11.4 (`sb-ma
 port 3312), which reports a timestamp's default as `current_timestamp()`; and MySQL 8.0
 (`sb-mysql80`, port 3313), which marks such a column `DEFAULT_GENERATED`. Each pass's log
 is `.build/run-all-tests-<server>.log`. `--mysql-port N --only "…"` points a targeted run
-at one of them.
+at one of them. PostgreSQL 16 runs twice: `sb-postgres` (5433) without SSL, and
+`sb-postgres-ssl` (5434) with it, on the image's own snakeoil certificate.
 
 Besides the database containers, the script runs an SSH server container (`sb-sshd`,
 `scripts/fixtures/ssh/sshd-setup.sh`) with a throwaway test key in `.build/ssh/`: port
@@ -72,7 +73,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-708 tests across 106 files.
+724 tests across 107 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -97,6 +98,9 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `ReadOnlyModeTests` | `SB_MYSQL_VERIFY` | safe mode refuses every write path, Content-tab edits included; reads still work |
 | `ReadOnlyStatementTests`, `ReadOnlySQLiteTests` | always | `EXPLAIN ANALYZE` of a write counts as a write; on a read-only SQLite file a statement through DuckDB, a typed one, a Content edit and Structure are all refused, the file is unchanged, and reads still work |
 | `ReadOnlyPostgresTests`, `ReadOnlyMySQLTests`, `ReadOnlyClickHouseTests` | `SB_PG_VERIFY`, `SB_MYSQL_VERIFY`, `SB_CH_VERIFY` | read-only below the interface: a statement through DuckDB, `mysql_execute`, the native client, `EXPLAIN ANALYZE` of a `DELETE`, `nextval()` and a stored function that inserts called from a `SELECT`, Kill, a ClickHouse `INSERT` or `DROP`, all refused with the rows unchanged; an account ClickHouse already holds read-only still reads |
+| `NativeRoutingTests`, `PostgresLoginTests` | always | which typed statements go to the app's own client (MySQL's SHOW, HELP, CHECK; PostgreSQL's SHOW, EXPLAIN); the PostgreSQL client's MD5 and SCRAM-SHA-256 logins against reference values (RFC 7677's example), a server that can't prove the password, an error's message |
+| `PostgresNativeTests`, `PostgresNativeSSLTests` | `SB_PG_VERIFY`, `SB_PG_SSL_PORT` | PostgreSQL's own client on a real server: the Explain button's plan, a typed `SHOW` in the schema picked, a server error's message, a read-only session, a Unix socket; over SSL with Use SSL and without it (encrypted when the server offers it, as libpq does), and Use SSL refused against a server without SSL before any password is sent |
+| `MySQLNativeStatementTests` | `SB_MYSQL_VERIFY` | `SHOW CREATE TABLE`, `SHOW FULL PROCESSLIST`, `SHOW GRANTS`, `SHOW WARNINGS`, `CHECK TABLE`, `CHECKSUM TABLE` typed in the Query tab, on the app's own client, in the database picked (on all four MySQL-family servers) |
 | `SQLitePromisesTests` | always | what the guide promises for a SQLite file, on one: Create Table (the types picked, an integer key that numbers rows), Structure's add, rename and drop of columns and indexes and its refusals, Content, export, triggers added, fired and dropped, a busy file |
 | `DatabaseDumpTests` | `SB_MYSQL_VERIFY` | whole-database SQL dump (all tables, schema + data) |
 | `PostgresTests` | `SB_PG_VERIFY` | PostgreSQL attach, query, joins |

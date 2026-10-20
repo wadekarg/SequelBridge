@@ -164,7 +164,9 @@ The bookmark button saves the statement under a name for later, and its Recent l
 holds the statements you ran, kept across restarts.
 
 A statement that names one server runs on that server in that server's own SQL, as if
-you had typed it into the server's own client. On MySQL and PostgreSQL a statement that
+you had typed it into the server's own client. `SHOW CREATE TABLE`, `SHOW PROCESSLIST`,
+`SHOW GRANTS`, `HELP` and `CHECK TABLE`, which MySQL won't run through DuckDB, go to the
+app's own MySQL client, and PostgreSQL's `SHOW` and `EXPLAIN` to its own PostgreSQL client. On MySQL and PostgreSQL a statement that
 returns no rows (a write, DDL) is sent exactly as typed; on MySQL the result says how
 many rows it changed, while PostgreSQL gives no count this way, so the result says Done.
 `LOCK TABLES` and `SET autocommit` are refused, saying why: the app's statements don't

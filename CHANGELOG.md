@@ -5,6 +5,14 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 ## 1.2.2 — 2026-10-19
 
 ### Fixed
+- On PostgreSQL the Explain button, and a typed `EXPLAIN` or `SHOW`, failed: DuckDB's
+  passthrough nests every statement in a subquery, where PostgreSQL takes neither. They
+  run on the app's own PostgreSQL client now, which logs in with SCRAM-SHA-256, MD5 or a
+  password, uses SSL as libpq does, and on a read-only connection starts read-only.
+- On MySQL, `SHOW CREATE TABLE`, `SHOW PROCESSLIST`, `SHOW GRANTS`, `SHOW WARNINGS`,
+  `HELP`, `CHECK TABLE` and `CHECKSUM TABLE` typed in the Query tab failed ("Failed to
+  fetch return types"): MySQL can't prepare them, and DuckDB's passthrough prepares every
+  statement. They run on the app's own MySQL client, in the database picked.
 - Read-only mode held only in the app's own write functions. Below them, a statement
   DuckDB ran still wrote to a read-only connection, as did an `EXPLAIN ANALYZE` of a
   `DELETE` (which runs it), a stored function a `SELECT` called, Kill on PostgreSQL, and
