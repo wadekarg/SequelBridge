@@ -11,14 +11,15 @@ in the server's own client.
 
 | Engine | Where it runs | EXPLAIN |
 |---|---|---|
-| MySQL / MariaDB | On the server, through the passthrough | The Explain button, or a typed `EXPLAIN …`: the server's own plan (run by the built-in MySQL client, since the scanner can't prepare it) |
-| PostgreSQL | On the server, through the passthrough | The Explain button, or a typed `EXPLAIN …`: the server's own plan |
+| MySQL / MariaDB | On the server, through the passthrough; `SHOW`, `HELP`, `CHECK TABLE` and `CHECKSUM TABLE` on the built-in MySQL client, since the scanner can't prepare them | The Explain button, or a typed `EXPLAIN …`: the server's own plan (on the built-in MySQL client too) |
+| PostgreSQL | On the server, through the passthrough; `SHOW` on the built-in PostgreSQL client, since the scanner nests every statement in a subquery | The Explain button, or a typed `EXPLAIN …`: the server's own plan (on the built-in PostgreSQL client too) |
 | ClickHouse | On the server, over its HTTP interface | A typed `EXPLAIN …` runs on ClickHouse like any statement; the Explain button is for MySQL and PostgreSQL only |
 | SQLite file | Read by DuckDB, so write DuckDB SQL | A typed `EXPLAIN …` shows DuckDB's plan; the Explain button is for MySQL and PostgreSQL only |
 
-A connection marked read-only refuses every write (INSERT, UPDATE, DELETE, DDL), and
-while one is open in the workspace a typed statement that writes is refused whichever
-server it names.
+A connection marked read-only refuses every write (INSERT, UPDATE, DELETE, DDL, an
+`EXPLAIN ANALYZE` of a write), and while one is open in the workspace a typed statement
+that writes is refused whichever server it names. The server's own session is
+read-only too, so a function a `SELECT` calls can't write either.
 
 ## Several servers: naming tables
 
