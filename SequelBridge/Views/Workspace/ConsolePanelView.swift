@@ -58,7 +58,7 @@ struct ConsolePanelView: View {
                                     Text(String(format: "%.3fs", entry.duration))
                                         .font(.caption2).monospacedDigit().foregroundColor(.secondary)
                                     if let rows = entry.rowsAffected {
-                                        Text("\(rows) rows")
+                                        Text(Plural.count(rows, "row"))
                                             .font(.caption2).monospacedDigit().foregroundColor(.secondary)
                                     }
                                 }

@@ -254,6 +254,38 @@ final class MySQLWorkflowUITests: XCTestCase {
         XCTAssertTrue(column("total").exists)
     }
 
+    // From the visual tour (VisualTourUITests): a cell that wrapped, a label that misnamed.
+    func testStructureCellsStayOnOneLine() {
+        continueAfterFailure = true      // each check stands alone
+        table("orders").click()
+        app.typeKey("1", modifierFlags: .command)
+        let placedAt = element("structure.default.placed_at")
+        XCTAssertTrue(placedAt.waitForExistence(timeout: 30), "Structure didn't show placed_at")
+        XCTAssertLessThan(placedAt.frame.height, 20, "CURRENT_TIMESTAMP wrapped onto two lines")
+        XCTAssertTrue(app.staticTexts["collation"].waitForExistence(timeout: 15), "the left panel's table information has no collation")
+        XCTAssertFalse(app.staticTexts["encoding"].exists, "a collation is shown as the encoding")
+    }
+
+    // From the visual tour: buttons smaller or bigger than the ones beside them, and a Go that was off.
+    func testToolbarButtonsMatchTheirNeighbours() {
+        continueAfterFailure = true      // each check stands alone
+        app.typeKey("6", modifierFlags: .command)
+        let runCurrent = element("query.runCurrent"), format = element("query.format")
+        XCTAssertTrue(runCurrent.waitForExistence(timeout: 10), "no Run Current")
+        XCTAssertEqual(runCurrent.frame.height, format.frame.height, accuracy: 2, "Run Current is smaller than Format beside it")
+
+        table("orders").click()
+        app.typeKey("2", modifierFlags: .command)
+        let refresh = element("content.refresh"), add = element("content.addRow")
+        XCTAssertTrue(refresh.waitForExistence(timeout: 30), "no Content refresh")
+        XCTAssertEqual(refresh.frame.height, add.frame.height, accuracy: 2, "Content's refresh is bigger than the buttons beside it")
+        app.typeKey("j", modifierFlags: .command)
+        let go = element("content.pageGo")
+        XCTAssertTrue(go.waitForExistence(timeout: 10), "⌘J didn't open the page options")
+        XCTAssertTrue(go.isEnabled, "Go is off though the field holds the page on screen")
+        app.typeKey(.escape, modifierFlags: [])
+    }
+
     func testJumpToAPageAndChangeTheRowsPerPage() {
         pick(database: "sbwrite")
         // Rows 1001–1300; a page starts with the id of its first row.

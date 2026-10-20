@@ -89,14 +89,14 @@ struct ResultsPanelView: View {
                 if tab.isStreaming {
                     // First rows are already shown and scrollable; the rest stream in.
                     ProgressView().scaleEffect(0.5).frame(width: 12, height: 12)
-                    Text("Loading \(result.rowCount) rows…")
+                    Text("Loading \(Plural.count(result.rowCount, "row"))…")
                         .font(Theme.fontChromeStrong).monospacedDigit()
                         .foregroundColor(.secondary)
                 } else {
                     Image(systemName: "tablecells").font(.caption2).foregroundColor(.secondary)
                     Text(filtering
-                         ? "\(shown.rowCount) of \(result.rowCount) rows"
-                         : (result.rowCount == 1 ? "1 row" : "\(result.rowCount) rows"))
+                         ? Plural.part(shown.rowCount, of: result.rowCount, "row")
+                         : Plural.count(result.rowCount, "row"))
                         .font(Theme.fontChromeStrong).monospacedDigit()
                         .foregroundColor(.primary)
                 }

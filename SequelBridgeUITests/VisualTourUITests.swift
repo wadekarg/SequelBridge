@@ -72,6 +72,7 @@ final class VisualTourUITests: XCTestCase {
         try launch(theme: theme)
         let t = theme.lowercased()
         shoot("\(t)-01-home")
+        XCTAssertFalse(app.staticTexts["Sequel Bridge"].exists, "Home spells the app's name two ways")
         for alias in ["shop", "lite", "analytics_warehouse"] { app.buttons["home.select.\(alias)"].click() }
         app.buttons["home.connect"].click()
         XCTAssertTrue(app.buttons["query.newTab"].waitForExistence(timeout: 180))

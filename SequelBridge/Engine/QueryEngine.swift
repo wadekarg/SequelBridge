@@ -1550,7 +1550,7 @@ final class QueryEngine {
     /// server's table order. `truncated` is true if ANY table hit the per-table row cap.
     func sqlDumpDatabase(alias: String, database: String, rowLimit: Int = 100_000) async throws -> SQLDumpResult {
         let tables = try await fetchTables(alias: alias, database: database)
-        var parts: [String] = ["-- SequelBridge dump of `\(database)` — \(tables.count) table(s)\n"]
+        var parts: [String] = ["-- SequelBridge dump of `\(database)` — \(Plural.count(tables.count, "table"))\n"]
         var totalRows = 0
         var anyTruncated = false
         for t in tables {

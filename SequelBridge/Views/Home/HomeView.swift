@@ -75,7 +75,7 @@ struct HomeView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .grayscale(1.0)
                 .opacity(0.35)
-            Text("Sequel Bridge")
+            Text("SequelBridge")
                 .font(.title2).bold()
                 .foregroundColor(.secondary.opacity(0.5))
             VStack(spacing: 6) {
@@ -94,7 +94,7 @@ struct HomeView: View {
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Sequel Bridge")
+                Text("SequelBridge")
                     .font(.title2).bold()
                 Text("Select one or more connections to open")
                     .font(.caption).foregroundColor(.secondary)

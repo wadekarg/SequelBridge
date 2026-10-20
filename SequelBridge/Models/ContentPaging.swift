@@ -38,6 +38,15 @@ nonisolated enum ContentPaging {
         return values
     }
 
+    /// What an empty field of the row sheet gets: an insert leaves the column out, so the
+    /// server fills it in, puts its default there, NULL, or refuses the row.
+    static func placeholder(for column: ColumnInfo, generated: Bool) -> String {
+        if generated { return "set by the server" }
+        let fallback = column.defaultValue.trimmingCharacters(in: .whitespaces)
+        if !fallback.isEmpty, fallback.uppercased() != "NULL" { return "default: \(fallback)" }
+        return column.nullable ? "NULL" : "required"
+    }
+
     /// The columns the server fills in itself, which an insert leaves out: an
     /// auto-increment key, a generated column (MySQL refuses a value for one), and
     /// SQLite's INTEGER PRIMARY KEY, which numbers the rows when it is the whole key.

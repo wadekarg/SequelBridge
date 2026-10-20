@@ -547,7 +547,7 @@ struct WorkspaceSidebarView: View {
         .background(Color(NSColor.textBackgroundColor))
         .overlay(alignment: .bottom) {
             if !allTables.isEmpty {
-                Text("\(filtered.count) of \(allTables.count) tables")
+                Text(Plural.part(filtered.count, of: allTables.count, "table"))
                     .font(.caption2).foregroundColor(.secondary)
                     .padding(4)
                     .frame(maxWidth: .infinity)
@@ -713,30 +713,7 @@ struct WorkspaceSidebarView: View {
         // result is shared with Table Info panel so the query only runs once.
         if let row = try? await manager.queryEngine.fetchTableMeta(
             alias: conn.alias, database: db, table: table.name), !row.isEmpty {
-            let fmtBytes: (String) -> String = { val in
-                let n = Int(val) ?? 0; if n == 0 { return "—" }
-                let units = ["B","KB","MB","GB","TB"]
-                var v = Double(n); var i = 0
-                while v >= 1024 && i < units.count - 1 { v /= 1024; i += 1 }
-                return String(format: "%.1f %@", v, units[i])
-            }
-            // row layout: [0]=engine [1]=row_format [2]=auto_inc [3]=collation [4]=create_opts [5]=comment
-            //             [6]=rows [7]=avg_row_len [8]=data_len [9]=max_data [10]=index_len [11]=data_free
-            //             [12]=create_time [13]=update_time [14]=check_time
-            let dataLen  = Int(row[8])  ?? 0
-            let indexLen = Int(row[10]) ?? 0
-            var info: [(key: String, value: String)] = [
-                ("rows",    row[6].isEmpty ? "—" : row[6]),
-                ("data",    fmtBytes(String(dataLen))),
-                ("index",   fmtBytes(String(indexLen))),
-                ("total",   fmtBytes(String(dataLen + indexLen))),
-                ("engine",  row[0].isEmpty ? "—" : row[0]),
-                ("encoding",row[3].isEmpty ? "—" : row[3]),
-            ]
-            if !row[12].isEmpty { info.append(("created", row[12])) }
-            if !row[13].isEmpty { info.append(("updated", row[13])) }
-            if !row[5].isEmpty  { info.append(("comment", row[5]))  }
-            tableInfo = info
+            tableInfo = TableMeta.summary(row)
         }
         tableInfoLoading = false
     }

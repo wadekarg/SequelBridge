@@ -118,7 +118,7 @@ struct ServerPanel: View {
     private func statusBar(_ shown: QueryResult) -> some View {
         HStack {
             if loading { ProgressView().scaleEffect(0.5).frame(width: 12, height: 12) }
-            Text("\(shown.rowCount)\(filter.isEmpty ? "" : " of \(result.rowCount)") rows")
+            Text(filter.isEmpty ? Plural.count(shown.rowCount, "row") : Plural.part(shown.rowCount, of: result.rowCount, "row"))
                 .font(.caption2).monospacedDigit().foregroundColor(.secondary)
             Spacer()
         }

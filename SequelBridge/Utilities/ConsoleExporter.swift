@@ -18,7 +18,7 @@ enum ConsoleExporter {
             .map { $0.sql.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .map { $0.hasSuffix(";") ? $0 : $0 + ";" }
-        var out = "-- SequelBridge console history — \(statements.count) statement(s)\n\n"
+        var out = "-- SequelBridge console history — \(Plural.count(statements.count, "statement"))\n\n"
         out += statements.joined(separator: "\n\n")
         return out.hasSuffix("\n") ? out : out + "\n"
     }

@@ -22,6 +22,8 @@ struct ContentPanel: View {
     @State private var pkColumns: [String] = []
     /// Columns the server fills in itself (an auto-increment key): left out of a duplicate.
     @State private var generatedColumns: Set<String> = []
+    /// What each empty field of the row sheet gets: a default, NULL, or the server's own value.
+    @State private var emptyFieldHints: [String: String] = [:]
     @State private var selectedRowIndices: Set<Int> = []
     /// Bumped after each saved cell edit, so the grid redraws the changed row.
     @State private var editRevision = 0
@@ -130,7 +132,8 @@ struct ContentPanel: View {
                 columns: columns.isEmpty ? (session.sidebarTrees[conn.alias]?
                     .first(where: { $0.id == table.id })?.columns.map(\.name) ?? []) : columns,
                 initial: request.initial,
-                generated: generatedColumns
+                generated: generatedColumns,
+                hints: emptyFieldHints
             ) { values in
                 Task { await insertRow(values) }
             }
@@ -192,10 +195,10 @@ struct ContentPanel: View {
             if isLoading {
                 ProgressView().scaleEffect(0.7)
             } else if let total = totalRows {
-                Text("\(rowCountIsEstimate ? "~" : "")\(total) total rows").font(.caption).monospacedDigit().foregroundColor(.secondary)
+                Text(appliedFilter.isEmpty ? "\(rowCountIsEstimate ? "~" : "")\(Plural.count(total, "row")) in the table" : "\(Plural.count(total, "row")) match").font(.caption).monospacedDigit().foregroundColor(.secondary)
                     .help(rowCountIsEstimate ? "Estimated from table statistics (instant). Apply a filter for an exact count." : "")
             } else if !rows.isEmpty {
-                Text("\(rows.count) rows").font(.caption).monospacedDigit().foregroundColor(.secondary)
+                Text(Plural.count(rows.count, "row")).font(.caption).monospacedDigit().foregroundColor(.secondary)
             }
 
             Divider().frame(height: 14)
@@ -240,6 +243,8 @@ struct ContentPanel: View {
             Button { Task { await load() } } label: {
                 Image(systemName: "arrow.clockwise")
             }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             .disabled(isLoading)
             .keyboardShortcut("r", modifiers: .command)
             .help("Refresh the rows (⌘R)")
@@ -254,34 +259,9 @@ struct ContentPanel: View {
     // MARK: - Page options (⌘J)
 
     private var pageOptions: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Text("Page")
-                TextField("", text: $typedPage)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 64)
-                    .onSubmit { jumpToTypedPage() }
-                    .accessibilityIdentifier("content.pageField")
-                if let pageCount {
-                    Text("of \(rowCountIsEstimate ? "~" : "")\(pageCount)").foregroundColor(.secondary).monospacedDigit()
-                }
-                Button("Go") { jumpToTypedPage() }
-                    .disabled(ContentPaging.page(typed: typedPage, pageCount: nil) == nil)
-                    .accessibilityIdentifier("content.pageGo")
-            }
-            Divider()
-            HStack(spacing: 6) {
-                Text("Rows per page")
-                Picker("Rows per page", selection: Binding(get: { pageSize }, set: { changePageSize(to: $0) })) {
-                    ForEach(ContentPaging.pageSizes, id: \.self) { Text("\($0)").tag($0) }
-                }
-                .labelsHidden()
-                .fixedSize()
-                .accessibilityIdentifier("content.pageSize")
-            }
-        }
-        .font(.system(size: 12))
-        .padding(14)
+        PageOptions(typedPage: $typedPage, pageCount: pageCount, estimated: rowCountIsEstimate,
+                    pageSize: Binding(get: { pageSize }, set: { changePageSize(to: $0) }),
+                    go: jumpToTypedPage)
     }
 
     /// An estimated count can be short of the real one, so it doesn't cap the jump: a
@@ -397,6 +377,8 @@ struct ContentPanel: View {
                     alias: conn.alias, database: db, table: table.name)) ?? [])
             pkColumns = colInfo.filter { $0.isPrimaryKey }.map { $0.name }
             generatedColumns = ContentPaging.generatedColumns(colInfo, engine: conn.engine)
+            emptyFieldHints = Dictionary(colInfo.map { ($0.name, ContentPaging.placeholder(for: $0, generated: generatedColumns.contains($0.name))) },
+                                         uniquingKeysWith: { first, _ in first })
             isLoading = false
 
             // 2) Total row count, resolved AFTER the grid is on screen.
@@ -531,6 +513,49 @@ struct ContentPanel: View {
     }
 }
 
+// MARK: - Page options (⌘J)
+
+/// A page to jump to, and the rows a page shows. Its own view, reading the typed page
+/// itself: built inside the panel, Go stayed off whatever was typed.
+private struct PageOptions: View {
+    @Binding var typedPage: String
+    let pageCount: Int?
+    let estimated: Bool
+    @Binding var pageSize: Int
+    let go: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("Page")
+                TextField("", text: $typedPage)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 64)
+                    .onSubmit(go)
+                    .accessibilityIdentifier("content.pageField")
+                if let pageCount {
+                    Text("of \(estimated ? "~" : "")\(pageCount)").foregroundColor(.secondary).monospacedDigit()
+                }
+                Button("Go", action: go)
+                    .disabled(ContentPaging.page(typed: typedPage, pageCount: nil) == nil)
+                    .accessibilityIdentifier("content.pageGo")
+            }
+            Divider()
+            HStack(spacing: 6) {
+                Text("Rows per page")
+                Picker("Rows per page", selection: $pageSize) {
+                    ForEach(ContentPaging.pageSizes, id: \.self) { Text("\($0)").tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityIdentifier("content.pageSize")
+            }
+        }
+        .font(.system(size: 12))
+        .padding(14)
+    }
+}
+
 // MARK: - Row sheet
 
 private struct RowSheetRequest: Identifiable {
@@ -546,6 +571,8 @@ private struct InsertRowSheet: View {
     var initial: [String: String] = [:]
     /// Columns the server fills in itself, left empty.
     var generated: Set<String> = []
+    /// What an empty field gets, by column.
+    var hints: [String: String] = [:]
     let onInsert: ([String: String]) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var values: [String: String] = [:]
@@ -570,7 +597,7 @@ private struct InsertRowSheet: View {
                                 .font(Theme.mono(12))
                                 .frame(width: 160, alignment: .trailing)
                                 .foregroundColor(.secondary)
-                            TextField(generated.contains(col) ? "set by the server" : "value or NULL", text: Binding(
+                            TextField(hints[col] ?? (generated.contains(col) ? "set by the server" : "value or NULL"), text: Binding(
                                 get: { values[col] ?? "" },
                                 set: { values[col] = $0 }
                             ))
@@ -583,6 +610,9 @@ private struct InsertRowSheet: View {
                 .padding(20)
             }
 
+            Text("An empty field gets what its hint says. Type NULL for NULL.")
+                .font(.caption).foregroundColor(.secondary)
+                .padding(.horizontal, 20).padding(.bottom, 10)
             Divider()
             HStack {
                 Spacer()

@@ -64,6 +64,15 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 ### Changed
 - The left panel's **+** sits at its top right, above the database menu's **…**, and a
   connection's engine badge (MY, PG, LITE, CH) stays on one line beside a long alias.
+- From a screen-by-screen review in light and dark mode: Structure's Default and Extra
+  cells stay on one line (`CURRENT_TIMESTAMP` wrapped mid-word), with the whole value in
+  a tooltip; the left panel's table information calls a collation a collation and
+  leaves out what the server doesn't record (it showed the word NULL); counts read
+  "1 row", "1 of 1 table", "2 indexes"; Run Current matches Format and Explain beside
+  it, and ⌘↵ moved into Run's tooltip; Content's refresh matches its neighbours; Go in
+  the page options works (it stayed off); an empty field in the row sheet says what the
+  server puts there (a default, NULL, its own number) or that a value is required; Home
+  spells the app's name SequelBridge, as everywhere else.
 - The connection tabs at the top of the left panel wrap onto more rows instead of
   scrolling sideways, so with several servers open none slides out of sight. A tab's
   tooltip shows the connection's name and the database picked on it.

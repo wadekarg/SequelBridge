@@ -143,43 +143,9 @@ struct TableInfoPanel: View {
         let db = session.selectedDatabase[conn.alias] ?? conn.database
         guard !db.isEmpty else { isLoading = false; return }
 
-        var engine = ""; var rowFormat = ""; var autoInc = ""
-        var collation = ""; var tableComment = ""
-
         if let row = try? await manager.queryEngine.fetchTableMeta(
             alias: conn.alias, database: db, table: table.name), !row.isEmpty {
-            let fmtBytes: (String) -> String = { val in
-                let n = Int(val) ?? 0; if n == 0 { return "—" }
-                let units = ["B", "KB", "MB", "GB", "TB"]
-                var v = Double(n); var i = 0
-                while v >= 1024 && i < units.count - 1 { v /= 1024; i += 1 }
-                return String(format: "%.1f %@", v, units[i])
-            }
-            engine = row[0]; rowFormat = row[1]; autoInc = row[2]
-            collation = row[3]; tableComment = row[5]
-
-            var newInfo: [(key: String, value: String)] = []
-            // General
-            newInfo.append(("Engine",         engine.isEmpty    ? "—" : engine))
-            newInfo.append(("Row Format",     rowFormat.isEmpty ? "—" : rowFormat))
-            if let ai = Int(autoInc), ai > 0 { newInfo.append(("Auto Increment", autoInc)) }
-            newInfo.append(("Collation",      collation.isEmpty ? "—" : collation))
-            let opts = row[4].trimmingCharacters(in: .whitespaces)
-            if !opts.isEmpty && opts != "0" { newInfo.append(("Create Options", opts)) }
-            newInfo.append(("Comment",        tableComment.isEmpty ? "—" : tableComment))
-            // Storage
-            newInfo.append(("Rows",           row[6].isEmpty ? "—" : row[6]))
-            let avgLen = Int(row[7]) ?? 0
-            newInfo.append(("Avg Row Length", avgLen == 0 ? "—" : "\(avgLen) B"))
-            newInfo.append(("Data Size",      fmtBytes(row[8])))
-            newInfo.append(("Max Data Size",  fmtBytes(row[9])))
-            newInfo.append(("Index Size",     fmtBytes(row[10])))
-            newInfo.append(("Data Free",      fmtBytes(row[11])))
-            // Timestamps
-            if !row[12].isEmpty { newInfo.append(("Created", row[12])) }
-            if !row[13].isEmpty { newInfo.append(("Updated", row[13])) }
-            if !row[14].isEmpty { newInfo.append(("Checked", row[14])) }
-            info = newInfo
+            info = TableMeta.details(row)
         }
 
         if let create = try? await manager.queryEngine.fetchCreateTable(alias: conn.alias, database: db, table: table.name) {

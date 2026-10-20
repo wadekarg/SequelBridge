@@ -290,6 +290,7 @@ struct QueryPanelView: View {
                     .controlSize(.small)
                     .keyboardShortcut("f", modifiers: [.control, .option])
                     .help("Reformat the query for readability (⌃⌥F)")
+                    .accessibilityIdentifier("query.format")
 
                     Button {
                         if let idx = session.tabs.firstIndex(where: { $0.id == session.activeTabId }) {
@@ -312,7 +313,10 @@ struct QueryPanelView: View {
                             Task { await runCurrent(tabIndex: idx) }
                         }
                     } label: {
-                        Text("Run Current").font(.system(size: 12))
+                        Label("Run Current", systemImage: "text.line.first.and.arrowtriangle.forward")
+                            .font(.system(size: 12, weight: .semibold))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -329,7 +333,6 @@ struct QueryPanelView: View {
                         .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
                     }
 
-                    Text("⌘↵").font(.caption2).foregroundColor(.secondary)
                     Button {
                         if let idx = session.tabs.firstIndex(where: { $0.id == session.activeTabId }) {
                             Task { await runQuery(tabIndex: idx) }
@@ -343,6 +346,7 @@ struct QueryPanelView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .keyboardShortcut(.return, modifiers: .command)
+                    .help("Run every statement, or the selection (⌘↵)")
                     .accessibilityIdentifier("query.run")
                 }
             }

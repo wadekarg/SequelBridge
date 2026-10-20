@@ -20,12 +20,13 @@ struct ConsoleExporterTests {
         #expect(out.contains("SELECT 1;"))
         #expect(out.contains("SELECT 2;"))
         #expect(!out.contains("SELECT 2;;"))       // already-terminated isn't doubled
-        #expect(out.contains("2 statement(s)"))     // the blank entry was dropped
+        #expect(out.contains("— 2 statements"))     // the blank entry was dropped
     }
 
     @Test("sqlDump on an empty log is a header only")
     func dumpEmpty() {
-        #expect(ConsoleExporter.sqlDump([]).contains("0 statement(s)"))
+        #expect(ConsoleExporter.sqlDump([]).contains("— 0 statements"))
+        #expect(ConsoleExporter.sqlDump([e("SELECT 1")]).contains("— 1 statement\n"))
     }
 
     @Test("recent returns distinct statements newest-first within the limit")

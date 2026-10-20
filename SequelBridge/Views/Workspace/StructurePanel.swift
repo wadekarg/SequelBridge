@@ -193,7 +193,7 @@ struct StructurePanel: View {
     private let wLen:     CGFloat = 54
     private let wNull:    CGFloat = 40
     private let wKey:     CGFloat = 80
-    private let wDef:     CGFloat = 100
+    private let wDef:     CGFloat = 140
     private let wExtra:   CGFloat = 130
     private let wComment: CGFloat = 160
     private var colWidth: CGFloat { wIcon+wName+wType+wLen+wNull+wKey+wDef+wExtra+wComment }
@@ -419,7 +419,9 @@ struct StructurePanel: View {
                 .textFieldStyle(.plain)
                 .font(Theme.mono(10)).foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
+                .lineLimit(1).truncationMode(.tail)
                 .frame(width: wLen - 4)
+                .help(binding.length.wrappedValue)
 
             // Null — checkbox always shown
             Toggle("", isOn: binding.nullable)
@@ -449,7 +451,10 @@ struct StructurePanel: View {
             } else {
                 Text(binding.defaultValue.wrappedValue.isEmpty ? "" : binding.defaultValue.wrappedValue)
                     .font(Theme.mono(10)).foregroundColor(.secondary)
+                    .lineLimit(1).truncationMode(.tail)
                     .frame(width: wDef - 4, alignment: .leading).padding(.horizontal, 2)
+                    .help(binding.defaultValue.wrappedValue)
+                    .accessibilityIdentifier("structure.default.\(edit.name)")
             }
 
             // Extra — only show menu when selected; hide "—" clutter
@@ -464,7 +469,9 @@ struct StructurePanel: View {
             } else {
                 Text(binding.extra.wrappedValue)
                     .font(.system(size: 10)).foregroundColor(.secondary)
+                    .lineLimit(1).truncationMode(.tail)
                     .frame(width: wExtra - 4, alignment: .leading).padding(.horizontal, 2)
+                    .help(binding.extra.wrappedValue)
             }
 
             // Comment — only show content, no placeholder clutter
@@ -489,7 +496,7 @@ struct StructurePanel: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(.secondary)
                 Spacer()
-                Text("\(indexEdits.filter { !deletedIndexNames.contains($0.originalName ?? "") }.count) index(es)")
+                Text(Plural.count(indexEdits.filter { !deletedIndexNames.contains($0.originalName ?? "") }.count, "index", "indexes"))
                     .font(.caption2).foregroundColor(.secondary)
                 Button {
                     if let id = selectedIdxId,
