@@ -768,6 +768,13 @@ struct StructurePanel: View {
             isSaving = false
             return
         case .mysql:
+            let generated = SQLBuilder.generatedColumnEdits(columnEdits, originals: originalColumns)
+            guard generated.isEmpty else {
+                saveError = "\(generated.joined(separator: ", ")) is a generated column: its expression isn't shown here, "
+                    + "so a change would lose it. Change it with ALTER TABLE … MODIFY … AS (…) in the Query tab."
+                isSaving = false
+                return
+            }
             stmts = SQLBuilder.alterStatements(
                 database: db, table: table.name,
                 columnEdits: columnEdits, originalColumns: originalColumns,

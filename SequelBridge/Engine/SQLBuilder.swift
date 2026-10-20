@@ -457,6 +457,35 @@ nonisolated enum SQLBuilder {
         s.isEmpty || s.uppercased() == "NULL"
     }
 
+    /// A default that is an expression, not text: CURRENT_TIMESTAMP, or a call such as
+    /// uuid() or MariaDB's current_timestamp(). "n/a (none)" ends in a bracket but is text.
+    static func isFunctionDefault(_ value: String) -> Bool {
+        value.uppercased().hasPrefix("CURRENT_")
+            || value.range(of: #"^[A-Za-z_][A-Za-z0-9_]*\s*\(.*\)$"#, options: .regularExpression) != nil
+    }
+
+    /// The DDL part of a column's Extra. The server reports more than DDL there: MySQL 8
+    /// adds DEFAULT_GENERATED to a column whose default is an expression, and a generated
+    /// column reads VIRTUAL or STORED GENERATED. Copied into an ALTER, they failed it.
+    static func ddlExtra(_ extra: String) -> String {
+        let cleaned = extra.replacingOccurrences(
+            of: #"\b(?:DEFAULT_GENERATED|(?:VIRTUAL|STORED|PERSISTENT)\s+GENERATED)\b"#,
+            with: "", options: [.regularExpression, .caseInsensitive])
+        return cleaned.split(separator: " ").joined(separator: " ")
+    }
+
+    /// The edited columns that are generated (VIRTUAL or STORED). Their expression isn't
+    /// in the column list, so a MODIFY would turn them into plain columns or fail.
+    static func generatedColumnEdits(_ edits: [ColumnEdit], originals: [ColumnInfo]) -> [String] {
+        edits.compactMap { edit in
+            guard let name = edit.originalName, let original = originals.first(where: { $0.name == name }),
+                  edit.hasChanges(from: original),
+                  original.extra.range(of: #"\b(?:VIRTUAL|STORED|PERSISTENT)\s+GENERATED\b"#,
+                                       options: [.regularExpression, .caseInsensitive]) != nil else { return nil }
+            return name
+        }
+    }
+
     static func columnDefinition(_ edit: ColumnEdit) -> String {
         var def = edit.fullType
         if !isAbsent(edit.encoding)  { def += " CHARACTER SET \(edit.encoding)" }
@@ -467,7 +496,7 @@ nonisolated enum SQLBuilder {
             if upper == "NULL" {
                 // Only a nullable column may carry an explicit NULL default.
                 if edit.nullable { def += " DEFAULT NULL" }
-            } else if upper.hasPrefix("CURRENT_") || upper.hasSuffix(")") {
+            } else if isFunctionDefault(edit.defaultValue) {
                 def += " DEFAULT \(edit.defaultValue)"
             } else if Int(edit.defaultValue) != nil || Double(edit.defaultValue) != nil {
                 def += " DEFAULT \(edit.defaultValue)"
@@ -475,7 +504,8 @@ nonisolated enum SQLBuilder {
                 def += " DEFAULT \(literal(edit.defaultValue))"
             }
         }
-        if !edit.extra.isEmpty   { def += " \(edit.extra.uppercased())" }
+        let extra = ddlExtra(edit.extra)
+        if !extra.isEmpty        { def += " \(extra.uppercased())" }
         if !edit.comment.isEmpty { def += " COMMENT \(literal(edit.comment))" }
         return def
     }
@@ -485,7 +515,7 @@ nonisolated enum SQLBuilder {
         guard !value.isEmpty else { return "" }
         let upper = value.uppercased()
         if upper == "NULL" { return nullable ? " DEFAULT NULL" : "" }
-        if upper.hasPrefix("CURRENT_") || upper.hasSuffix(")") { return " DEFAULT \(value)" }
+        if isFunctionDefault(value) { return " DEFAULT \(value)" }
         if Int(value) != nil || Double(value) != nil { return " DEFAULT \(value)" }
         return " DEFAULT \(literal(value))"
     }
@@ -626,7 +656,8 @@ nonisolated enum SQLBuilder {
             var line = "  \(mysqlIdent(col.name)) \(col.dataType)"
             if !col.nullable { line += " NOT NULL" }
             line += defaultClause(col.defaultValue, nullable: col.nullable)
-            if !col.extra.isEmpty   { line += " \(col.extra.uppercased())" }
+            let extra = ddlExtra(col.extra)
+            if !extra.isEmpty       { line += " \(extra.uppercased())" }
             if !col.comment.isEmpty { line += " COMMENT \(literal(col.comment))" }
             lines.append(line)
         }

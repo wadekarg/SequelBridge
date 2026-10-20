@@ -19,16 +19,20 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 679 tests in 130 suites (about three minutes of tests after the build).
-Then every MySQL suite runs a second time with its server pointed at MySQL 8.4.
+at them, and runs all 688 tests in 132 suites (about three minutes of tests after the build).
+Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
+MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
 benchmark (`--bench`), and `QueryCancelTests.interruptStopsServerStatement`, the spec
 for a server-side cancel the app does not do yet.
 
-The MySQL family has two servers: MariaDB 10.0 (`sb-mariadb10`, port 3309) and MySQL 8.4
+The MySQL family has four servers: MariaDB 10.0 (`sb-mariadb10`, port 3309); MySQL 8.4
 (`sb-mysql8`, port 3311), which logs in with `caching_sha2_password` and keeps one account
-on `mysql_native_password` (`scripts/fixtures/mysql8.sql`). The second pass's log is
-`.build/run-all-tests-mysql8.log`.
+on `mysql_native_password` (`scripts/fixtures/mysql8.sql`); MariaDB 11.4 (`sb-mariadb11`,
+port 3312), which reports a timestamp's default as `current_timestamp()`; and MySQL 8.0
+(`sb-mysql80`, port 3313), which marks such a column `DEFAULT_GENERATED`. Each pass's log
+is `.build/run-all-tests-<server>.log`. `--mysql-port N --only "…"` points a targeted run
+at one of them.
 
 Besides the database containers, the script runs an SSH server container (`sb-sshd`,
 `scripts/fixtures/ssh/sshd-setup.sh`) with a throwaway test key in `.build/ssh/`: port
@@ -68,7 +72,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-679 tests across 102 files.
+688 tests across 103 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 

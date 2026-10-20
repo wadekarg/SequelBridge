@@ -271,6 +271,37 @@ struct PanelWritePathTests {
         #expect(updated.extra.lowercased().contains("auto_increment"))
     }
 
+    // MySQL 8 reports a DEFAULT CURRENT_TIMESTAMP column's Extra as DEFAULT_GENERATED and
+    // MariaDB 10.2+ its default as current_timestamp(): server metadata, not DDL. Copied
+    // into the ALTER, Structure's save failed on every created_at-style column.
+    @Test("a timestamp column with CURRENT_TIMESTAMP and ON UPDATE keeps both through a Structure save")
+    func alterTimestampDefaults() async throws {
+        let alias = "w16"
+        let engine = try await makeEngine(alias)
+        try await fixture(engine, alias, "w_stamps", """
+            `id` int NOT NULL, `created` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (`id`)
+            """)
+        let original = try await engine.fetchColumns(alias: alias, database: WEnv.db, table: "w_stamps")
+        var edits: [ColumnEdit] = []
+        for name in ["created", "updated"] {
+            var edit = ColumnEdit(from: try #require(original.first { $0.name == name }))
+            edit.comment = "\(name) note"
+            edits.append(edit)
+        }
+        for sql in SQLBuilder.alterStatements(database: WEnv.db, table: "w_stamps", columnEdits: edits,
+                                              originalColumns: original, deletedColumnNames: [],
+                                              indexEdits: [], deletedIndexNames: []) {
+            try await engine.mysqlExecute(alias: alias, sql: sql)
+        }
+        let after = try await engine.fetchColumns(alias: alias, database: WEnv.db, table: "w_stamps")
+        let created = try #require(after.first { $0.name == "created" })
+        let updated = try #require(after.first { $0.name == "updated" })
+        #expect(created.comment == "created note" && updated.comment == "updated note")
+        #expect(created.defaultValue.lowercased().hasPrefix("current_timestamp"), "\(created.defaultValue)")
+        #expect(updated.extra.lowercased().contains("on update current_timestamp"), "\(updated.extra)")
+    }
+
     // MARK: - RelationsPanel
 
     @Test("add and drop a foreign key")

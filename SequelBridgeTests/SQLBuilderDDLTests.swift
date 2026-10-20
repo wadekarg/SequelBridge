@@ -104,6 +104,54 @@ struct SQLBuilderDDLTests {
     }
 }
 
+@Suite("Column Extra: only its DDL goes into an ALTER")
+struct ColumnExtraDDLTests {
+    @Test("MySQL 8's DEFAULT_GENERATED and a generated column's VIRTUAL/STORED GENERATED are metadata, not DDL")
+    func ddlExtra() {
+        #expect(SQLBuilder.ddlExtra("DEFAULT_GENERATED") == "")
+        #expect(SQLBuilder.ddlExtra("DEFAULT_GENERATED on update CURRENT_TIMESTAMP") == "on update CURRENT_TIMESTAMP")
+        #expect(SQLBuilder.ddlExtra("on update current_timestamp()") == "on update current_timestamp()")
+        #expect(SQLBuilder.ddlExtra("auto_increment") == "auto_increment")
+        #expect(SQLBuilder.ddlExtra("VIRTUAL GENERATED") == "")
+        #expect(SQLBuilder.ddlExtra("stored generated") == "")
+        #expect(SQLBuilder.ddlExtra("PERSISTENT GENERATED") == "")
+    }
+
+    @Test("a MySQL 8 timestamp column's definition keeps its default and drops DEFAULT_GENERATED")
+    func timestampDefinition() {
+        var edit = ColumnEdit()
+        edit.baseType = "TIMESTAMP"; edit.length = ""; edit.nullable = false
+        edit.defaultValue = "CURRENT_TIMESTAMP"; edit.extra = "DEFAULT_GENERATED on update CURRENT_TIMESTAMP"
+        #expect(SQLBuilder.columnDefinition(edit) == "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
+    }
+
+    @Test("a default is a function only when it reads as a call; text with brackets stays text")
+    func functionDefaults() {
+        var edit = ColumnEdit()
+        edit.baseType = "VARCHAR"; edit.length = "20"
+        for (value, expected) in [("n/a (none)", "DEFAULT 'n/a (none)'"), ("uuid()", "DEFAULT uuid()"),
+                                  ("current_timestamp()", "DEFAULT current_timestamp()"),
+                                  ("CURRENT_TIMESTAMP", "DEFAULT CURRENT_TIMESTAMP"), ("(x)", "DEFAULT '(x)'")] {
+            edit.defaultValue = value
+            #expect(SQLBuilder.columnDefinition(edit).hasSuffix(expected), "\(value): \(SQLBuilder.columnDefinition(edit))")
+        }
+    }
+
+    @Test("a generated column can't be edited here: its expression would be lost")
+    func generatedColumns() {
+        func info(_ name: String, extra: String) -> ColumnInfo {
+            ColumnInfo(id: name, name: name, dataType: "int(11)", nullable: true, keyType: "", defaultValue: "",
+                       extra: extra, encoding: "", collation: "", comment: "")
+        }
+        let originals = [info("qty", extra: ""), info("total", extra: "VIRTUAL GENERATED"),
+                         info("created", extra: "DEFAULT_GENERATED")]
+        var total = ColumnEdit(from: originals[1]); total.comment = "x"
+        var created = ColumnEdit(from: originals[2]); created.comment = "y"
+        #expect(SQLBuilder.generatedColumnEdits([total, created], originals: originals) == ["total"])
+        #expect(SQLBuilder.generatedColumnEdits([created], originals: originals).isEmpty)
+    }
+}
+
 @Suite("CREATE TABLE reconstruction")
 struct ShowCreateTableTests {
 

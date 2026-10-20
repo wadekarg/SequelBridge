@@ -20,6 +20,8 @@
 # Options:
 #   --release         build/test in Release (DuckDB is 20-100x faster; honest numbers)
 #   --only "A/B C/D"  pass -only-testing filters (space-separated) straight to xcodebuild
+#   --mysql-port N    point the MySQL-family suites at port N (3311 MySQL 8.4, 3312 MariaDB
+#                     11.4, 3313 MySQL 8.0) instead of MariaDB 10.0, for a targeted run
 #   --no-build        skip the plain build step, go straight to tests
 #
 # Every gated suite is pointed at these containers via TEST_RUNNER_SB_* env vars
@@ -34,7 +36,11 @@ FIX="$ROOT/scripts/fixtures"
 # ---- container topology (one place; the env block below mirrors it) ---------
 MARIA=sb-mariadb10      ; MARIA_PORT=3309   ; MARIA_IMG=mariadb:10.0
 MARIA2=sb-mariadb10-b   ; MARIA2_PORT=3310                          # MultiServer PORT2
-MYSQL8=sb-mysql8        ; MYSQL8_PORT=3311  ; MYSQL8_IMG=mysql:8.4  # the MySQL 8 pass
+MYSQL8=sb-mysql8        ; MYSQL8_PORT=3311  ; MYSQL8_IMG=mysql:8.4  # the MySQL 8.4 pass
+# What most servers run today (MariaDB 10.0 is from 2014): MariaDB 11.4 LTS reports a
+# column's default quoted and CURRENT_TIMESTAMP as current_timestamp(); MySQL 8.0.
+MARIA11=sb-mariadb11    ; MARIA11_PORT=3312 ; MARIA11_IMG=mariadb:11.4
+MYSQL80=sb-mysql80      ; MYSQL80_PORT=3313 ; MYSQL80_IMG=mysql:8.0
 MY_ROOT_PW=sbverify123
 PG=sb-postgres          ; PG_PORT=5433      ; PG_IMG=postgres:16
 PG_USER=sbuser          ; PG_PW=sbpass123   ; PG_DB=sbtest
@@ -51,6 +57,7 @@ MODE=run                 # run | provision | seed | hermetic | down
 RUN_BENCH=0
 NO_BUILD=0
 ONLY=""
+MYSQL_PORT_OVERRIDE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -62,6 +69,7 @@ while [ $# -gt 0 ]; do
     --release)   CONFIG=Release ;;
     --no-build)  NO_BUILD=1 ;;
     --only)      ONLY="$2"; shift ;;
+    --mysql-port) MYSQL_PORT_OVERRIDE="$2"; shift ;;
     -h|--help)   sed -n '2,40p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
@@ -86,7 +94,7 @@ wait_for() { # name cmd...
 provision() {
   need_docker
   say "Provisioning throwaway containers (fresh)"
-  docker rm -f "$MARIA" "$MARIA2" "$MYSQL8" "$PG" "$CH" >/dev/null 2>&1 || true
+  docker rm -f "$MARIA" "$MARIA2" "$MYSQL8" "$MARIA11" "$MYSQL80" "$PG" "$CH" >/dev/null 2>&1 || true
 
   docker run -d --name "$MARIA"  -e MYSQL_ROOT_PASSWORD="$MY_ROOT_PW" -p "$MARIA_PORT:3306"  "$MARIA_IMG"  >/dev/null
   docker run -d --name "$MARIA2" -e MYSQL_ROOT_PASSWORD="$MY_ROOT_PW" -p "$MARIA2_PORT:3306" "$MARIA_IMG"  >/dev/null
@@ -105,6 +113,8 @@ provision() {
   start_sshd
   seed
   start_mysql8
+  start_mariadb11
+  start_mysql80
 }
 
 # MySQL 8.4: caching_sha2_password at login, strict SQL mode, utf8mb4_0900 collations.
@@ -117,6 +127,23 @@ start_mysql8() {
   wait_for "$MYSQL8" docker exec "$MYSQL8" mysql --protocol=TCP -h127.0.0.1 -uroot -p"$MY_ROOT_PW" -e "SELECT 1"
   docker exec -i "$MYSQL8" mysql -uroot -p"$MY_ROOT_PW" < "$FIX/mysql.sql"
   docker exec -i "$MYSQL8" mysql -uroot -p"$MY_ROOT_PW" < "$FIX/mysql8.sql"; ok "mysql 8.4 $MYSQL8_PORT (sbtest/sbwrite/sbreal, sbnative)"
+}
+
+# MariaDB 11.4: its image ships the mariadb client only (no `mysql`). Seeded like 10.0.
+start_mariadb11() {
+  docker rm -f "$MARIA11" >/dev/null 2>&1 || true
+  docker run -d --name "$MARIA11" -e MARIADB_ROOT_PASSWORD="$MY_ROOT_PW" -p "$MARIA11_PORT:3306" "$MARIA11_IMG" >/dev/null
+  wait_for "$MARIA11" docker exec "$MARIA11" mariadb --protocol=TCP -h127.0.0.1 -uroot -p"$MY_ROOT_PW" -e "SELECT 1"
+  docker exec -i "$MARIA11" mariadb -uroot -p"$MY_ROOT_PW" < "$FIX/mysql.sql"; ok "mariadb 11.4 $MARIA11_PORT (sbtest/sbwrite/sbreal)"
+}
+
+# MySQL 8.0: caching_sha2_password at login, mysql_native_password still built in.
+start_mysql80() {
+  docker rm -f "$MYSQL80" >/dev/null 2>&1 || true
+  docker run -d --name "$MYSQL80" -e MYSQL_ROOT_PASSWORD="$MY_ROOT_PW" -p "$MYSQL80_PORT:3306" "$MYSQL80_IMG" >/dev/null
+  wait_for "$MYSQL80" docker exec "$MYSQL80" mysql --protocol=TCP -h127.0.0.1 -uroot -p"$MY_ROOT_PW" -e "SELECT 1"
+  docker exec -i "$MYSQL80" mysql -uroot -p"$MY_ROOT_PW" < "$FIX/mysql.sql"
+  docker exec -i "$MYSQL80" mysql -uroot -p"$MY_ROOT_PW" < "$FIX/mysql8.sql"; ok "mysql 8.0 $MYSQL80_PORT (sbtest/sbwrite/sbreal, sbnative)"
 }
 
 # The SSH server. Its host keys are generated once and kept, so the known_hosts entry
@@ -159,13 +186,20 @@ seed() {
     docker exec -i "$MYSQL8" mysql -uroot -p"$MY_ROOT_PW" < "$FIX/mysql.sql"
     docker exec -i "$MYSQL8" mysql -uroot -p"$MY_ROOT_PW" < "$FIX/mysql8.sql"; ok "mysql 8.4 $MYSQL8_PORT (sbtest/sbwrite/sbreal, sbnative)"
   fi
+  if docker ps --format '{{.Names}}' | grep -qx "$MARIA11"; then
+    docker exec -i "$MARIA11" mariadb -uroot -p"$MY_ROOT_PW" < "$FIX/mysql.sql"; ok "mariadb 11.4 $MARIA11_PORT (sbtest/sbwrite/sbreal)"
+  fi
+  if docker ps --format '{{.Names}}' | grep -qx "$MYSQL80"; then
+    docker exec -i "$MYSQL80" mysql -uroot -p"$MY_ROOT_PW" < "$FIX/mysql.sql"
+    docker exec -i "$MYSQL80" mysql -uroot -p"$MY_ROOT_PW" < "$FIX/mysql8.sql"; ok "mysql 8.0 $MYSQL80_PORT (sbtest/sbwrite/sbreal, sbnative)"
+  fi
 }
 
 teardown() {
   need_docker
   say "Tearing containers down"
-  docker rm -f "$MARIA" "$MARIA2" "$MYSQL8" "$PG" "$CH" "$SSHD" >/dev/null 2>&1 || true
-  ok "removed $MARIA $MARIA2 $MYSQL8 $PG $CH $SSHD"
+  docker rm -f "$MARIA" "$MARIA2" "$MYSQL8" "$MARIA11" "$MYSQL80" "$PG" "$CH" "$SSHD" >/dev/null 2>&1 || true
+  ok "removed $MARIA $MARIA2 $MYSQL8 $MARIA11 $MYSQL80 $PG $CH $SSHD"
 }
 
 # ---- the env every gated suite reads (TEST_RUNNER_ prefix stripped by Xcode)-
@@ -176,7 +210,7 @@ export_db_env() {
   export TEST_RUNNER_SB_MYSQL_PORT2=$MARIA2_PORT
   export TEST_RUNNER_SB_MYSQL_USER=root       TEST_RUNNER_SB_MYSQL_PASS=$MY_ROOT_PW
   export TEST_RUNNER_SB_MYSQL_DB=sbtest        TEST_RUNNER_SB_MYSQL_WRITE_DB=sbwrite  TEST_RUNNER_SB_MYSQL_REAL_DB=sbreal
-  # Destructive DDL (hardcodes :3309 root/sbverify123 sbwrite — matches the primary)
+  # Destructive DDL (the MySQL-family server above, db sbwrite)
   export TEST_RUNNER_SB_DDL_VERIFY=1
   # Cross-server JOIN reduction
   export TEST_RUNNER_SB_XJOIN_VERIFY=1
@@ -232,21 +266,22 @@ run_tests() {
   return $rc
 }
 
-# The MySQL family suites again, with their server pointed at MySQL 8.4. MariaDB stays
-# the second server, so MultiServer joins MySQL 8 with MariaDB.
+# The MySQL family suites again, with their server pointed at MySQL 8.4, MariaDB 11.4
+# and MySQL 8.0 in turn. MariaDB 10.0 stays the second server, so MultiServer joins
+# across versions.
 MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests ContentBrowseTests ServerToolsTests QueryTabAsTypedTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests
               RealSchemaTests MultiServerTests DestructiveDDLVerifyTests QueryResultEditTests PostgresTests
               ClickHouseBridgeTests CrossEngineJoinTests CrossJoinReductionTests FallbackMaterializeDBTests
               QueryCancelTests PushdownDBTests)
-run_mysql8_pass() {
+run_mysql_pass() { # label port log-name
   local xcflags=(-scheme SequelBridge -configuration "$CONFIG" -destination 'platform=macOS' -parallel-testing-enabled NO)
   local s; for s in "${MYSQL_SUITES[@]}"; do xcflags+=(-only-testing:"SequelBridgeTests/$s"); done
-  say "MySQL suites again, against MySQL 8.4 (:$MYSQL8_PORT)"
+  say "MySQL suites again, against $1 (:$2)"
   (
-    export TEST_RUNNER_SB_MYSQL_PORT=$MYSQL8_PORT  TEST_RUNNER_SB_MYSQL_PORT2=$MARIA_PORT
-    export TEST_RUNNER_SB_XJOIN_PORT=$MYSQL8_PORT  TEST_RUNNER_SB_CHB_MY_PORT=$MYSQL8_PORT
+    export TEST_RUNNER_SB_MYSQL_PORT=$2  TEST_RUNNER_SB_MYSQL_PORT2=$MARIA_PORT
+    export TEST_RUNNER_SB_XJOIN_PORT=$2  TEST_RUNNER_SB_CHB_MY_PORT=$2
     set +e
-    xcodebuild test "${xcflags[@]}" 2>&1 | tee "$ROOT/.build/run-all-tests-mysql8.log" | \
+    xcodebuild test "${xcflags[@]}" 2>&1 | tee "$ROOT/.build/run-all-tests-$3.log" | \
       grep -E "Test run with|✘|error:|\*\* TEST"
     exit ${PIPESTATUS[0]}
   )
@@ -264,14 +299,24 @@ esac
 # The SSH server and MySQL 8 are new in this setup, so a plain run starts them if missing.
 docker ps --format '{{.Names}}' | grep -qx "$SSHD" || start_sshd
 docker ps --format '{{.Names}}' | grep -qx "$MYSQL8" || start_mysql8
+docker ps --format '{{.Names}}' | grep -qx "$MARIA11" || start_mariadb11
+docker ps --format '{{.Names}}' | grep -qx "$MYSQL80" || start_mysql80
 start_socket_relay
 
 export_db_env
+if [ -n "$MYSQL_PORT_OVERRIDE" ]; then
+  export TEST_RUNNER_SB_MYSQL_PORT=$MYSQL_PORT_OVERRIDE TEST_RUNNER_SB_XJOIN_PORT=$MYSQL_PORT_OVERRIDE
+  export TEST_RUNNER_SB_CHB_MY_PORT=$MYSQL_PORT_OVERRIDE
+fi
 rc=0
 run_tests || rc=1
-if [ -z "$ONLY" ]; then run_mysql8_pass || rc=1; fi
+if [ -z "$ONLY" ]; then
+  run_mysql_pass "MySQL 8.4" "$MYSQL8_PORT" mysql8 || rc=1
+  run_mysql_pass "MariaDB 11.4" "$MARIA11_PORT" mariadb11 || rc=1
+  run_mysql_pass "MySQL 8.0" "$MYSQL80_PORT" mysql80 || rc=1
+fi
 if [ $rc = 0 ]; then
-  say "ALL TESTS PASSED ($CONFIG, full matrix, MySQL suites on MariaDB 10.0 and MySQL 8.4)"
+  say "ALL TESTS PASSED ($CONFIG, full matrix, MySQL suites on MariaDB 10.0 and 11.4, MySQL 8.4 and 8.0)"
 else
-  say "TEST FAILURES — see .build/run-all-tests.log and .build/run-all-tests-mysql8.log"; exit 1
+  say "TEST FAILURES — see .build/run-all-tests*.log"; exit 1
 fi
