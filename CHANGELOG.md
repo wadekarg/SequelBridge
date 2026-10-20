@@ -5,6 +5,15 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 ## 1.2.2 — 2026-10-19
 
 ### Fixed
+- Editing a cell of a table made after connecting failed with "Catalog Error: Table …
+  does not exist" until a reconnect: a table or schema made in the Query tab on
+  PostgreSQL, or by another tool on MySQL or PostgreSQL. DuckDB's copy of the server's
+  tables is read again after a statement, on Refresh, and when an edit or a picked
+  database meets a table or schema it doesn't know. Found by the new PostgreSQL
+  click-through tests.
+- The Create Table sheet offered MySQL's storage engine and charset on PostgreSQL and
+  SQLite, which ignore them; the Triggers tab showed "NULL" where a server keeps no
+  definer or time.
 - An SSH server's one-time code asked as "One-time password:" was taken for a password,
   so the login dialog offered to keep it in the Keychain and sent it again next time.
   It counts as a code now; ssh's own `user@host's password:` stays a password whatever

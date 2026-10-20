@@ -193,8 +193,10 @@ struct TriggersPanel: View {
         let rows = (try? await manager.queryEngine.fetchTriggers(
             alias: conn.alias, database: db, table: table.name)) ?? []
         triggers = rows.map {
+            // A server that keeps no definer or time (SQLite, PostgreSQL, MariaDB 10.0's
+            // Created) says NULL: nothing is shown for it.
             TriggerInfo(name: $0[0], timing: $0[1], event: $0[2],
-                        definer: $0[3], statement: $0[4], created: $0[5])
+                        definer: TableMeta.field($0, 3) ?? "", statement: $0[4], created: TableMeta.field($0, 5) ?? "")
         }
         isLoading = false
     }

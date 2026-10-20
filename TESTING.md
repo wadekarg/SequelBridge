@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 742 tests in 147 suites (about three minutes of tests after the build).
+at them, and runs all 746 tests in 149 suites (about three minutes of tests after the build).
 Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
 MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
@@ -83,7 +83,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-742 tests across 109 files.
+746 tests across 110 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -111,13 +111,14 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `NativeRoutingTests`, `PostgresLoginTests` | always | which typed statements go to the app's own client (MySQL's SHOW, HELP, CHECK; PostgreSQL's SHOW, EXPLAIN); the PostgreSQL client's MD5 and SCRAM-SHA-256 logins against reference values (RFC 7677's example), a server that can't prove the password, an error's message |
 | `PostgresNativeTests`, `PostgresNativeSSLTests` | `SB_PG_VERIFY`, `SB_PG_SSL_PORT` | PostgreSQL's own client on a real server: the Explain button's plan, a typed `SHOW` in the schema picked, a server error's message, a read-only session, a Unix socket; over SSL with Use SSL and without it (encrypted when the server offers it, as libpq does), and Use SSL refused against a server without SSL before any password is sent |
 | `MySQLNativeStatementTests` | `SB_MYSQL_VERIFY` | `SHOW CREATE TABLE`, `SHOW FULL PROCESSLIST`, `SHOW GRANTS`, `SHOW WARNINGS`, `CHECK TABLE`, `CHECKSUM TABLE` typed in the Query tab, on the app's own client, in the database picked (on all four MySQL-family servers) |
-| `PostgresWorkspaceTests` | `SB_PG_VERIFY` | what the guide promises for PostgreSQL, the way the panels run it: the picker's schemas and their tables (the connection stays on its database), Content's filter and sort, following a foreign key, Routines, the Server tab and Kill ending a running statement, export, CSV import, triggers listed and dropped |
+| `PostgresWorkspaceTests` | `SB_PG_VERIFY` | what the guide promises for PostgreSQL, the way the panels run it: the picker's schemas and their tables (the connection stays on its database), Content's filter and sort, following a foreign key, Routines, the Server tab and Kill ending a running statement, export, CSV import, a row added with its serial key left to the server and deleted, triggers listed and dropped |
 | `SQLitePromisesTests` | always | what the guide promises for a SQLite file, on one: Create Table (the types picked, an integer key that numbers rows), Structure's add, rename and drop of columns and indexes and its refusals, Content, following a foreign key, export, triggers added, fired, listed (timing and event from the header, not the body) and dropped, a busy file |
 | `DatabaseDumpTests` | `SB_MYSQL_VERIFY` | whole-database SQL dump (all tables, schema + data) |
 | `PostgresTests` | `SB_PG_VERIFY` | PostgreSQL attach, query, joins |
 | `CrossEngineBenchmark` | `SB_BENCH` | timing (not correctness) for the MySQL×Postgres JOIN |
 | `SSHTunnelTests` | always (ports, arguments) / `SB_SSH_VERIFY` (tunnels) | port allocation, failure paths, MySQL through the tunnel on a current and an `ssh-rsa`-only server; the login prompts on a real ssh: a password (`pwuser`), a key with a passphrase, a one-time code from google-authenticator's PAM module answered with the TOTP an authenticator app shows (`otpuser`), Cancel stopping at once, a wrong password asked three times; a key in a private ssh-agent with no key file set |
 | `SSHLoginTests` | always | what ssh asks (password, passphrase, one-time code, also one that calls itself a "One-time password", while ssh's own `user@host's password:` stays a password whatever the host is called), when a saved answer is used, and the askpass script's round trip to the app: the answer back, a wrong token refused, Cancel failing the attempt |
+| `PostgresScannerCacheTests`, `MySQLScannerCacheTests` | `SB_PG_VERIFY`, `SB_MYSQL_VERIFY` | a Content edit of a table made after DuckDB read the server's catalog: a schema and table made in the app on PostgreSQL, and a table another connection made on either server, once the app lists it |
 | `ExtensionCacheTests` | always | the scanner cache keeps one build per CPU, so an Apple Silicon Mac running the app natively and under Rosetta never loads the other CPU's build; a cached file from before is used only when its Mach-O header is this CPU's |
 | `ClickHouseContentTests` | `SB_CH_VERIFY` | ClickHouse's Content tab on the real server: pages sorted and paged, every filter operator on a number column with its value quoted, and a `%`, `_` or backslash matching as itself |
 | `ConnectionTypeTests` | always (what each engine offers) / `SB_SSH_VERIFY`, `SB_SOCKET_VERIFY` | every engine × connection type: PostgreSQL and ClickHouse over SSH, MySQL and PostgreSQL over sockets, EXPLAIN on both, ClickHouse socket refused, Test Connection and quitting close their tunnels |

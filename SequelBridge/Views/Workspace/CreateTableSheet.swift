@@ -76,15 +76,19 @@ struct CreateTableSheet: View {
                                 TextField("table_name", text: $tableName)
                                     .textFieldStyle(.roundedBorder)
                             }
-                            field("Engine") {
-                                Picker("", selection: $engine) {
-                                    ForEach(engines, id: \.self) { Text($0).tag($0) }
-                                }.labelsHidden().frame(width: 110)
-                            }
-                            field("Charset") {
-                                Picker("", selection: $charset) {
-                                    ForEach(charsets, id: \.self) { Text($0).tag($0) }
-                                }.labelsHidden().frame(width: 110)
+                            // MySQL's own: PostgreSQL and SQLite have no storage engine or
+                            // per-table charset.
+                            if conn.engine == .mysql {
+                                field("Engine") {
+                                    Picker("", selection: $engine) {
+                                        ForEach(engines, id: \.self) { Text($0).tag($0) }
+                                    }.labelsHidden().frame(width: 110)
+                                }
+                                field("Charset") {
+                                    Picker("", selection: $charset) {
+                                        ForEach(charsets, id: \.self) { Text($0).tag($0) }
+                                    }.labelsHidden().frame(width: 110)
+                                }
                             }
                         }
                     }

@@ -286,7 +286,7 @@ run_tests() {
 # The MySQL family suites again, with their server pointed at MySQL 8.4, MariaDB 11.4
 # and MySQL 8.0 in turn. MariaDB 10.0 stays the second server, so MultiServer joins
 # across versions.
-MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests ContentBrowseTests ServerToolsTests QueryTabAsTypedTests SSLConnectionTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests ReadOnlyMySQLTests MySQLNativeStatementTests
+MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests ContentBrowseTests ServerToolsTests QueryTabAsTypedTests SSLConnectionTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests ReadOnlyMySQLTests MySQLNativeStatementTests MySQLScannerCacheTests
               RealSchemaTests MultiServerTests DestructiveDDLVerifyTests QueryResultEditTests PostgresTests
               ClickHouseBridgeTests CrossEngineJoinTests CrossJoinReductionTests FallbackMaterializeDBTests
               QueryCancelTests PushdownDBTests)

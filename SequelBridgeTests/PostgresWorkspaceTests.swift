@@ -87,6 +87,27 @@ struct PostgresWorkspaceTests {
         #expect(sorted.rows.map { $0[0] } == ["3", "2"])
     }
 
+    @Test("Content: a row added with its serial key left to the server, then deleted")
+    func insertAndDelete() async throws {
+        let (manager, conn, _) = try await connect("pw9")
+        let e = manager.queryEngine
+        try await e.executeDDL(alias: conn.alias, sql: "CREATE SCHEMA IF NOT EXISTS sbro")
+        try await e.executeDDL(alias: conn.alias, sql: "DROP TABLE IF EXISTS sbro.rows_t")
+        try await e.executeDDL(alias: conn.alias, sql: "CREATE TABLE sbro.rows_t (id serial PRIMARY KEY, note text, made timestamp DEFAULT now())")
+        // What the row sheet sends: only the fields filled in.
+        try await e.executeWrite(SQLBuilder.insert(alias: conn.alias, database: "sbro", table: "rows_t", values: ["note": "first"]),
+                                 alias: conn.alias)
+        try await e.executeWrite(SQLBuilder.insert(alias: conn.alias, database: "sbro", table: "rows_t", values: ["note": "second"]),
+                                 alias: conn.alias)
+        let rows = try await page(e, conn.alias, "sbro", "rows_t", sort: "id").rows
+        #expect(rows.map { [$0[0], $0[1]] } == [["1", "first"], ["2", "second"]], "\(rows)")
+        #expect(rows.allSatisfy { $0[2] != "NULL" }, "the server's default for made wasn't used: \(rows)")
+        try await e.executeWrite(SQLBuilder.delete(alias: conn.alias, database: "sbro", table: "rows_t",
+                                                   primaryKey: [(column: "id", value: "1")]), alias: conn.alias)
+        #expect(try await page(e, conn.alias, "sbro", "rows_t").rows.map { $0[1] } == ["second"])
+        try await e.executeDDL(alias: conn.alias, sql: "DROP TABLE sbro.rows_t")
+    }
+
     @Test("Content: a foreign key's cell leads to the row it points at")
     func followForeignKey() async throws {
         let (manager, conn, _) = try await connect("pw3")

@@ -276,7 +276,30 @@ final class QueryEngine {
     /// write must not go through it directly.
     func executeWrite(_ sql: String, alias: String, lane: Lane = .content) async throws {
         try ensureWritable(alias)
-        _ = try await query(sql, lane: lane)
+        do {
+            _ = try await query(sql, lane: lane)
+        } catch let error where Self.isStaleCatalog(error) {
+            // A table made after DuckDB read the server's catalog (by another tool, or a
+            // schema made here): read the catalog again, and try once more.
+            await clearScannerCache(alias)
+            _ = try await query(sql, lane: lane)
+        }
+    }
+
+    /// Drops the scanner's copy of `alias`'s catalog, so the next statement through DuckDB
+    /// reads the server's tables and schemas again.
+    func clearScannerCache(_ alias: String) async {
+        switch engine(for: alias) {
+        case .mysql:    try? await userSerial.execute("CALL mysql_clear_cache()")
+        case .postgres: try? await userSerial.execute("CALL pg_clear_cache()")
+        case .sqlite, .clickhouse: break
+        }
+    }
+
+    /// DuckDB's word for a table or schema it doesn't know, at bind time, before anything ran.
+    static func isStaleCatalog(_ error: Error) -> Bool {
+        let reason = extractReason(from: error)
+        return reason.contains("Catalog Error") && reason.contains("does not exist")
     }
 
     /// The database `alias` is currently attached with (empty if none / detached).
@@ -697,6 +720,9 @@ final class QueryEngine {
         let start = Date()
         do {
             try await userSerial.execute(call)
+            // As after mysql_execute: the scanner's copy of the catalog would miss a schema
+            // or table made a moment ago.
+            try? await userSerial.execute("CALL pg_clear_cache()")
             logStatement(sql, nil, nil, Date().timeIntervalSince(start))
         } catch {
             let reason = Self.extractReason(from: error)
@@ -935,8 +961,15 @@ final class QueryEngine {
     func setDefaultContextAwaited(alias: String, database: String) async {
         guard !alias.isEmpty, !database.isEmpty else { return }
         guard activeContexts[alias] != database else { return }
+        let use = "USE \(sqlIdentifierQuote(alias)).\(sqlIdentifierQuote(database))"
         do {
-            try await userSerial.execute("USE \(sqlIdentifierQuote(alias)).\(sqlIdentifierQuote(database))")
+            do {
+                try await userSerial.execute(use)
+            } catch let error where Self.isStaleCatalog(error) {
+                // A database or schema made after DuckDB read the server's catalog.
+                await clearScannerCache(alias)
+                try await userSerial.execute(use)
+            }
             // Record the context only AFTER a successful USE. Recording it up front
             // (the old behaviour) meant a failed USE was swallowed yet the guard above
             // then skipped every retry, silently leaving unqualified names unresolved.

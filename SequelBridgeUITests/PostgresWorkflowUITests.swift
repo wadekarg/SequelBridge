@@ -108,6 +108,14 @@ final class PostgresWorkflowUITests: XCTestCase {
         XCTAssertTrue(element("results.grid").buttons["search_path"].waitForExistence(timeout: 30), "SHOW didn't run")
     }
 
+    func testCreateTableOffersNoMySQLOnlyOptions() {
+        element("sidebar.createTable").click()
+        XCTAssertTrue(app.staticTexts["Table Settings"].waitForExistence(timeout: 10), "the Create Table sheet didn't open")
+        XCTAssertFalse(app.staticTexts["Engine"].exists, "PostgreSQL has no storage engine to pick")
+        XCTAssertFalse(app.staticTexts["Charset"].exists, "PostgreSQL has no per-table charset to pick")
+        app.buttons["Cancel"].click()
+    }
+
     func testEditACellInPlace() {
         run("CREATE SCHEMA IF NOT EXISTS sbui; DROP TABLE IF EXISTS sbui.ui_cells; "
             + "CREATE TABLE sbui.ui_cells (id int PRIMARY KEY, note varchar(40)); INSERT INTO sbui.ui_cells VALUES (1, 'before')")

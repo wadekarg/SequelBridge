@@ -102,8 +102,10 @@ extension WorkspaceSession {
         return nil
     }
 
-    /// Refresh Tables (⌃⌘R): re-reads the picked database's tables.
+    /// Refresh Tables (⌃⌘R): re-reads the picked database's tables. DuckDB's copy of the
+    /// server's tables goes too, so one made elsewhere can be queried and edited.
     func refreshTables(for conn: Connection, manager: ConnectionManager) async {
+        await manager.queryEngine.clearScannerCache(conn.alias)
         await loadTables(for: conn, manager: manager)
     }
 
@@ -111,6 +113,7 @@ extension WorkspaceSession {
     /// A picked database that is gone goes back to the connection's own, else the first.
     func refreshDatabases(for conn: Connection, manager: ConnectionManager) async {
         let alias = conn.alias
+        await manager.queryEngine.clearScannerCache(alias)
         var dbs = try? await manager.queryEngine.fetchDatabases(alias: alias)
         if dbs == nil {
             // On a database dropped elsewhere every statement fails: go back to the
