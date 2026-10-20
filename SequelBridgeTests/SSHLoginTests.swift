@@ -24,6 +24,13 @@ struct SSHLoginTests {
         #expect(SSHLogin.kind(of: "Verification code: ") == .code)
         #expect(SSHLogin.kind(of: "Enter PASSCODE: ") == .code)
         #expect(SSHLogin.kind(of: "Duo two-factor login for me\n\nPasscode or option (1-2): ") == .code)
+        // A one-time code that calls itself a password is still a code: never saved, never reused.
+        #expect(SSHLogin.kind(of: "One-time password (OATH) for `me': ") == .code)
+        #expect(SSHLogin.kind(of: "Enter your OTP password: ") == .code)
+        #expect(SSHLogin.kind(of: "Token password: ") == .code)
+        // ssh's own password question names the host, whatever the host is called.
+        #expect(SSHLogin.kind(of: "me@otp-gateway.example.com's password: ") == .password)
+        #expect(SSHLogin.kind(of: "me@token.example.com's password: ") == .password)
     }
 
     @Test("a saved password or passphrase answers the first time; asked again, the user is asked; codes are never saved")

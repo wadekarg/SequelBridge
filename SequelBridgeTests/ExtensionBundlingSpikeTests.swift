@@ -62,8 +62,7 @@ struct ExtensionBundlingSpikeTests {
         let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("SequelBridge/duckdb/\(QueryEngine.duckDBVersion)", isDirectory: true)
         for name in ["mysql_scanner", "postgres_scanner", "sqlite_scanner"] {
-            let f = cache.appendingPathComponent("\(name).duckdb_extension")
-            if FileManager.default.fileExists(atPath: f.path) { return f }
+            if let f = QueryEngine.cachedExtension(named: name, in: cache) { return f }
         }
         return nil
     }

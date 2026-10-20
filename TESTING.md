@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 734 tests in 145 suites (about three minutes of tests after the build).
+at them, and runs all 742 tests in 147 suites (about three minutes of tests after the build).
 Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
 MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
@@ -32,13 +32,15 @@ on `mysql_native_password` (`scripts/fixtures/mysql8.sql`); MariaDB 11.4 (`sb-ma
 port 3312), which reports a timestamp's default as `current_timestamp()`; and MySQL 8.0
 (`sb-mysql80`, port 3313), which marks such a column `DEFAULT_GENERATED`. Each pass's log
 is `.build/run-all-tests-<server>.log`. `--mysql-port N --only "…"` points a targeted run
-at one of them. PostgreSQL 16 runs twice: `sb-postgres` (5433) without SSL, and
+at one of them. `--arch x86_64` builds and tests for Intel (under Rosetta on Apple
+Silicon); the database suites have run on Intel only so far. PostgreSQL 16 runs twice: `sb-postgres` (5433) without SSL, and
 `sb-postgres-ssl` (5434) with it, on the image's own snakeoil certificate.
 
 Besides the database containers, the script runs an SSH server container (`sb-sshd`,
 `scripts/fixtures/ssh/sshd-setup.sh`) with a throwaway test key in `.build/ssh/`: port
 2224 with today's defaults, port 2225 behaving like an old server that offers only
-`ssh-rsa`. The app's tunnel accepts each server's host key into your
+`ssh-rsa` (run as sshd's PAM build, with an account that logs in with a one-time code
+from google-authenticator's module). The app's tunnel accepts each server's host key into your
 `~/.ssh/known_hosts` once, as it would for any server; the host keys are generated
 once and kept, so those entries stay valid. For socket connections it relays MariaDB
 and PostgreSQL to Unix sockets in `/tmp/sb-sock` while the tests run
@@ -47,6 +49,9 @@ and PostgreSQL to Unix sockets in `/tmp/sb-sock` while the tests run
 On GitHub, every push to `main` and every pull request builds the app on Apple Silicon,
 on macOS 15 and macOS 26 (`.github/workflows/test.yml`), and runs the tests that need no
 database server, then the UI tests (`SequelBridgeUITests`, scheme `SequelBridgeUITests`).
+A third job builds the app on macOS 15 and starts it on macOS 14, the oldest macOS it
+supports (`scripts/launch-smoke.sh`: it starts, shows its window and stays up), since
+Xcode 26, which the app needs, doesn't run on macOS 14.
 The UI tests click the workspace's tab strips and + buttons, check that six connection
 tabs all stay on screen with the + above the database menu, run a statement that names
 no server on the active tab, and close the active query tab with ⌘W.
@@ -78,7 +83,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-734 tests across 108 files.
+742 tests across 109 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -111,8 +116,10 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `DatabaseDumpTests` | `SB_MYSQL_VERIFY` | whole-database SQL dump (all tables, schema + data) |
 | `PostgresTests` | `SB_PG_VERIFY` | PostgreSQL attach, query, joins |
 | `CrossEngineBenchmark` | `SB_BENCH` | timing (not correctness) for the MySQL×Postgres JOIN |
-| `SSHTunnelTests` | always (ports, arguments) / `SB_SSH_VERIFY` (tunnels) | port allocation, failure paths, MySQL through the tunnel on a current and an `ssh-rsa`-only server; the login prompts on a real ssh: a password (`pwuser`), a key with a passphrase, Cancel stopping at once, a wrong password asked three times |
-| `SSHLoginTests` | always | what ssh asks (password, passphrase, one-time code), when a saved answer is used, and the askpass script's round trip to the app: the answer back, a wrong token refused, Cancel failing the attempt |
+| `SSHTunnelTests` | always (ports, arguments) / `SB_SSH_VERIFY` (tunnels) | port allocation, failure paths, MySQL through the tunnel on a current and an `ssh-rsa`-only server; the login prompts on a real ssh: a password (`pwuser`), a key with a passphrase, a one-time code from google-authenticator's PAM module answered with the TOTP an authenticator app shows (`otpuser`), Cancel stopping at once, a wrong password asked three times; a key in a private ssh-agent with no key file set |
+| `SSHLoginTests` | always | what ssh asks (password, passphrase, one-time code, also one that calls itself a "One-time password", while ssh's own `user@host's password:` stays a password whatever the host is called), when a saved answer is used, and the askpass script's round trip to the app: the answer back, a wrong token refused, Cancel failing the attempt |
+| `ExtensionCacheTests` | always | the scanner cache keeps one build per CPU, so an Apple Silicon Mac running the app natively and under Rosetta never loads the other CPU's build; a cached file from before is used only when its Mach-O header is this CPU's |
+| `ClickHouseContentTests` | `SB_CH_VERIFY` | ClickHouse's Content tab on the real server: pages sorted and paged, every filter operator on a number column with its value quoted, and a `%`, `_` or backslash matching as itself |
 | `ConnectionTypeTests` | always (what each engine offers) / `SB_SSH_VERIFY`, `SB_SOCKET_VERIFY` | every engine × connection type: PostgreSQL and ClickHouse over SSH, MySQL and PostgreSQL over sockets, EXPLAIN on both, ClickHouse socket refused, Test Connection and quitting close their tunnels |
 | `ContentEditTests` | always (SQLite) / `SB_PG_VERIFY` (PostgreSQL) | a Content-tab cell edit and set-to-NULL reach the database, run the way the panel runs them (`executeWrite`) |
 | `CellEditorTests` | always | the Query tab popup's rules: Save needs Edit and a change, NULL is a change, a cell that can't be edited says why |

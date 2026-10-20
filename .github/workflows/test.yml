@@ -4,6 +4,9 @@
 #     containers that scripts/run-all-tests.sh provisions; run them locally with it);
 #   - the UI tests, which click the workspace's tab strips and + buttons, and walk the
 #     everyday flows on a MariaDB the job installs (MySQLWorkflowUITests).
+# And it starts the app on macOS 14, the oldest it supports. Xcode 26, which the app
+# needs, doesn't run on macOS 14, so the app is built on macOS 15 and only launched
+# there (scripts/launch-smoke.sh): it starts, shows its window, and stays up.
 name: Tests
 
 on:
@@ -81,3 +84,48 @@ jobs:
             unit.log
             ui.log
             ui.xcresult
+
+  build-for-macos-14:
+    name: Build for macOS 14
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      SIGNING: CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch DuckDB's static libraries
+        run: ./scripts/fetch-duckdb.sh
+
+      - name: Build the app (Release)
+        run: |
+          set +e
+          xcodebuild build -scheme SequelBridge -configuration Release -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath dd $SIGNING > build.log 2>&1
+          status=$?
+          grep -E "error:|\*\* BUILD" build.log
+          [ $status -eq 0 ] || exit $status
+          ditto -c -k --keepParent dd/Build/Products/Release/SequelBridge.app SequelBridge.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-for-macos-14
+          path: SequelBridge.zip
+
+  starts-on-macos-14:
+    name: Starts on macOS 14
+    needs: build-for-macos-14
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-for-macos-14
+
+      - name: Start the app
+        run: |
+          ditto -x -k SequelBridge.zip .
+          ./scripts/launch-smoke.sh "$PWD/SequelBridge.app"

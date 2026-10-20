@@ -52,8 +52,9 @@ A connection is TCP/IP, a local socket or an SSH tunnel; a SQLite connection is 
 the file. The form offers only what the engine supports: ClickHouse, reached over
 HTTP, has no socket. For a socket, MySQL takes the socket file and PostgreSQL its
 directory, or the `.s.PGSQL.<port>` file itself. An SSH tunnel logs in with your key
-file, also on old servers that only offer the `ssh-rsa` key type, and closes when you
-disconnect or quit the app. When the SSH server asks for something (a password, the
+file, also on old servers that only offer the `ssh-rsa` key type, or, with no key file
+set, with the keys in your ssh-agent and `~/.ssh`, as ssh does in Terminal. It closes
+when you disconnect or quit the app. When the SSH server asks for something (a password, the
 key's passphrase, or a one-time code from an RSA token or an authenticator app), a
 dialog shows its question; **Remember in Keychain** saves a password or passphrase,
 never a one-time code. **Test Connection** on the form tries the connection,

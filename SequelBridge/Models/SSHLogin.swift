@@ -17,6 +17,12 @@ nonisolated enum SSHLogin {
     static func kind(of prompt: String) -> Kind {
         let p = prompt.lowercased()
         if p.contains("passphrase") { return .passphrase }
+        // ssh's own question, "user@host's password:", whatever the host is called.
+        if p.range(of: #"^\s*[^\s@]+@[^\s']+'s password:\s*$"#, options: .regularExpression) != nil { return .password }
+        // A one-time code that calls itself a password ("One-time password:", "OTP
+        // password:") is still a code, so it is never saved and never sent again.
+        let oneTime = ["one-time", "one time", "otp", "token", "verification", "passcode", "authenticator"]
+        if oneTime.contains(where: { p.contains($0) }) { return .code }
         if p.contains("password") { return .password }
         return .code
     }

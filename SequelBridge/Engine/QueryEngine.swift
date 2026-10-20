@@ -342,28 +342,58 @@ final class QueryEngine {
     /// extensions and fetches the matching builds. Keep in lockstep with the libs.
     nonisolated static let duckDBVersion = "v1.5.6"
 
+    /// The DuckDB platform this process loads: an Apple Silicon Mac runs osx_arm64
+    /// natively and osx_amd64 under Rosetta.
+    nonisolated static var extensionPlatform: String {
+        #if arch(arm64)
+        "osx_arm64"
+        #else
+        "osx_amd64"
+        #endif
+    }
+
+    /// Where a download of `name` goes: a folder per CPU, since one Mac can run the app
+    /// natively and under Rosetta, which need different builds of a scanner.
+    nonisolated static func extensionFile(named name: String, in versionDir: URL) -> URL {
+        versionDir.appendingPathComponent(extensionPlatform, isDirectory: true)
+            .appendingPathComponent("\(name).duckdb_extension")
+    }
+
+    /// A cached build of `name` this process can load: the one in this CPU's folder, else
+    /// one from before the cache was split by CPU, if its Mach-O header is this CPU's.
+    nonisolated static func cachedExtension(named name: String, in versionDir: URL) -> URL? {
+        let scoped = extensionFile(named: name, in: versionDir)
+        if FileManager.default.fileExists(atPath: scoped.path) { return scoped }
+        let unsplit = versionDir.appendingPathComponent("\(name).duckdb_extension")
+        return isLibraryForThisCPU(unsplit) ? unsplit : nil
+    }
+
+    /// Whether `url` starts with a 64-bit Mach-O header for this process's CPU.
+    nonisolated static func isLibraryForThisCPU(_ url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: 8), head.count == 8 else { return false }
+        let b = [UInt8](head)
+        func word(_ i: Int) -> UInt32 { UInt32(b[i]) | UInt32(b[i + 1]) << 8 | UInt32(b[i + 2]) << 16 | UInt32(b[i + 3]) << 24 }
+        guard word(0) == 0xFEED_FACF else { return false }                                   // MH_MAGIC_64
+        return word(4) == (extensionPlatform == "osx_arm64" ? 0x0100_000C : 0x0100_0007)     // CPU_TYPE_ARM64 / X86_64
+    }
+
     /// Downloads (if needed) the extension binary, decompresses it, and ad-hoc signs it.
     /// Returns the path to the ready-to-load `.duckdb_extension` file.
     nonisolated private static func prepareExtension(named name: String) async throws -> String {
-        // Version-scoped cache dir so a DuckDB bump never loads a stale, incompatible build.
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        // Version-scoped cache dir so a DuckDB bump never loads a stale, incompatible build;
+        // inside it, one folder per CPU.
+        let versionDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("SequelBridge/duckdb/\(duckDBVersion)", isDirectory: true)
-        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-
-        let extFile = cacheDir.appendingPathComponent("\(name).duckdb_extension")
-
-        // Use cached file if it exists
-        if FileManager.default.fileExists(atPath: extFile.path) {
-            Log.engine.info("Using cached extension at \(extFile.path, privacy: .public)")
-            return extFile.path
+        if let cached = cachedExtension(named: name, in: versionDir) {
+            Log.engine.info("Using cached extension at \(cached.path, privacy: .public)")
+            return cached.path
         }
-
-        // Determine correct architecture
-        #if arch(arm64)
-        let platform = "osx_arm64"
-        #else
-        let platform = "osx_amd64"
-        #endif
+        let extFile = extensionFile(named: name, in: versionDir)
+        let cacheDir = extFile.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        let platform = extensionPlatform
 
         let urlStr = "https://extensions.duckdb.org/\(duckDBVersion)/\(platform)/\(name).duckdb_extension.gz"
         guard let url = URL(string: urlStr) else {

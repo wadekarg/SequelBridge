@@ -120,3 +120,48 @@ struct ExtensionDownloadTests {
         }
     }
 }
+
+/// One Mac can run the app natively and under Rosetta, which need different builds of
+/// a scanner. The cache kept one file per scanner for both, so after a run under the
+/// other CPU every connect loaded a library it couldn't, and never fetched another.
+@Suite("Extension cache: one build per CPU")
+struct ExtensionCacheTests {
+    let arm64: [UInt8] = [0xCF, 0xFA, 0xED, 0xFE, 0x0C, 0x00, 0x00, 0x01]    // MH_MAGIC_64, CPU_TYPE_ARM64
+    let x86_64: [UInt8] = [0xCF, 0xFA, 0xED, 0xFE, 0x07, 0x00, 0x00, 0x01]   // MH_MAGIC_64, CPU_TYPE_X86_64
+    var mine: [UInt8] { QueryEngine.extensionPlatform == "osx_arm64" ? arm64 : x86_64 }
+    var other: [UInt8] { QueryEngine.extensionPlatform == "osx_arm64" ? x86_64 : arm64 }
+
+    func versionDir() throws -> URL {
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("sb-extcache-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    func write(_ header: [UInt8], to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(header + [UInt8](repeating: 0, count: 64)).write(to: url)
+    }
+
+    @Test("a file for this CPU is used; one for the other CPU is not, so a new one is fetched")
+    func legacyFile() throws {
+        let dir = try versionDir()
+        let legacy = dir.appendingPathComponent("mysql_scanner.duckdb_extension")
+        #expect(QueryEngine.cachedExtension(named: "mysql_scanner", in: dir) == nil)
+        try write(mine, to: legacy)
+        #expect(QueryEngine.cachedExtension(named: "mysql_scanner", in: dir) == legacy)
+        try write(other, to: legacy)
+        #expect(QueryEngine.cachedExtension(named: "mysql_scanner", in: dir) == nil)
+        try Data("not a library".utf8).write(to: legacy)
+        #expect(QueryEngine.cachedExtension(named: "mysql_scanner", in: dir) == nil)
+    }
+
+    @Test("a download goes in this CPU's folder, and that copy wins")
+    func perCPUFolder() throws {
+        let dir = try versionDir()
+        let scoped = QueryEngine.extensionFile(named: "sqlite_scanner", in: dir)
+        #expect(scoped.deletingLastPathComponent().lastPathComponent == QueryEngine.extensionPlatform)
+        try write(other, to: dir.appendingPathComponent("sqlite_scanner.duckdb_extension"))
+        try write(mine, to: scoped)
+        #expect(QueryEngine.cachedExtension(named: "sqlite_scanner", in: dir) == scoped)
+    }
+}

@@ -23,6 +23,7 @@
 #   --mysql-port N    point the MySQL-family suites at port N (3311 MySQL 8.4, 3312 MariaDB
 #                     11.4, 3313 MySQL 8.0) instead of MariaDB 10.0, for a targeted run
 #   --no-build        skip the plain build step, go straight to tests
+#   --arch x86_64     build and test for Intel; on Apple Silicon it runs under Rosetta
 #
 # Every gated suite is pointed at these containers via TEST_RUNNER_SB_* env vars
 # (Xcode strips the TEST_RUNNER_ prefix before the test process sees them), so a
@@ -59,6 +60,7 @@ RUN_BENCH=0
 NO_BUILD=0
 ONLY=""
 MYSQL_PORT_OVERRIDE=""
+DESTINATION='platform=macOS'
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -71,6 +73,7 @@ while [ $# -gt 0 ]; do
     --no-build)  NO_BUILD=1 ;;
     --only)      ONLY="$2"; shift ;;
     --mysql-port) MYSQL_PORT_OVERRIDE="$2"; shift ;;
+    --arch)      DESTINATION="platform=macOS,arch=$2"; shift ;;
     -h|--help)   sed -n '2,40p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
@@ -261,7 +264,7 @@ export_db_env() {
 }
 
 run_tests() {
-  local xcflags=(-scheme SequelBridge -configuration "$CONFIG" -destination 'platform=macOS' -parallel-testing-enabled NO)
+  local xcflags=(-scheme SequelBridge -configuration "$CONFIG" -destination "$DESTINATION" -parallel-testing-enabled NO)
   local f; for f in $ONLY; do xcflags+=(-only-testing:"$f"); done
   if [ "$NO_BUILD" = 0 ]; then
     say "Building ($CONFIG)"
@@ -288,7 +291,7 @@ MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests Cont
               ClickHouseBridgeTests CrossEngineJoinTests CrossJoinReductionTests FallbackMaterializeDBTests
               QueryCancelTests PushdownDBTests)
 run_mysql_pass() { # label port log-name
-  local xcflags=(-scheme SequelBridge -configuration "$CONFIG" -destination 'platform=macOS' -parallel-testing-enabled NO)
+  local xcflags=(-scheme SequelBridge -configuration "$CONFIG" -destination "$DESTINATION" -parallel-testing-enabled NO)
   local s; for s in "${MYSQL_SUITES[@]}"; do xcflags+=(-only-testing:"SequelBridgeTests/$s"); done
   say "MySQL suites again, against $1 (:$2)"
   (
@@ -313,6 +316,7 @@ case "$MODE" in
 esac
 # The SSH server and MySQL 8 are new in this setup, so a plain run starts them if missing.
 docker ps --format '{{.Names}}' | grep -qx "$SSHD" || start_sshd
+docker exec "$SSHD" id otpuser >/dev/null 2>&1 || start_sshd     # a server from before the one-time-code account
 docker ps --format '{{.Names}}' | grep -qx "$MYSQL8" || start_mysql8
 docker ps --format '{{.Names}}' | grep -qx "$MARIA11" || start_mariadb11
 docker ps --format '{{.Names}}' | grep -qx "$MYSQL80" || start_mysql80
@@ -334,7 +338,7 @@ if [ -z "$ONLY" ]; then
   run_mysql_pass "MySQL 8.0" "$MYSQL80_PORT" mysql80 || rc=1
 fi
 if [ $rc = 0 ]; then
-  say "ALL TESTS PASSED ($CONFIG, full matrix, MySQL suites on MariaDB 10.0 and 11.4, MySQL 8.4 and 8.0)"
+  say "ALL TESTS PASSED ($CONFIG, $DESTINATION, full matrix, MySQL suites on MariaDB 10.0 and 11.4, MySQL 8.4 and 8.0)"
 else
   say "TEST FAILURES — see .build/run-all-tests*.log"; exit 1
 fi

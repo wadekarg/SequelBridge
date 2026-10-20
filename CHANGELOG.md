@@ -5,6 +5,13 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 ## 1.2.2 — 2026-10-19
 
 ### Fixed
+- An SSH server's one-time code asked as "One-time password:" was taken for a password,
+  so the login dialog offered to keep it in the Keychain and sent it again next time.
+  It counts as a code now; ssh's own `user@host's password:` stays a password whatever
+  the host is called.
+- On a Mac with Apple Silicon, the app run once under Rosetta (or the other way round)
+  left the other CPU's build of a scanner in its cache, and every later connect failed
+  to load it. The cache keeps one build per CPU now.
 - On PostgreSQL the left panel listed no tables: its picker lists the database's
   schemas, and picking one, `public` included right after connecting, tried to open a
   database of that name ("database "public" does not exist"). Picking a schema now lists

@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import CryptoKit
 import Testing
 @testable import SequelBridge
 
@@ -176,6 +177,69 @@ struct SSHTunnelTests {
         }
         #expect(asked.map(\.kind) == [.password], "asked: \(asked.map(\.prompt))")
         #expect(asked.first?.user == "pwuser")
+    }
+
+    /// otpuser logs in with a one-time code alone (google-authenticator's PAM module on the
+    /// old-style server). The app's answer is what an authenticator app would show now.
+    @Test("a one-time code: ssh asks for the code an authenticator app shows, and the app answers",
+          .enabled(if: SSHEnv.enabled && !SSHEnv.keyPath.isEmpty))
+    func oneTimeCodeLogin() async throws {
+        var c = sshConnection(alias: "sshotp", sshPort: SSHEnv.legacyPort)
+        c.sshUsername = "otpuser"
+        let secret = Data([0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x21, 0xDE, 0xAD, 0xBE, 0xEF])   // base32 JBSWY3DPEHPK3PXP
+        let asked = try await answering({ $0.kind == .code ? Self.totp(secret: secret) : nil }) {
+            try await attachAndQuery(c)
+        }
+        #expect(asked.map(\.kind) == [.code], "asked: \(asked.map(\.prompt))")
+        #expect(asked.first?.prompt.contains("Verification code") == true, "asked: \(asked.map(\.prompt))")
+    }
+
+    @Test("the test's authenticator agrees with RFC 6238's own example")
+    func totpReference() {
+        #expect(Self.totp(secret: Data("12345678901234567890".utf8), at: Date(timeIntervalSince1970: 59)) == "287082")
+    }
+
+    /// A TOTP code (RFC 6238: HMAC-SHA1, 30-second steps, 6 digits), as an authenticator app shows it.
+    static func totp(secret: Data, at date: Date = Date()) -> String {
+        let counter = withUnsafeBytes(of: UInt64(date.timeIntervalSince1970 / 30).bigEndian) { Data($0) }
+        let mac = Array(HMAC<Insecure.SHA1>.authenticationCode(for: counter, using: SymmetricKey(data: secret)))
+        let o = Int(mac[19] & 0x0F)
+        let value = (UInt32(mac[o] & 0x7F) << 24 | UInt32(mac[o + 1]) << 16 | UInt32(mac[o + 2]) << 8 | UInt32(mac[o + 3])) % 1_000_000
+        return String(format: "%06u", value)
+    }
+
+    /// A key loaded in ssh-agent and no key file on the connection: ssh offers the agent's
+    /// keys, as it does at a terminal. The agent is a private one, so the user's own
+    /// agent is never asked.
+    @Test("a key in ssh-agent logs in, with no key file set on the connection",
+          .enabled(if: SSHEnv.enabled && !SSHEnv.keyPath.isEmpty))
+    func agentLogin() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-agent-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let socket = dir.appendingPathComponent("agent.sock").path
+        let agent = Process()
+        agent.executableURL = URL(fileURLWithPath: "/usr/bin/ssh-agent")
+        agent.arguments = ["-D", "-a", socket]
+        agent.standardOutput = FileHandle.nullDevice
+        agent.standardError = FileHandle.nullDevice
+        try agent.run()
+        defer { agent.terminate() }
+        for _ in 0..<50 where !FileManager.default.fileExists(atPath: socket) { try await Task.sleep(nanoseconds: 100_000_000) }
+        let add = Process()
+        add.executableURL = URL(fileURLWithPath: "/usr/bin/ssh-add")
+        add.arguments = [SSHEnv.keyPath]
+        add.environment = ["SSH_AUTH_SOCK": socket]
+        add.standardError = FileHandle.nullDevice
+        try add.run()
+        add.waitUntilExit()
+        #expect(add.terminationStatus == 0, "ssh-add couldn't load the test key")
+
+        let before = ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"]
+        setenv("SSH_AUTH_SOCK", socket, 1)
+        defer { if let before { setenv("SSH_AUTH_SOCK", before, 1) } else { unsetenv("SSH_AUTH_SOCK") } }
+        var c = sshConnection(alias: "sshagent")
+        c.sshKeyPath = ""
+        try await attachAndQuery(c)
     }
 
     @Test("a key with a passphrase: ssh asks for the passphrase and the app answers",
