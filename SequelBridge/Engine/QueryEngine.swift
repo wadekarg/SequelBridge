@@ -1711,6 +1711,14 @@ final class QueryEngine {
                                           engine: m(0), collation: m(3), autoIncrement: m(2), comment: m(5))
     }
 
+    /// Runs a Table Maintenance task on the native client, which returns the server's
+    /// answer (a read through the passthrough can't run every one of them), and reads it.
+    func tableMaintenance(_ task: TableMaintenance, alias: String, database: String, table: String) async throws -> String {
+        if task.changesTheTable { try ensureWritable(alias) }
+        let answer = try await nativeMySQLQuery(alias: alias, sql: task.sql(database: database, table: table))
+        return TableMaintenance.summary(columns: answer.columns, rows: answer.rows)
+    }
+
     func nativeMySQLQuery(alias: String, sql: String, logSQL: String? = nil) async throws -> QueryResult {
         guard let cfg = mysqlConfigs[alias] else {
             throw SequelBridgeError.attachFailed("No MySQL connection named '\(alias)'.")

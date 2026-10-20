@@ -59,7 +59,7 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | Truncate a table | ✓ | `DestructiveDDLVerifyTests` |
 | Drop a table | ✓ | `DestructiveDDLVerifyTests` |
 | Copy or show `CREATE TABLE` | ✓ in Table Info, with Copy: the server's own on MySQL and ClickHouse, the file's own on SQLite; PostgreSQL keeps none, so it is rebuilt and says so | `MySQLIntegrationTests.serverCreateTable`, `MySQLWorkflowUITests` |
-| Check, repair, analyze, optimize, flush, checksum | ✗ typed only | |
+| Check, repair, analyze, optimize, flush, checksum | ✓ Table Maintenance on the table's right-click menu, with the server's answer; only Check and Checksum on a read-only connection (MySQL) | `TableMaintenanceTests`, `ServerToolsTests`, `MySQLWorkflowUITests` |
 | Open a table in a new tab or window | ◐ double-click opens `SELECT *` in a new query tab | |
 | Pin a table to the top | ✗ | |
 | Copy the table name | ✓ *no test* | |

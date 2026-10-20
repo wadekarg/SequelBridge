@@ -81,6 +81,9 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   Table Info, Query), and ⌘7–⌘9 open Routines, Server and Console.
 
 ### Added
+- Table Maintenance on a table's right-click menu, as in Sequel Ace (MySQL): Analyze,
+  Check, Optimize, Repair, Flush and Checksum, each showing the server's answer. A
+  read-only connection offers only Check and Checksum, which leave the table as it is.
 - Add Database… and Delete Database… in the database menu, as in Sequel Ace (MySQL):
   a new database takes the encoding and collation picked from the server's own lists,
   each starting at its default, and is picked; deleting one asks first, then goes back

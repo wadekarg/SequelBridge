@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 672 tests in 128 suites (about three minutes of tests after the build).
+at them, and runs all 676 tests in 129 suites (about three minutes of tests after the build).
 Then every MySQL suite runs a second time with its server pointed at MySQL 8.4.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
 benchmark (`--bench`), and `QueryCancelTests.interruptStopsServerStatement`, the spec
@@ -50,7 +50,7 @@ Homebrew and seeds from `scripts/fixtures/mysql.sql`: pick a database, `USE`, se
 statements, Run Current, filter tables, edit a cell in place and set it to NULL, rename
 and duplicate a table, ⌘/, Table Info's `CREATE TABLE`, ⌘1–⌘6, the Console, MySQL's
 own syntax run as typed, ⌘R on the table on screen after another was opened, and the
-Content tab's ⌘J (page and rows per page), ⌘D (duplicate a row), its column-operator-value filter, and following a foreign key, Add Database with an encoding and Delete Database;
+Content tab's ⌘J (page and rows per page), ⌘D (duplicate a row), its column-operator-value filter, and following a foreign key, Add Database with an encoding and Delete Database, Table Maintenance's answer;
 `MySQLRefreshUITests` refreshes one connection after a change through another, by
 the button, by ⇧⌘R and by ⌃⌘R, and checks ⌘R (the statement under the cursor) against
 ⌥⌘R (all). `VisualTourUITests` takes a screenshot of every screen and sheet in light and
@@ -68,7 +68,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-672 tests across 100 files.
+676 tests across 101 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 

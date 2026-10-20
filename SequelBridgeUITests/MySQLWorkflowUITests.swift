@@ -351,6 +351,16 @@ final class MySQLWorkflowUITests: XCTestCase {
         XCTAssertTrue(waitForValue(element("sidebar.database"), "sbtest"), "didn't go back to the connection's own database")
     }
 
+    func testTableMaintenanceShowsTheServersAnswer() {
+        table("orders").rightClick()
+        let menu = app.menuItems["Table Maintenance"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 10), "no Table Maintenance on the table's menu")
+        menu.click()
+        app.menuItems["Check Table"].click()
+        XCTAssertTrue(app.staticTexts["status: OK"].waitForExistence(timeout: 30), "CHECK TABLE's answer isn't shown")
+        app.buttons["OK"].click()
+    }
+
     func testJumpToAPageAndChangeTheRowsPerPage() {
         pick(database: "sbwrite")
         // Rows 1001–1300; a page starts with the id of its first row.

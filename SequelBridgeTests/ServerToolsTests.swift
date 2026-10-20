@@ -36,6 +36,27 @@ struct ServerToolsTests {
         return engine
     }
 
+    @Test("table maintenance runs each task on the server and reads its answer")
+    func maintenance() async throws {
+        let e = try await makeEngine("tm1")
+        let t = SQLBuilder.mysqlTable(database: TEnv.writeDB, table: "tm_orders")
+        try await e.mysqlExecute(alias: "tm1", sql: "DROP TABLE IF EXISTS \(t)")
+        try await e.mysqlExecute(alias: "tm1", sql: "CREATE TABLE \(t) (id INT PRIMARY KEY, note VARCHAR(20)) ENGINE=InnoDB")
+        try await e.mysqlExecute(alias: "tm1", sql: "INSERT INTO \(t) VALUES (1, 'a'), (2, 'b')")
+        for task in TableMaintenance.allCases {
+            let answer = try await e.tableMaintenance(task, alias: "tm1", database: TEnv.writeDB, table: "tm_orders")
+            switch task {
+            case .checksum: #expect(answer.hasPrefix("Checksum: "), "\(task): \(answer)")
+            case .flush:    #expect(answer == "Done", "\(task): \(answer)")
+            case .repair:   #expect(answer.hasPrefix("note: "), "InnoDB answers REPAIR with a note — \(answer)")
+            case .analyze, .check, .optimize:
+                #expect(answer.hasSuffix("status: OK"), "\(task): \(answer)")
+            }
+        }
+        #expect(try await e.tableMaintenance(.check, alias: "tm1", database: TEnv.writeDB, table: "tm_orders") == "status: OK")
+        try await e.mysqlExecute(alias: "tm1", sql: "DROP TABLE \(t)")
+    }
+
     @Test("Test Connection passes for the right password and gives the server's reason for a wrong one")
     func testConnection() async throws {
         let manager = try ConnectionManager(arguments: [])

@@ -16,6 +16,7 @@ struct WorkspaceSidebarView: View {
     @State private var destructTarget: DestructTarget? = nil   // pending drop/truncate awaiting confirm
     @State private var addDatabaseRequest: AddDatabaseRequest?    // Add Database…
     @State private var databaseToDelete: DatabaseToDelete?        // Delete Database…, awaiting confirm
+    @State private var maintenanceAnswer: (title: String, message: String)?   // Table Maintenance's answer
     @State private var tableNameRequest: TableNameRequest?   // Rename / Duplicate Table…
     @State private var importProgress: ImportProgress?             // Import SQL file…, while it runs
     @State private var importTask: Task<Void, Never>?
@@ -122,6 +123,12 @@ struct WorkspaceSidebarView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(destructError ?? "")
+        }
+        .alert(maintenanceAnswer?.title ?? "",
+               isPresented: Binding(get: { maintenanceAnswer != nil }, set: { if !$0 { maintenanceAnswer = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(maintenanceAnswer?.message ?? "")
         }
         .alert("Done",
                isPresented: Binding(get: { exportInfo != nil }, set: { if !$0 { exportInfo = nil } })) {
@@ -646,6 +653,14 @@ struct WorkspaceSidebarView: View {
                 Divider()
                 Button("Rename Table…") { tableNameRequest = TableNameRequest(table: table, conn: conn, action: .rename) }
                 Button("Duplicate Table…") { tableNameRequest = TableNameRequest(table: table, conn: conn, action: .duplicate) }
+                if conn.engine == .mysql {
+                    Menu("Table Maintenance") {
+                        ForEach(TableMaintenance.allCases) { task in
+                            Button("\(task.rawValue) Table") { Task { await runMaintenance(task, table, conn) } }
+                                .disabled(conn.readOnly && task.changesTheTable)
+                        }
+                    }
+                }
                 Divider()
                 Button("Truncate Table…") {
                     destructTarget = DestructTarget(table: table, conn: conn, action: .truncate)
@@ -658,6 +673,17 @@ struct WorkspaceSidebarView: View {
     }
 
     // MARK: - Actions
+
+    /// Table Maintenance: runs the task and shows the server's answer.
+    private func runMaintenance(_ task: TableMaintenance, _ table: TableInfo, _ conn: Connection) async {
+        let db = session.selectedDatabase[conn.alias] ?? conn.database
+        do {
+            let answer = try await manager.queryEngine.tableMaintenance(task, alias: conn.alias, database: db, table: table.name)
+            maintenanceAnswer = (title: "\(task.rawValue) “\(table.name)”", message: answer)
+        } catch {
+            destructError = QueryEngine.extractReason(from: error)
+        }
+    }
 
     private func quickSelect(_ table: TableInfo, conn: Connection) {
         session.activeFeatureTab = .query
