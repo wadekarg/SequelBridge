@@ -78,22 +78,12 @@ struct SettingsView: View {
     }
 
     private var shortcutsTab: some View {
-        let shortcuts: [(String, String)] = [
-            ("⌘↵", "Run query (or selected text)"),
-            ("Esc", "Cancel the running query"),
-            ("⌃⌥F", "Format the statement"),
-            ("⌘T", "New query tab"),
-            ("⌘W", "Close current tab"),
-            ("⌘,", "Open Settings"),
-            ("Click table", "Insert table name at cursor"),
-            ("Double-click table", "SELECT * LIMIT 200 in new tab")
-        ]
-        return List(shortcuts, id: \.0) { shortcut, description in
-            HStack {
-                Text(shortcut)
+        List(Shortcuts.all, id: \.keys) { shortcut in
+            HStack(alignment: .firstTextBaseline) {
+                Text(shortcut.keys)
                     .font(Theme.mono(13))
-                    .frame(width: 140, alignment: .leading)
-                Text(description).foregroundColor(.secondary)
+                    .frame(width: 160, alignment: .leading)
+                Text(shortcut.action).foregroundColor(.secondary)
             }
         }
     }

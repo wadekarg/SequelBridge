@@ -31,6 +31,9 @@ Screenshots come from a demo instance on synthetic data.
 | Import CSV into an existing table | ✓ | ✓ | | |
 | Import CSV into a new table | ✓ | | | |
 | One side of a cross-server join | ✓ | ✓ | ✓ (probe side) | ✓ (copied) |
+| Follow a foreign key from Content | ✓ | | | |
+| Add and delete a database | ✓ | | | |
+| Table Maintenance | ✓ | | | |
 | Results: streaming grid, filter, charts, export | ✓ | ✓ | ✓ | ✓ |
 
 Row editing needs a primary key on the table; a query result is edited when it is one
@@ -77,12 +80,21 @@ for production servers.
 
 The sidebar has one tab per connected server, a database picker, a filter box for the
 table list with a **+** beside it that creates a table, and a strip at the bottom with
-the selected table's rows, data and index size, engine, encoding and timestamps. The
-"…" button beside the picker holds the database-level actions (export as SQL; on MySQL,
-import a CSV into a new table); a table's context menu has the table-level ones
-(`SELECT *`, copy name, export as SQL on MySQL, import a CSV on MySQL and PostgreSQL).
+the selected table's rows, data and index size, engine, collation and timestamps. The
+"…" button beside the picker holds the database-level actions: on MySQL, **Add
+Database…** (a name, and an encoding and collation from the server's lists, each
+starting at its default) and **Delete Database…**, which asks first; export as SQL;
+**Import SQL file…** on MySQL and PostgreSQL; on MySQL, import a CSV into a new table.
+A table's context menu has the table-level ones: `SELECT *`, copy name, export as SQL
+on MySQL, import a CSV, **Rename Table…**, **Duplicate Table…** (with or without its
+rows), Truncate and Drop on MySQL and PostgreSQL, and on MySQL **Table Maintenance**:
+Analyze, Check, Optimize, Repair, Flush and Checksum, each showing the server's answer.
+
 Picking a database lists its tables; one that can't be opened says why, with
-**Try Again**, and the connection stays on the database it had.
+**Try Again**, and the connection stays on the database it had. Another database closes
+the table open from the one before. The ↻ beside the picker re-reads the databases and
+the picked one's tables (⇧⌘R), or the tables alone (⌃⌘R), for changes made outside the
+app.
 
 The toolbar tabs switch the main area: **Structure, Content, Relations, Triggers,
 Table Info** for the selected table; **Routines, Server, Query, Console** for the
@@ -95,12 +107,20 @@ editor; double-clicking opens `SELECT * … LIMIT 200` in a new query tab.
 
 **Structure** lists the columns with type, length, nullability, key and default, and
 the table's indexes. Add a column or an index from here; the DDL is written in the
-server's dialect and shown in the Console.
+server's dialect and shown in the Console. A generated column can't be changed here,
+since its expression isn't shown: change it with `ALTER TABLE` in the Query tab.
 
 ![Content](images/content.png)
 
-**Content** is a paginated browser of the rows. Type a filter to narrow it; click a
-column header to sort, which reruns the page on the server with an `ORDER BY`.
+**Content** is a paginated browser of the rows. ⌘J jumps to a page and sets the rows a
+page shows (100 to 5,000, kept across launches). **Filter** picks a column, an operator
+(=, ≠, <, >, ≤, ≥, contains, doesn't contain, begins with, ends with, is in, between,
+is NULL, isn't NULL) and a value, as in Sequel Ace; a `%`, `_`, quote or backslash in
+the value matches as itself. **Type WHERE** shows the rule as SQL, to adjust or
+replace. Click a column header to sort, which reruns the page on the server with an
+`ORDER BY`. On MySQL, a cell of a foreign key's column leads to the row it points at:
+its right-click menu has **Go to customers where id = 2**, which opens that table's
+Content tab filtered to the row.
 
 Double-click a cell to edit it in place, as in Sequel Ace. Type the new value, then
 press Return or click elsewhere to save it to the server; Esc leaves it as it was. If
@@ -109,6 +129,9 @@ with **Edit Again** to fix the value or **Discard**. **Set to NULL** is on the c
 right-click menu. A cell that can't be edited says why instead: the connection is
 read-only, the table has no primary key, or it is ClickHouse, where a row write is an
 asynchronous table mutation. Rows can also be inserted and deleted, on the same terms.
+⌘D duplicates the selected row: the copy opens in the row sheet without what the server
+fills in itself (an auto-increment key), and each empty field says what it will get (a
+default, NULL, the server's own number) or that it is required.
 
 **Relations** shows the table's foreign keys: the referencing column, the table and
 column it points to, the ON DELETE and ON UPDATE rules, the constraint name.
@@ -120,18 +143,25 @@ definitions.
 ## Running a query on one server
 
 The editor highlights SQL and completes table and column names as you type (switch
-it off in Settings). **Run** (⌘↵) streams the result into the grid; select part of
-the text to run only that. **Cancel** stops the app's work on the query; a statement a
+it off in Settings); ⌘/ comments lines, ⌘] and ⌘[ indent them, ⌘F finds, and ⌘O and
+⌘S open and save `.sql` files. **Run** (⌘↵) streams the result into the grid; select
+part of the text to run only that. **Run Current** (⌘R) runs the statement under the
+cursor, as in Sequel Ace; ⌥⌘R runs them all, one after another. **Cancel** stops the app's work on the query; a statement a
 server is already running finishes there on its own. **Format** tidies the statement.
 **Explain** shows the server's own plan for a statement that names one MySQL or
 PostgreSQL server, and typing `EXPLAIN …` does the same there; on ClickHouse a typed
 `EXPLAIN` runs as a normal statement, and on a SQLite file it shows DuckDB's plan.
 
-The bookmark button saves the statement under a name for later. Every statement you
-run is kept in the history, which survives restarts; the Console tab shows it.
+The bookmark button saves the statement under a name for later, and its Recent list
+holds the statements you ran, kept across restarts.
 
 A statement that names one server runs on that server in that server's own SQL, as if
-you had typed it into the server's own client. A statement that names no server runs
+you had typed it into the server's own client. On MySQL and PostgreSQL a statement that
+returns no rows (a write, DDL) is sent exactly as typed; on MySQL the result says how
+many rows it changed, while PostgreSQL gives no count this way, so the result says Done.
+`LOCK TABLES` and `SET autocommit` are refused, saying why: the app's statements don't
+share one server connection, so they'd stay on a connection the app reuses. A `BEGIN`
+typed in the Query tab holds the statements after it until its `COMMIT` or `ROLLBACK`. A statement that names no server runs
 on the one picked at the top of the left panel, in the database picked there. A SQLite
 file is read by DuckDB, so DuckDB SQL applies there.
 
@@ -192,8 +222,10 @@ bar, line or pie chart: pick the label and value columns.
 
 **Export database as SQL…** in the sidebar menu writes a dump of every table, schema
 and data, for MySQL, PostgreSQL and SQLite; on MySQL a table's context menu exports it
-alone. **Import CSV…** on a table's context menu loads a CSV into it (MySQL and
-PostgreSQL); on MySQL the sidebar menu also creates a new table from a CSV, with
+alone. **Import SQL file…** in the sidebar menu runs a `.sql` file's statements in
+order, with progress and **Stop**; the first that fails stops it and says which (MySQL
+and PostgreSQL). **Import CSV…** on a table's context menu loads a CSV into it (MySQL
+and PostgreSQL); on MySQL the sidebar menu also creates a new table from a CSV, with
 columns taken from the header.
 
 ## Server and Console
@@ -205,22 +237,40 @@ recent queries, the slowest by duration, and a roll-up by query type.
 
 ![Console](images/console.png)
 
-**Console** lists every statement the app sent on your behalf, with its duration, row
-count and any error: your queries, the server-side steps of a cross-server join, the
-metadata lookups behind the panels, the DDL behind a click. **Export…** writes the log
-as a `.sql` file; **Clear** empties it.
+**Console** lists every statement the app runs, with its duration, row count and any
+error: your queries, the server-side steps of a cross-server join, the DDL behind a
+click, and the app's own reads of your tables, columns and keys, marked "by the app".
+**All** shows everything; **Yours** only what you ran in the Query tab. **Export…**
+writes the log as a `.sql` file; **Clear** empties it.
 
 ## Settings and shortcuts
 
 **Appearance** sets a light, dark or system theme. **Editor** sets the font size, tab
 width and whether the editor auto-completes. **Connections** lists the saved
-connections with Edit and Delete. **Shortcuts** lists these:
+connections with Edit and Delete. **Shortcuts** lists every key the app binds:
 
 | Keys | Action |
 |---|---|
-| ⌘↵ | Run the query, or the selected text |
+| ⌘↵ | Run every statement, or the selected text |
+| ⌘R | Run the statement under the cursor; in Content and Structure, refresh |
+| ⌥⌘R | Run every statement |
 | Esc | Cancel the running query |
-| ⌘T | New query tab |
-| ⌘W | Close the current tab |
 | ⌃⌥F | Format the statement |
+| ⌘T | New query tab |
+| ⌘W | Close the query tab you're on |
+| ⌘O | Open a .sql file |
+| ⌘S | Save the query tab's .sql file |
+| ⇧⌘S | Save it under another name |
+| ⌘/ | Comment or uncomment the lines |
+| ⌘] | Indent the lines |
+| ⌘[ | Outdent the lines |
+| ⌘F | Find in the editor |
+| ⌘G | Find the next match |
+| ⌘1–⌘9 | Structure, Content, Relations, Triggers, Table Info, Query, Routines, Server, Console |
+| ⇧⌘R | Refresh the databases and tables |
+| ⌃⌘R | Refresh the tables |
+| ⌘J | Jump to a page, or set the rows a page shows (Content) |
+| ⌘D | Duplicate the selected row (Content) |
 | ⌘, | Settings |
+| Click a table | Insert its name at the cursor |
+| Double-click a table | SELECT * … LIMIT 200 in a new query tab |

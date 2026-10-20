@@ -84,6 +84,8 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   comments weren't marked, and a backticked name such as `from` showed as a keyword.
 
 ### Changed
+- Settings' Shortcuts list and the guide's table list every key the app binds (they
+  listed six); a test now checks both against the keys the buttons bind.
 - The left panel's **+** sits at its top right, above the database menu's **…**, and a
   connection's engine badge (MY, PG, LITE, CH) stays on one line beside a long alias.
 - From a screen-by-screen review in light and dark mode: Structure's Default and Extra
