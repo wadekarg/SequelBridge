@@ -33,12 +33,12 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 
 | Sequel Ace | SequelBridge | Tested by |
 |---|---|---|
-| ● Choose a database | ✓ one switch at a time, the last pick wins; one that can't be opened says why | `DatabaseSwitchTests` |
-| ● `USE db` in a query selects it | ✓ | `DatabaseSwitchTests.useFollows`, `QueryEffectsTests` |
+| ● Choose a database | ✓ one switch at a time, the last pick wins; one that can't be opened says why | `DatabaseSwitchTests`, `MySQLWorkflowUITests` |
+| ● `USE db` in a query selects it | ✓ | `DatabaseSwitchTests.useFollows`, `QueryEffectsTests`, `MySQLWorkflowUITests` |
 | Add database (with encoding and collation) | ◐ typed `CREATE DATABASE` only; the list refreshes | `DatabaseSwitchTests.databaseDDL` |
 | Delete database | ◐ typed `DROP DATABASE` only; a dropped selection goes back to the connection's own | `DatabaseSwitchTests.databaseDDL` |
 | Duplicate, rename or alter a database | ✗ | |
-| Refresh databases, refresh tables | ✗ no button: the lists refresh after the app's own changes and typed DDL only | |
+| Refresh databases, refresh tables | ✓ ↻ beside the database picker: ⇧⌘R both, ⌃⌘R the tables, as in Sequel Ace | `DatabaseSwitchTests.refresh`, `MySQLRefreshUITests` |
 | Open a database in a new tab | ✗ | |
 | Export a database as SQL | ✓ | `DatabaseDumpTests` |
 | Flush privileges | ◐ typed only | |
@@ -52,13 +52,13 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 
 | Sequel Ace | SequelBridge | Tested by |
 |---|---|---|
-| ● Filter tables | ✓ part of the name, any case, spaces around it ignored | `TableListFilterTests` |
+| ● Filter tables | ✓ part of the name, any case, spaces around it ignored | `TableListFilterTests`, `MySQLWorkflowUITests` |
 | ● Add a table | ✓ | `PanelWritePathTests`, `SQLBuilderDDLTests` |
-| Duplicate a table, with or without its rows | ✗ | |
-| Rename a table | ✗ typed only | |
+| Duplicate a table, with or without its rows | ✓ MySQL and PostgreSQL, from its context menu | `RenameDuplicateTableTests`, `PanelWritePathTests`, `MySQLWorkflowUITests` |
+| Rename a table | ✓ MySQL and PostgreSQL, from its context menu | `RenameDuplicateTableTests`, `PanelWritePathTests`, `MySQLWorkflowUITests` |
 | Truncate a table | ✓ | `DestructiveDDLVerifyTests` |
 | Drop a table | ✓ | `DestructiveDDLVerifyTests` |
-| Copy or show `CREATE TABLE` | ◐ Table Info rebuilds it from the columns and indexes, with Copy; the server's own statement (foreign keys, partitions, table options) isn't shown | `ShowCreateTableTests` |
+| Copy or show `CREATE TABLE` | ✓ in Table Info, with Copy: the server's own on MySQL and ClickHouse, the file's own on SQLite; PostgreSQL keeps none, so it is rebuilt and says so | `MySQLIntegrationTests.serverCreateTable`, `MySQLWorkflowUITests` |
 | Check, repair, analyze, optimize, flush, checksum | ✗ typed only | |
 | Open a table in a new tab or window | ◐ double-click opens `SELECT *` in a new query tab | |
 | Pin a table to the top | ✗ | |
@@ -79,7 +79,7 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | Indexes: add and delete PRIMARY, UNIQUE, INDEX | ✓ | `PanelWritePathTests` |
 | FULLTEXT and SPATIAL indexes | ◐ listed, not created from the panel | |
 | Edit table details: engine, encoding, collation, comment, `AUTO_INCREMENT` | ✗ shown in Table Info, not editable | |
-| Refresh the structure | ✗ | |
+| Refresh the structure | ✓ ⌘R; *no test* | |
 
 ## Content
 
@@ -90,9 +90,9 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | ● Filter rows | ◐ a typed `WHERE` condition, not field-operator-value pickers; a condition the server can't read says why | `ContentBrowseTests` |
 | Saved filters | ✗ | |
 | ● Sort by a column | ✓ on the server | `DestructiveDDLVerifyTests`, `ContentDMLTests` |
-| ● Edit a cell in place | ✓ Return or a click away saves, Esc cancels | `InlineCellEditTests`, `ContentEditTests` |
+| ● Edit a cell in place | ✓ Return or a click away saves, Esc cancels | `InlineCellEditTests`, `ContentEditTests`, `MySQLWorkflowUITests` |
 | Edit a long value in a sheet | ◐ in the Query tab's popup; the Content tab edits in place | `QueryResultEditTests` |
-| ● Set a cell to NULL | ✓ right-click; stores NULL, not an empty string | `ContentBrowseTests` |
+| ● Set a cell to NULL | ✓ right-click; stores NULL, not an empty string | `ContentBrowseTests`, `MySQLWorkflowUITests` |
 | ● Add a row | ✓ | `PanelWritePathTests` |
 | Duplicate a row | ✗ | |
 | ● Delete rows | ✓ | `PanelWritePathTests` |
@@ -100,7 +100,7 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | Copy rows as SQL `INSERT` | ✓ a text value that reads NULL stays text (fixed) | `InsertStatementTests` |
 | Follow a foreign key to the row it points at | ✗ | |
 | Show binary data as hex | ◐ BLOBs are decoded for display | |
-| Refresh the content | ✓ *no test* | |
+| Refresh the content | ✓ ⌘R; *no test* | |
 
 ## Relations, Triggers, Table Info
 
@@ -117,20 +117,20 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 
 | Sequel Ace | SequelBridge | Tested by |
 |---|---|---|
-| ● Run all, or the selection | ✓ ⌘↵; *no test* yet (a UI test is written, not yet run) | |
-| Run the statement under the cursor | ✗ | |
+| ● Run all, or the selection | ✓ ⌘↵ | `WorkspaceControlsUITests`, `MySQLWorkflowUITests` |
+| Run the statement under the cursor | ✓ Run Current: ⌘R as in Sequel Ace, ⌥⌘R runs them all | `SQLScriptTests.underCursor`, `MySQLWorkflowUITests` |
 | ● Highlighting and completion of tables and columns | ✓ `--` inside a string, `#` and `/* */` comments, backticked names (fixed) | `SQLHighlighterTests`, `SQLCompletionTests` |
-| ● Several statements in one run | ✓ one at a time, as in Sequel Ace, `DELIMITER` included (fixed: two `SELECT`s failed on MySQL); the run loop itself: *no test* yet | `SQLScriptTests` |
+| ● Several statements in one run | ✓ one at a time, as in Sequel Ace, `DELIMITER` and `/*! */` included (fixed: two `SELECT`s failed on MySQL) | `SQLScriptTests`, `MySQLWorkflowUITests` |
 | ● Edit a result's values | ✓ one table's rows with its primary key, as in Sequel Ace | `ResultEditingSourceTests`, `ResultEditTargetTests`, `QueryResultEditTests` |
-| Query history: menu, previous and next | ◐ kept across restarts and shown in the Console; no history menu in the editor | `HistoryStoreTests` |
+| Query history: menu, previous and next | ◐ the bookmark menu lists the last 10 statements, kept across restarts; no previous and next keys | `HistoryStoreTests` |
 | ● Query favorites: save, load, delete | ✓ | `SavedQueryStoreTests` |
 | ● Explain | ✓ | `TypedExplainTests`, `MySQL8Tests` |
-| Comment a line (⌘/), shift indent (⌘[ ⌘]) | ✗ | |
-| Find and replace in the editor | ✗ | |
+| Comment a line (⌘/), shift indent (⌘[ ⌘]) | ✓ | `EditorEditsTests`, `EditorCommandTests`, `MySQLWorkflowUITests` |
+| Find and replace in the editor | ✓ macOS's find bar: ⌘F, ⌘G | `EditorCommandTests` |
 | Auto-pair brackets and quotes, uppercase keywords | ✗ | |
 | ● Export a result | ✓ CSV, JSON, Markdown, SQL `INSERT` | `ResultExporterTests` |
 | ● Several query tabs | ✓ | `WorkspaceControlsUITests` |
-| Open and save `.sql` files in the editor | ✗ the Console exports its log as `.sql` | `ConsoleExporterTests` |
+| Open and save `.sql` files in the editor | ✓ ⌘O, ⌘S, ⇧⌘S; UTF-8, or Latin-1 for an old file | `SQLFileTests`, `OpenSQLTabTests` |
 | Cancel a running query | ✓ | `QueryCancelTests` |
 | MySQL help for a word | ✗ | |
 
@@ -139,7 +139,7 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | Sequel Ace | SequelBridge | Tested by |
 |---|---|---|
 | Import CSV with field mapping | ◐ columns matched by header name, no mapping step | `DestructiveDDLVerifyTests`, `CSVParserTests`, `CSVInferenceTests` |
-| Import a SQL file | ✗ | |
+| Import a SQL file | ✓ MySQL and PostgreSQL: its statements in order, with progress and Stop; the first that fails stops it and says which | `MySQLIntegrationTests.importDump`, `SQLFileTests` |
 | Import from the clipboard | ✗ | |
 | Export SQL with structure and content options | ◐ structure and content, no options | `DatabaseDumpTests` |
 | Export CSV, XML | ◐ CSV of a result; no XML | `ResultExporterTests` |
@@ -148,9 +148,9 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 
 | Sequel Ace | SequelBridge | Tested by |
 |---|---|---|
-| ⌘1–⌘6 switch the main tabs | ✓ Sequel Ace's six, then ⌘7–⌘9 for Routines, Server, Console | `FeatureTabShortcutTests` |
+| ⌘1–⌘6 switch the main tabs | ✓ Sequel Ace's six, then ⌘7–⌘9 for Routines, Server, Console | `FeatureTabShortcutTests`, `MySQLWorkflowUITests` |
 | Back and forward through visited tables | ✗ | |
-| ● Console: show and clear | ✓ *no test* | |
+| ● Console: show and clear | ✓ | `MySQLWorkflowUITests` |
 | Save the history to a file | ✓ the Console's Export | `ConsoleExporterTests` |
 | Navigator | ✗ | |
 | Light and dark theme | ✓ | `AppSettingsTests` |

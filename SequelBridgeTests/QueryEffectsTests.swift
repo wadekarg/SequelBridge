@@ -29,6 +29,7 @@ struct QueryEffectsTests {
         #expect(db(after: "USE`quoted_db`") == "quoted_db")
         #expect(db(after: "-- pick one\nUSE target") == "target")
         #expect(db(after: "# pick one\nUSE target") == "target")
+        #expect(db(after: "/*!40101 USE versioned_db */") == "versioned_db")   // an executable comment runs
         #expect(db(after: "USEFUL db") == "old_db")
         #expect(db(after: "SELECT 'USE x'") == "old_db")
     }

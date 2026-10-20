@@ -51,6 +51,22 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 - The table filter ignores spaces around what you type.
 - ⌘1–⌘6 switch the main tabs as in Sequel Ace (Structure, Content, Relations, Triggers,
   Table Info, Query), and ⌘7–⌘9 open Routines, Server and Console.
+
+### Added
+- Refresh beside the database picker: ⇧⌘R re-reads the databases and tables, ⌃⌘R the
+  tables, for changes made outside the app. ⌘R refreshes the Content and Structure tabs.
+- Table Info shows the server's own `CREATE TABLE` on MySQL and ClickHouse, and the file's
+  own on SQLite, foreign keys and options included. PostgreSQL keeps none, so it is rebuilt
+  there and says so.
+- Rename Table… and Duplicate Table… (with or without its rows) on a table's context menu,
+  for MySQL and PostgreSQL.
+- Run Current (⌘R, as in Sequel Ace) runs the statement under the cursor, or the
+  selection; ⌥⌘R runs them all.
+- In the editor: ⌘/ comments or uncomments the selected lines, ⌘] and ⌘[ indent and
+  outdent them, and ⌘F opens the find bar.
+- Open and save `.sql` files in the Query tab (⌘O, ⌘S, ⇧⌘S), and Import SQL file… in the
+  database menu: the file's statements run in order, with progress and Stop, and the first
+  that fails stops the import and says which. MySQL's `/*! … */` statements run.
 - A Sequel Ace checklist in the guide: each of its features, whether SequelBridge has it,
   and the test that proves it.
 

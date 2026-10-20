@@ -111,3 +111,74 @@ nonisolated enum RowCopy {
         ([columns.joined(separator: "\t")] + rows).joined(separator: "\n")
     }
 }
+
+nonisolated enum EditorEdits {
+    struct Edit: Equatable { let text: String; let selection: NSRange }
+
+    /// ⌘/: puts "-- " before each selected line that has text, or, when every one of them
+    /// already starts with "--", takes it off. A selection that ends at the start of a
+    /// line leaves that line alone.
+    static func toggleComment(_ text: String, selection: NSRange) -> Edit {
+        let lines = selectedLines(text, selection)
+        let filled = lines.lines.filter { !isBlank($0) }
+        let uncomment = !filled.isEmpty && filled.allSatisfy { $0.drop(while: isIndent).hasPrefix("--") }
+        return rewrite(text, selection, lines) { line in
+            guard !isBlank(line) else { return (line, 0) }
+            guard uncomment else { return ("-- " + line, 3) }
+            let lead = line.prefix(while: isIndent)
+            var rest = line.dropFirst(lead.count).dropFirst(2)
+            var removed = 2
+            if rest.first == " " { rest = rest.dropFirst(); removed = 3 }
+            return (String(lead) + rest, -removed)
+        }
+    }
+
+    /// ⌘] indents each selected line with text by `width` spaces; ⌘[ takes off up to
+    /// `width` leading spaces, or one tab.
+    static func shift(_ text: String, selection: NSRange, right: Bool, width: Int) -> Edit {
+        rewrite(text, selection, selectedLines(text, selection)) { line in
+            if right { return isBlank(line) ? (line, 0) : (String(repeating: " ", count: width) + line, width) }
+            if line.hasPrefix("\t") { return (String(line.dropFirst()), -1) }
+            let spaces = line.prefix { $0 == " " }.count
+            let removed = min(spaces, width)
+            return (String(line.dropFirst(removed)), -removed)
+        }
+    }
+
+    // MARK: - The lines a selection touches
+
+    private struct Lines { let range: NSRange; let lines: [String]; let endsWithNewline: Bool }
+
+    private static func isIndent(_ c: Character) -> Bool { c == " " || c == "\t" }
+    private static func isBlank(_ line: String) -> Bool { line.allSatisfy(isIndent) }
+
+    private static func selectedLines(_ text: String, _ selection: NSRange) -> Lines {
+        let s = text as NSString
+        let safe = NSRange(location: min(selection.location, s.length),
+                           length: min(selection.length, s.length - min(selection.location, s.length)))
+        let range = s.lineRange(for: safe)
+        let body = s.substring(with: range)
+        var lines = body.components(separatedBy: "\n")
+        let endsWithNewline = body.hasSuffix("\n")
+        if endsWithNewline { lines.removeLast() }
+        return Lines(range: range, lines: lines, endsWithNewline: endsWithNewline)
+    }
+
+    /// Rewrites each line; the caret moves with its line's text, a selection covers the lines.
+    private static func rewrite(_ text: String, _ selection: NSRange, _ lines: Lines,
+                                _ change: (String) -> (String, Int)) -> Edit {
+        var shift = 0
+        let changed = lines.lines.map { line -> String in
+            let (out, delta) = change(line)
+            if shift == 0 { shift = delta }
+            return out
+        }
+        let body = changed.joined(separator: "\n") + (lines.endsWithNewline ? "\n" : "")
+        let newText = (text as NSString).replacingCharacters(in: lines.range, with: body)
+        let bodyLength = (body as NSString).length
+        let selected: NSRange = selection.length == 0
+            ? NSRange(location: max(lines.range.location, selection.location + shift), length: 0)
+            : NSRange(location: lines.range.location, length: bodyLength - (lines.endsWithNewline ? 1 : 0))
+        return Edit(text: newText, selection: selected)
+    }
+}

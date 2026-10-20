@@ -73,6 +73,34 @@ extension WorkspaceSession {
         }
     }
 
+    /// Refresh Tables (⌃⌘R): re-reads the picked database's tables.
+    func refreshTables(for conn: Connection, manager: ConnectionManager) async {
+        await loadTables(for: conn, manager: manager)
+    }
+
+    /// Refresh Databases (⇧⌘R): re-reads the database list and the picked one's tables.
+    /// A picked database that is gone goes back to the connection's own, else the first.
+    func refreshDatabases(for conn: Connection, manager: ConnectionManager) async {
+        let alias = conn.alias
+        var dbs = try? await manager.queryEngine.fetchDatabases(alias: alias)
+        if dbs == nil {
+            // On a database dropped elsewhere every statement fails: go back to the
+            // connection's own database first, then read the list again.
+            let picked = selectedDatabase[alias]
+            let back = conn.database.isEmpty ? (availableDatabases[alias]?.first { $0 != picked } ?? "") : conn.database
+            if !back.isEmpty { await showDatabase(back, for: conn, manager: manager) }
+            dbs = try? await manager.queryEngine.fetchDatabases(alias: alias)
+        }
+        guard let dbs else { return }
+        availableDatabases[alias] = dbs
+        let picked = selectedDatabase[alias] ?? ""
+        if !picked.isEmpty, !dbs.contains(picked) {
+            await showDatabase(dbs.first(where: { $0 == conn.database }) ?? dbs.first ?? "", for: conn, manager: manager)
+        } else {
+            await loadTables(for: conn, manager: manager)
+        }
+    }
+
     /// Re-reads the tables of the database selected for `conn`.
     func loadTables(for conn: Connection, manager: ConnectionManager) async {
         let alias = conn.alias

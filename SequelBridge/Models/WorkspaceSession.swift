@@ -108,6 +108,16 @@ class WorkspaceSession: ObservableObject {
         }
     }
 
+    /// A .sql file opened into the Query tab: into the current tab when it is empty,
+    /// else into a new one, named after the file, which ⌘S then saves back to.
+    func openSQL(_ text: String, from url: URL) {
+        if !(activeTab?.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? false) { addTab() }
+        guard let i = tabs.firstIndex(where: { $0.id == activeTabId }) else { return }
+        tabs[i].sql = text
+        tabs[i].title = url.lastPathComponent
+        tabs[i].fileURL = url
+    }
+
     func addTab() {
         let tab = QueryTab(title: "Query \(tabs.count + 1)")
         tabs.append(tab)

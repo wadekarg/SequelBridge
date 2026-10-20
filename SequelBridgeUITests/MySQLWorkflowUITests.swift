@@ -161,6 +161,60 @@ final class MySQLWorkflowUITests: XCTestCase {
         XCTAssertTrue(waitForGone(text(containing: "console-probe")), "Clear didn't empty the Console")
     }
 
+    func testRenameAndDuplicateATableFromItsMenu() {
+        pick(database: "sbwrite")
+        run("DROP TABLE IF EXISTS ui_named; DROP TABLE IF EXISTS ui_renamed; DROP TABLE IF EXISTS ui_renamed_copy; CREATE TABLE ui_named (id INT PRIMARY KEY)")
+        XCTAssertTrue(table("ui_named").waitForExistence(timeout: 30))
+        table("ui_named").rightClick()
+        app.menuItems["Rename Table…"].click()
+        let field = element("tableName.field")
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "no name field")
+        field.click()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText("ui_renamed")
+        element("tableName.confirm").click()
+        XCTAssertTrue(table("ui_renamed").waitForExistence(timeout: 30), "the renamed table isn't listed")
+        XCTAssertFalse(table("ui_named").exists)
+
+        table("ui_renamed").rightClick()
+        app.menuItems["Duplicate Table…"].click()
+        XCTAssertTrue(element("tableName.confirm").waitForExistence(timeout: 10))
+        element("tableName.confirm").click()
+        XCTAssertTrue(table("ui_renamed_copy").waitForExistence(timeout: 30), "the copy isn't listed")
+        run("DROP TABLE ui_renamed; DROP TABLE ui_renamed_copy")
+    }
+
+    func testRunCurrentRunsTheStatementUnderTheCursor() {
+        run("SELECT 'first-current' AS a;\nSELECT 'second-current' AS b")
+        XCTAssertTrue(text(containing: "second-current").waitForExistence(timeout: 30))
+        let editor = element("query.editor")
+        editor.click()
+        editor.typeKey(.upArrow, modifierFlags: .command)       // the caret to the start: the first statement
+        element("query.runCurrent").click()
+        XCTAssertTrue(text(containing: "first-current").waitForExistence(timeout: 30), "Run Current didn't run the first statement")
+        XCTAssertFalse(text(containing: "second-current").exists)
+    }
+
+    func testCommandSlashCommentsTheLine() {
+        app.typeKey("6", modifierFlags: .command)
+        let editor = element("query.editor")
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        editor.click()
+        editor.typeKey("a", modifierFlags: .command)
+        editor.typeText("SELECT 1")
+        editor.typeKey("/", modifierFlags: .command)
+        XCTAssertEqual(editor.value as? String, "-- SELECT 1")
+        editor.typeKey("/", modifierFlags: .command)
+        XCTAssertEqual(editor.value as? String, "SELECT 1")
+    }
+
+    func testTableInfoShowsTheServersOwnCreateTable() {
+        table("orders").click()
+        app.typeKey("5", modifierFlags: .command)
+        XCTAssertTrue(text(containing: "CONSTRAINT `fk_orders_customer` FOREIGN KEY").waitForExistence(timeout: 30),
+                      "Table Info didn't show the server's CREATE TABLE with its foreign key")
+    }
+
     private func waitForGone(_ e: XCUIElement, timeout: TimeInterval = 15) -> Bool {
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: e)
         return XCTWaiter.wait(for: [gone], timeout: timeout) == .completed

@@ -48,4 +48,24 @@ struct SQLScriptTests {
         """
         #expect(split(script) == ["CREATE PROCEDURE p() BEGIN SELECT 1; SELECT 2; END", "CALL p()", "SELECT 3"])
     }
+
+    @Test("the statement under the cursor: the one the caret is in, else the one just before it")
+    func underCursor() {
+        let text = "SELECT 1;\nSELECT 2;\n\nSELECT 3"
+        #expect(SQLScript.statement(at: 3, in: text) == "SELECT 1")
+        #expect(SQLScript.statement(at: 9, in: text) == "SELECT 1")       // just after its ;
+        #expect(SQLScript.statement(at: 14, in: text) == "SELECT 2")
+        #expect(SQLScript.statement(at: 20, in: text) == "SELECT 2")      // the blank line after it
+        #expect(SQLScript.statement(at: 21, in: text) == "SELECT 3")
+        #expect(SQLScript.statement(at: 29, in: text) == "SELECT 3")      // the end of the text
+        #expect(SQLScript.statement(at: 0, in: "  \n") == nil)
+        #expect(SQLScript.statement(at: 2, in: "é; SELECT 2") == "é")     // UTF-16 offsets, as the editor counts
+    }
+
+    @Test("MySQL's executable comments (/*! … */, /*M! … */) are statements, as in a mysqldump file")
+    func executableComments() {
+        #expect(split("/*!40101 SET NAMES utf8mb4 */; SELECT 1") == ["/*!40101 SET NAMES utf8mb4 */", "SELECT 1"])
+        #expect(split("/*M!100100 SET @x = 1 */;") == ["/*M!100100 SET @x = 1 */"])
+        #expect(split("/* a plain comment */;") == [])
+    }
 }

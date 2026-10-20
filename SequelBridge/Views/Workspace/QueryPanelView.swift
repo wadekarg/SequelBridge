@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct QueryPanelView: View {
     @EnvironmentObject private var manager: ConnectionManager
@@ -13,6 +14,9 @@ struct QueryPanelView: View {
     @State private var runningTask: Task<Void, Never>?
     @State private var elapsed: TimeInterval = 0
     @State private var elapsedTimer: Timer?
+    /// The editor's caret: Run Current (⌘R) runs the statement there.
+    @State private var cursorLocation = 0
+
     /// Started when Run is pressed; the toolbar counter and the result's executionTime
     /// (the status bar's query time) both come from it, so they always agree.
     @State private var runClock = RunClock()
@@ -37,7 +41,9 @@ struct QueryPanelView: View {
                             set: { session.tabs[idx].sql = $0 }
                         ),
                         selectedSQL: $selectedSQL,
+                        cursorLocation: $cursorLocation,
                         fontSize: appSettings.editorFontSize,
+                        tabWidth: appSettings.tabWidth,
                         onRun: { Task { await runQuery(tabIndex: idx) } },
                         completionItems: completionItems
                     )
@@ -66,6 +72,70 @@ struct QueryPanelView: View {
                 session.saveQuery(name: name, sql: session.activeTab?.sql ?? "")
             }
         }
+    }
+
+    // MARK: - .sql files (⌘O, ⌘S, ⇧⌘S)
+
+    private var sqlFileMenu: some View {
+        Menu {
+            Button("Open SQL File…") { openSQLFile() }
+            Button("Save SQL File") { saveSQLFile(choosing: false) }
+            Button("Save SQL File As…") { saveSQLFile(choosing: true) }
+        } label: {
+            Image(systemName: "doc.text")
+                .font(.system(size: 12, weight: .semibold))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Open or save a .sql file (⌘O, ⌘S, ⇧⌘S)")
+        .accessibilityIdentifier("query.fileMenu")
+        .background {
+            Group {
+                Button("") { openSQLFile() }.keyboardShortcut("o", modifiers: .command)
+                Button("") { saveSQLFile(choosing: false) }.keyboardShortcut("s", modifiers: .command)
+                Button("") { saveSQLFile(choosing: true) }.keyboardShortcut("s", modifiers: [.command, .shift])
+            }
+            .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
+        }
+    }
+
+    private func openSQLFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "sql") ?? .plainText, .plainText]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            session.openSQL(try SQLFile.read(url), from: url)
+        } catch {
+            setActiveTabError("Couldn't open \(url.lastPathComponent): \(error.localizedDescription)")
+        }
+    }
+
+    /// Saves the tab to the file it came from, or asks where (Save As, or a new tab).
+    private func saveSQLFile(choosing: Bool) {
+        guard let i = session.tabs.firstIndex(where: { $0.id == session.activeTabId }) else { return }
+        var url = session.tabs[i].fileURL
+        if choosing || url == nil {
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [UTType(filenameExtension: "sql") ?? .plainText]
+            panel.nameFieldStringValue = url?.lastPathComponent ?? "\(session.tabs[i].title).sql"
+            guard panel.runModal() == .OK, let chosen = panel.url else { return }
+            url = chosen
+        }
+        guard let url else { return }
+        do {
+            try SQLFile.write(session.tabs[i].sql, to: url)
+            session.tabs[i].fileURL = url
+            session.tabs[i].title = url.lastPathComponent
+        } catch {
+            setActiveTabError("Couldn't save \(url.lastPathComponent): \(error.localizedDescription)")
+        }
+    }
+
+    private func setActiveTabError(_ message: String) {
+        guard let i = session.tabs.firstIndex(where: { $0.id == session.activeTabId }) else { return }
+        session.tabs[i].error = message
     }
 
     // MARK: - Saved queries
@@ -174,6 +244,7 @@ struct QueryPanelView: View {
             .frame(height: 32)
             Spacer()
             HStack(spacing: 6) {
+                sqlFileMenu
                 savedQueriesMenu
                 if session.activeTab?.isRunning == true || session.activeTab?.isStreaming == true {
                     // Elapsed time counter
@@ -223,6 +294,30 @@ struct QueryPanelView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .help("Show the server's native query plan (EXPLAIN)")
+
+                    // Sequel Ace's keys: ⌘R runs the statement under the cursor (or the
+                    // selection), ⌥⌘R runs them all; ⌘↵ runs everything, or the selection.
+                    Button {
+                        if let idx = session.tabs.firstIndex(where: { $0.id == session.activeTabId }) {
+                            Task { await runCurrent(tabIndex: idx) }
+                        }
+                    } label: {
+                        Text("Run Current").font(.system(size: 12))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .keyboardShortcut("r", modifiers: .command)
+                    .help("Run the statement under the cursor, or the selection (⌘R)")
+                    .accessibilityIdentifier("query.runCurrent")
+                    .background {
+                        Button("") {
+                            if let idx = session.tabs.firstIndex(where: { $0.id == session.activeTabId }) {
+                                Task { await runQuery(tabIndex: idx) }
+                            }
+                        }
+                        .keyboardShortcut("r", modifiers: [.command, .option])
+                        .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
+                    }
 
                     Text("⌘↵").font(.caption2).foregroundColor(.secondary)
                     Button {
@@ -934,6 +1029,17 @@ struct QueryPanelView: View {
             targets = session.connections.filter { SQLBuilder.referencesAlias(sql, $0.alias) }
         }
         for conn in targets { await session.followRun(sql, on: conn, manager: manager) }
+    }
+
+    /// Run Current (⌘R): the selection if there is one, else the statement under the cursor.
+    private func runCurrent(tabIndex: Int) async {
+        guard tabIndex < session.tabs.count else { return }
+        if !selectedSQL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            await runQuery(tabIndex: tabIndex)
+            return
+        }
+        guard let statement = SQLScript.statement(at: cursorLocation, in: session.tabs[tabIndex].sql) else { return }
+        await runQuery(tabIndex: tabIndex, statement: statement)
     }
 
     /// A lone `USE db`: the same switch as picking `db` at the top of the left panel.

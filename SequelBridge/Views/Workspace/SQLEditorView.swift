@@ -11,7 +11,9 @@ import AppKit
 struct SQLEditorView: NSViewRepresentable {
     @Binding var text: String
     @Binding var selectedSQL: String   // "" when nothing selected; set by selection changes
+    @Binding var cursorLocation: Int   // the caret, in UTF-16 offsets: Run Current runs the statement there
     var fontSize: CGFloat = 13
+    var tabWidth: Int = 4
     var onRun: () -> Void
     var completionItems: [String] = []
 
@@ -23,6 +25,8 @@ struct SQLEditorView: NSViewRepresentable {
 
         textView.delegate = context.coordinator
         textView.setAccessibilityIdentifier("query.editor")
+        SQLTextView.configureForEditing(textView)
+        (textView as? SQLTextView)?.tabWidth = tabWidth
         textView.isRichText = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
@@ -51,6 +55,7 @@ struct SQLEditorView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        (textView as? SQLTextView)?.tabWidth = tabWidth
         if textView.string != text {
             textView.string = text
             highlight(textView: textView)
@@ -96,6 +101,7 @@ struct SQLEditorView: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
             let range = tv.selectedRange()
+            parent.cursorLocation = range.location
             if range.length > 0, let r = Range(range, in: tv.string) {
                 parent.selectedSQL = String(tv.string[r])
             } else {
@@ -263,6 +269,55 @@ nonisolated enum SQLKeywords {
 /// Run saw an empty statement. Route it through the normal editing path so the
 /// delegate, and with it the binding, hears about it exactly as for typed text.
 final class SQLTextView: NSTextView {
+    enum Command { case toggleComment, indent, outdent }
+
+    /// Spaces ⌘] adds and ⌘[ takes off.
+    var tabWidth = 4
+
+    /// ⌘/ comments or uncomments the selected lines; ⌘] and ⌘[ indent and outdent them.
+    /// The edit is one undo step and reaches the delegate like typed text.
+    func perform(_ command: Command) {
+        let selection = selectedRange()
+        let edit: EditorEdits.Edit
+        switch command {
+        case .toggleComment: edit = EditorEdits.toggleComment(string, selection: selection)
+        case .indent:        edit = EditorEdits.shift(string, selection: selection, right: true, width: tabWidth)
+        case .outdent:       edit = EditorEdits.shift(string, selection: selection, right: false, width: tabWidth)
+        }
+        let whole = NSRange(location: 0, length: (string as NSString).length)
+        guard edit.text != string, shouldChangeText(in: whole, replacementString: edit.text) else { return }
+        replaceCharacters(in: whole, with: edit.text)
+        didChangeText()
+        setSelectedRange(edit.selection)
+    }
+
+    /// macOS's find bar (⌘F, ⌘G), searching as you type.
+    static func configureForEditing(_ textView: NSTextView) {
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard window?.firstResponder === self,
+              event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else {
+            return super.performKeyEquivalent(with: event)
+        }
+        switch event.charactersIgnoringModifiers {
+        case "/": perform(.toggleComment); return true
+        case "]": perform(.indent); return true
+        case "[": perform(.outdent); return true
+        case "f": find(.showFindInterface); return true
+        case "g": find(.nextMatch); return true
+        default:  return super.performKeyEquivalent(with: event)
+        }
+    }
+
+    private func find(_ action: NSTextFinder.Action) {
+        let sender = NSMenuItem()
+        sender.tag = action.rawValue
+        performFindPanelAction(sender)
+    }
+
     override func setAccessibilityValue(_ value: Any?) {
         guard let newText = value as? String else { return }
         let whole = NSRange(location: 0, length: (string as NSString).length)

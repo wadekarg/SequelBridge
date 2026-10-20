@@ -193,7 +193,8 @@ struct ContentPanel: View {
                 Image(systemName: "arrow.clockwise")
             }
             .disabled(isLoading)
-            .help("Refresh the rows")
+            .keyboardShortcut("r", modifiers: .command)
+            .help("Refresh the rows (⌘R)")
             .accessibilityIdentifier("content.refresh")
         }
         .padding(.horizontal, 12)

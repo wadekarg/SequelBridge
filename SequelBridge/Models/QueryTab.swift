@@ -11,6 +11,7 @@ struct QueryTab: Identifiable {
     var id: UUID = UUID()
     var title: String = "Query 1"
     var sql: String = ""
+    var fileURL: URL? = nil          // the .sql file the tab was opened from or saved to
     var result: QueryResult?
     var isRunning: Bool = false
     /// True while later chunks of a large result are still streaming in behind the

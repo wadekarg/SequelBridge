@@ -204,6 +204,31 @@ nonisolated enum SQLBuilder {
         "DROP TABLE \(ddlTable(engine: engine, database: database, table: table))"
     }
 
+    /// Rename Table, from the table's context menu.
+    static func renameTable(engine: DatabaseEngine, database: String, from: String, to: String) -> String {
+        let src = ddlTable(engine: engine, database: database, table: from)
+        switch engine {
+        case .mysql, .clickhouse:
+            return "RENAME TABLE \(src) TO \(ddlTable(engine: engine, database: database, table: to))"
+        case .postgres, .sqlite:
+            return "ALTER TABLE \(src) RENAME TO \(duckIdent(to))"
+        }
+    }
+
+    /// Duplicate Table: the same columns and keys under a new name, with its rows if asked.
+    /// SQLite copies the columns and rows only (CREATE TABLE … AS keeps no keys).
+    static func duplicateTable(engine: DatabaseEngine, database: String, from: String, to: String, withRows: Bool) -> [String] {
+        let src = ddlTable(engine: engine, database: database, table: from)
+        let dst = ddlTable(engine: engine, database: database, table: to)
+        let rows = withRows ? ["INSERT INTO \(dst) SELECT * FROM \(src)"] : []
+        switch engine {
+        case .mysql:      return ["CREATE TABLE \(dst) LIKE \(src)"] + rows
+        case .postgres:   return ["CREATE TABLE \(dst) (LIKE \(src) INCLUDING ALL)"] + rows
+        case .clickhouse: return ["CREATE TABLE \(dst) AS \(src)"] + rows
+        case .sqlite:     return ["CREATE TABLE \(dst) AS SELECT * FROM \(src)" + (withRows ? "" : " LIMIT 0")]
+        }
+    }
+
     static func truncateTable(engine: DatabaseEngine, database: String, table: String) -> String {
         "TRUNCATE TABLE \(ddlTable(engine: engine, database: database, table: table))"
     }

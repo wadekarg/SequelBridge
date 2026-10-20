@@ -14,6 +14,9 @@ struct WorkspaceSidebarView: View {
     @State private var copiedTableId: String? = nil   // shows "Copied!" badge briefly
     @State private var showCreateTable = false
     @State private var destructTarget: DestructTarget? = nil   // pending drop/truncate awaiting confirm
+    @State private var tableNameRequest: TableNameRequest?   // Rename / Duplicate Table…
+    @State private var importProgress: ImportProgress?             // Import SQL file…, while it runs
+    @State private var importTask: Task<Void, Never>?
     @State private var destructError: String? = nil
     @State private var exportInfo: String? = nil               // neutral note after a SQL export
 
@@ -56,6 +59,14 @@ struct WorkspaceSidebarView: View {
                     Task { await loadTables(for: conn) }
                 }
                 .environmentObject(manager)
+            }
+        }
+        .sheet(item: $importProgress) { progress in
+            ImportProgressSheet(progress: progress) { importTask?.cancel() }
+        }
+        .sheet(item: $tableNameRequest) { request in
+            TableNameSheet(request: request) { name, withRows in
+                Task { await renameOrDuplicate(request, name: name, withRows: withRows) }
             }
         }
         // Confirm a destructive drop/truncate before touching the server.
@@ -224,6 +235,60 @@ struct WorkspaceSidebarView: View {
         }
     }
 
+    /// Import SQL file…: runs a .sql file's statements on the server in order, as Sequel
+    /// Ace's import does, with progress and Stop; the first that fails stops it and says
+    /// which. A `USE` in the file picks that database, as in the Query tab.
+    private func importSQLFile(_ conn: Connection) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "sql") ?? .plainText, .plainText]
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a .sql file to run on \(conn.name)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let statements: [String]
+        do { statements = SQLFile.importStatements(try SQLFile.read(url)) }
+        catch { destructError = "Couldn't read \(url.lastPathComponent): \(error.localizedDescription)"; return }
+        guard !statements.isEmpty else { exportInfo = "\(url.lastPathComponent) has no statements to run."; return }
+        importProgress = ImportProgress(file: url.lastPathComponent, done: 0, total: statements.count)
+        importTask = Task {
+            var outcome: Result<Void, Error> = .success(())
+            do {
+                try await manager.queryEngine.runScript(
+                    alias: conn.alias, statements: statements,
+                    use: { db in await session.showDatabase(db, for: conn, manager: manager) }
+                ) { done in importProgress?.done = done }
+            } catch { outcome = .failure(error) }
+            let done = importProgress?.done ?? 0
+            importProgress = nil
+            await session.refreshDatabases(for: conn, manager: manager)
+            switch outcome {
+            case .success:
+                exportInfo = "Ran \(statements.count.formatted()) statements from \(url.lastPathComponent)."
+            case .failure(let error) where error is CancellationError:
+                exportInfo = "Stopped after \(done.formatted()) of \(statements.count.formatted()) statements."
+            case .failure(let error):
+                destructError = QueryEngine.extractReason(from: error)
+            }
+        }
+    }
+
+    /// Rename or duplicate a table, then list the tables again; a renamed table stays selected.
+    private func renameOrDuplicate(_ request: TableNameRequest, name: String, withRows: Bool) async {
+        let conn = request.conn
+        let db = session.selectedDatabase[conn.alias] ?? conn.database
+        let statements = request.action == .rename
+            ? [SQLBuilder.renameTable(engine: conn.engine, database: db, from: request.table.name, to: name)]
+            : SQLBuilder.duplicateTable(engine: conn.engine, database: db, from: request.table.name, to: name, withRows: withRows)
+        do {
+            for sql in statements { try await manager.queryEngine.executeDDL(alias: conn.alias, sql: sql) }
+            await loadTables(for: conn)
+            if request.action == .rename, session.selectedTable?.id == request.table.id {
+                session.selectedTable = session.sidebarTrees[conn.alias]?.first { $0.name == name }
+            }
+        } catch {
+            destructError = QueryEngine.extractReason(from: error)
+        }
+    }
+
     private func performDestruct(_ target: DestructTarget) async {
         let conn = target.conn
         let db = session.selectedDatabase[conn.alias] ?? conn.database
@@ -319,9 +384,28 @@ struct WorkspaceSidebarView: View {
                     .padding(.leading, 8)
                     .padding(.vertical, 4)
 
+                    // Refresh, as in Sequel Ace: ⇧⌘R re-reads the databases and the
+                    // picked one's tables, ⌃⌘R the tables alone. For changes made
+                    // outside the app; its own DDL refreshes the lists by itself.
+                    Button { Task { await session.refreshDatabases(for: conn, manager: manager) } } label: {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 11)).foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                    .help("Refresh databases and tables (⇧⌘R); tables only: ⌃⌘R")
+                    .accessibilityIdentifier("sidebar.refresh")
+                    .background {
+                        Button("") { Task { await session.refreshTables(for: conn, manager: manager) } }
+                            .keyboardShortcut("r", modifiers: [.command, .control])
+                            .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
+                    }
+
                     if !conn.engine.isNative {
                         Menu {
                             Button("Export database as SQL…") { exportDatabaseSQL(conn) }
+                            if conn.engine == .mysql || conn.engine == .postgres {
+                                Button("Import SQL file…") { importSQLFile(conn) }
+                            }
                             if conn.engine == .mysql {
                                 Button("Import CSV into new table…") { importCSVNewTable(conn) }
                             }
@@ -503,6 +587,9 @@ struct WorkspaceSidebarView: View {
             // is proven (create/alter already use it). SQLite/ClickHouse users can
             // DROP from the Query tab.
             if conn.engine == .mysql || conn.engine == .postgres {
+                Divider()
+                Button("Rename Table…") { tableNameRequest = TableNameRequest(table: table, conn: conn, action: .rename) }
+                Button("Duplicate Table…") { tableNameRequest = TableNameRequest(table: table, conn: conn, action: .duplicate) }
                 Divider()
                 Button("Truncate Table…") {
                     destructTarget = DestructTarget(table: table, conn: conn, action: .truncate)

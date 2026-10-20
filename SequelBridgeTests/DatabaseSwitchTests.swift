@@ -136,6 +136,35 @@ struct DatabaseSwitchTests {
         #expect(!tables(session, conn).contains("sw_ddl_probe"))
     }
 
+    @Test("Refresh lists what changed outside the app: a table, a database, and a picked database that is gone")
+    func refresh() async throws {
+        let (manager, conn, session) = try await connect("sw7")
+        let e = manager.queryEngine
+        await session.showDatabase(SwitchEnv.writeDB, for: conn, manager: manager)
+        // Changes made by someone else: the app's own DDL refreshes the lists by itself.
+        let t = SQLBuilder.mysqlTable(database: SwitchEnv.writeDB, table: "rf_probe")
+        try await e.mysqlExecute(alias: conn.alias, sql: "DROP TABLE IF EXISTS \(t)")
+        try await e.mysqlExecute(alias: conn.alias, sql: "CREATE TABLE \(t) (id INT PRIMARY KEY)")
+        #expect(!tables(session, conn).contains("rf_probe"))
+        await session.refreshTables(for: conn, manager: manager)
+        #expect(tables(session, conn).contains("rf_probe"), "got: \(tables(session, conn))")
+        try await e.mysqlExecute(alias: conn.alias, sql: "DROP TABLE \(t)")
+
+        let scratch = "sbrefresh_tmp"
+        try await e.mysqlExecute(alias: conn.alias, sql: "DROP DATABASE IF EXISTS `\(scratch)`")
+        try await e.mysqlExecute(alias: conn.alias, sql: "CREATE DATABASE `\(scratch)`")
+        await session.refreshDatabases(for: conn, manager: manager)
+        #expect(session.availableDatabases[conn.alias]?.contains(scratch) == true)
+
+        await session.showDatabase(scratch, for: conn, manager: manager)
+        try await e.mysqlExecute(alias: conn.alias, sql: "DROP DATABASE `\(scratch)`")
+        await session.refreshDatabases(for: conn, manager: manager)
+        #expect(session.availableDatabases[conn.alias]?.contains(scratch) == false)
+        #expect(session.selectedDatabase[conn.alias] == SwitchEnv.db)
+        #expect(tables(session, conn).contains("orders"), "got: \(tables(session, conn))")
+        #expect(session.tableListError[conn.alias] == nil, "\(session.tableListError[conn.alias]?.message ?? "")")
+    }
+
     @Test("CREATE and DROP DATABASE update the database list; dropping the picked one goes back to the saved one")
     func databaseDDL() async throws {
         let (manager, conn, session) = try await connect("sw6")

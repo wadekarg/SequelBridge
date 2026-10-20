@@ -10,6 +10,7 @@ struct TableInfoPanel: View {
 
     @State private var info: [(key: String, value: String)] = []
     @State private var createSQL = ""
+    @State private var createNote: String?    // why the statement shown is rebuilt
     @State private var isLoading = true
 
     private let generalKeys = ["Engine", "Row Format", "Auto Increment", "Collation", "Create Options", "Comment"]
@@ -94,6 +95,14 @@ struct TableInfoPanel: View {
 
             Divider()
 
+            if let createNote {
+                Text(createNote)
+                    .font(.caption).foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16).padding(.top, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             // SQL text — horizontal scroll, strict left-align
             ScrollView(.horizontal, showsIndicators: true) {
                 Text(createSQL)
@@ -130,6 +139,7 @@ struct TableInfoPanel: View {
         isLoading = true
         info = []
         createSQL = ""
+        createNote = nil
         let db = session.selectedDatabase[conn.alias] ?? conn.database
         guard !db.isEmpty else { isLoading = false; return }
 
@@ -172,28 +182,14 @@ struct TableInfoPanel: View {
             info = newInfo
         }
 
-        let cached = session.sidebarTrees[conn.alias]?.first(where: { $0.id == table.id })
-        let columns: [ColumnInfo] = cached?.columns.isEmpty == false
-            ? cached!.columns
-            : ((try? await manager.queryEngine.fetchColumns(alias: conn.alias, database: db, table: table.name)) ?? [])
-        let indexes: [IndexInfo] = cached?.indexes.isEmpty == false
-            ? cached!.indexes
-            : ((try? await manager.queryEngine.fetchIndexes(alias: conn.alias, database: db, table: table.name)) ?? [])
-
-        if !columns.isEmpty {
-            createSQL = buildCreateSQL(engine: engine, collation: collation,
-                                       autoInc: autoInc, comment: tableComment,
-                                       columns: columns, indexes: indexes)
+        if let create = try? await manager.queryEngine.fetchCreateTable(alias: conn.alias, database: db, table: table.name) {
+            createSQL = create.statement
+            createNote = !create.rebuilt ? nil
+                : conn.engine == .postgres
+                    ? "PostgreSQL keeps no CREATE TABLE of its own: this one is rebuilt from the columns and indexes, without foreign keys."
+                    : "Rebuilt from the columns and indexes, without foreign keys: the server's own statement couldn't be read\(create.reason.map { " (\($0))" } ?? "")."
         }
         isLoading = false
     }
 
-    // MARK: - CREATE TABLE builder
-
-    private func buildCreateSQL(engine: String, collation: String, autoInc: String,
-                                comment: String, columns: [ColumnInfo], indexes: [IndexInfo]) -> String {
-        SQLBuilder.showCreateTable(table: table.name, columns: columns, indexes: indexes,
-                                   engine: engine, collation: collation,
-                                   autoIncrement: autoInc, comment: comment)
-    }
 }

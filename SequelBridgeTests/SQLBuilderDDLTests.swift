@@ -204,3 +204,40 @@ struct InsertStatementTests {
         #expect(sql.contains("VALUES ('1')"))
     }
 }
+
+@Suite("Rename and duplicate a table")
+struct RenameDuplicateTableTests {
+    @Test("MySQL renames with RENAME TABLE and copies with CREATE TABLE … LIKE, then the rows")
+    func mysql() {
+        #expect(SQLBuilder.renameTable(engine: .mysql, database: "shop", from: "orders", to: "orders_old")
+                == "RENAME TABLE `shop`.`orders` TO `shop`.`orders_old`")
+        #expect(SQLBuilder.duplicateTable(engine: .mysql, database: "shop", from: "orders", to: "orders_copy", withRows: true)
+                == ["CREATE TABLE `shop`.`orders_copy` LIKE `shop`.`orders`",
+                    "INSERT INTO `shop`.`orders_copy` SELECT * FROM `shop`.`orders`"])
+        #expect(SQLBuilder.duplicateTable(engine: .mysql, database: "shop", from: "orders", to: "orders_copy", withRows: false)
+                == ["CREATE TABLE `shop`.`orders_copy` LIKE `shop`.`orders`"])
+    }
+
+    @Test("PostgreSQL renames with ALTER TABLE and copies with LIKE … INCLUDING ALL")
+    func postgres() {
+        #expect(SQLBuilder.renameTable(engine: .postgres, database: "public", from: "orders", to: "orders_old")
+                == "ALTER TABLE \"public\".\"orders\" RENAME TO \"orders_old\"")
+        #expect(SQLBuilder.duplicateTable(engine: .postgres, database: "public", from: "orders", to: "o2", withRows: true)
+                == ["CREATE TABLE \"public\".\"o2\" (LIKE \"public\".\"orders\" INCLUDING ALL)",
+                    "INSERT INTO \"public\".\"o2\" SELECT * FROM \"public\".\"orders\""])
+    }
+
+    @Test("SQLite renames with ALTER TABLE and copies the columns and rows with CREATE TABLE … AS")
+    func sqlite() {
+        #expect(SQLBuilder.renameTable(engine: .sqlite, database: "main", from: "orders", to: "orders_old")
+                == "ALTER TABLE \"orders\" RENAME TO \"orders_old\"")
+        #expect(SQLBuilder.duplicateTable(engine: .sqlite, database: "main", from: "orders", to: "o2", withRows: false)
+                == ["CREATE TABLE \"o2\" AS SELECT * FROM \"orders\" LIMIT 0"])
+    }
+
+    @Test("names with quotes stay one name")
+    func quoting() {
+        #expect(SQLBuilder.renameTable(engine: .mysql, database: "d", from: "a`b", to: "c")
+                == "RENAME TABLE `d`.`a``b` TO `d`.`c`")
+    }
+}

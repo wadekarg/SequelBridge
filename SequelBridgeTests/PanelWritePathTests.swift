@@ -363,4 +363,36 @@ struct PanelWritePathTests {
         let r = try await engine.query("SELECT 1 AS ok")
         #expect(r.rows.first?.first == "1")
     }
+
+    @Test("rename and duplicate a table, with and without its rows")
+    func renameAndDuplicate() async throws {
+        let alias = "w9"
+        let engine = try await makeEngine(alias)
+        try await fixture(engine, alias, "w_rd", "`id` INT NOT NULL, `name` VARCHAR(20), PRIMARY KEY (`id`)")
+        for t in ["w_rd_renamed", "w_rd_full", "w_rd_empty"] {
+            try await engine.mysqlExecute(alias: alias, sql: "DROP TABLE IF EXISTS \(SQLBuilder.mysqlTable(database: WEnv.db, table: t))")
+        }
+        try await engine.mysqlExecute(alias: alias, sql: "INSERT INTO \(SQLBuilder.mysqlTable(database: WEnv.db, table: "w_rd")) VALUES (1, 'a'), (2, 'b')")
+
+        try await engine.executeDDL(alias: alias, sql: SQLBuilder.renameTable(engine: .mysql, database: WEnv.db, from: "w_rd", to: "w_rd_renamed"))
+        for sql in SQLBuilder.duplicateTable(engine: .mysql, database: WEnv.db, from: "w_rd_renamed", to: "w_rd_full", withRows: true) {
+            try await engine.executeDDL(alias: alias, sql: sql)
+        }
+        for sql in SQLBuilder.duplicateTable(engine: .mysql, database: WEnv.db, from: "w_rd_renamed", to: "w_rd_empty", withRows: false) {
+            try await engine.executeDDL(alias: alias, sql: sql)
+        }
+        let names = try await engine.fetchTables(alias: alias, database: WEnv.db).map(\.name)
+        #expect(names.contains("w_rd_renamed") && !names.contains("w_rd"))
+        func count(_ t: String) async throws -> String? {
+            try await engine.serverPassthroughQuery(alias: alias, serverSQL: "SELECT COUNT(*) FROM \(SQLBuilder.mysqlTable(database: WEnv.db, table: t))").rows.first?.first
+        }
+        #expect(try await count("w_rd_full") == "2")
+        #expect(try await count("w_rd_empty") == "0")
+        #expect(try await columnNames(engine, alias, "w_rd_empty") == ["id", "name"])
+        let pk = try await engine.fetchColumns(alias: alias, database: WEnv.db, table: "w_rd_empty").filter(\.isPrimaryKey).map(\.name)
+        #expect(pk == ["id"])
+        for t in ["w_rd_renamed", "w_rd_full", "w_rd_empty"] {
+            try await engine.mysqlExecute(alias: alias, sql: "DROP TABLE \(SQLBuilder.mysqlTable(database: WEnv.db, table: t))")
+        }
+    }
 }

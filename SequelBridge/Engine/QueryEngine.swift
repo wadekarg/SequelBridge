@@ -1462,30 +1462,12 @@ final class QueryEngine {
         //    that client can't run it (a connection with Use SSL, a server it can't log in
         //    to), rebuild it from column/index/table metadata, which has no FOREIGN KEY
         //    lines, and say so in the dump.
-        let dbIdent = database.replacingOccurrences(of: "`", with: "``")
-        let tblIdent = table.replacingOccurrences(of: "`", with: "``")
-        let createStatement: String
+        let create = try await fetchCreateTable(alias: alias, database: database, table: table)
+        let createStatement = create.statement
         var rebuiltNote: [String] = []
-        do {
-            let showCreate = "SHOW CREATE TABLE `\(dbIdent)`.`\(tblIdent)`"
-            let createRes = try await nativeMySQLQuery(alias: alias, sql: showCreate, logSQL: showCreate)
-            guard let first = createRes.rows.first, first.count > 1, !first[1].isEmpty else {
-                throw SequelBridgeError.attachFailed("empty CREATE TABLE")
-            }
-            createStatement = first[1]
-        } catch {
-            // Fallback: reconstruct from metadata that mysql_scanner 1.5.6 can still read.
-            let reason = Self.extractReason(from: error).replacingOccurrences(of: "\n", with: " ")
+        if create.rebuilt {
             rebuiltNote = ["-- The server's own CREATE TABLE couldn't be read, so this one is rebuilt from the",
-                           "-- table's columns and indexes, without foreign keys. Reason: \(reason)"]
-            let cols = try await fetchColumns(alias: alias, database: database, table: table)
-            let idxs = try await fetchIndexes(alias: alias, database: database, table: table)
-            let meta = (try? await fetchTableMeta(alias: alias, database: database, table: table)) ?? []
-            func m(_ i: Int) -> String { i < meta.count ? meta[i] : "" }
-            // meta layout: [0]=engine [2]=auto_increment [3]=collation [5]=comment
-            createStatement = SQLBuilder.showCreateTable(
-                table: table, columns: cols, indexes: idxs,
-                engine: m(0), collation: m(3), autoIncrement: m(2), comment: m(5))
+                           "-- table's columns and indexes, without foreign keys. Reason: \(create.reason ?? "unknown")"]
         }
 
         // 2) Data — the query is already bounded by its own LIMIT; the result grid
@@ -1613,6 +1595,73 @@ final class QueryEngine {
     /// Runs a statement through the native MySQL client (not mysql_scanner) — for the few
     /// statements the scanner can't prepare on MariaDB: EXPLAIN and exact SHOW CREATE
     /// TABLE. Values come back as strings with a NULL mask, matching the scanner path.
+    /// Import SQL file: runs `statements` in order on the server, reporting each one done.
+    /// The first that fails stops the run with a SQLScriptFailure naming it; Stop (task
+    /// cancellation) ends it between statements. A `USE` goes to `use` when given, so the
+    /// app can pick that database the way the Query tab does.
+    func runScript(alias: String, statements: [String], use: ((String) async throws -> Void)? = nil,
+                   onProgress: (Int) -> Void) async throws {
+        for (i, statement) in statements.enumerated() {
+            try Task.checkCancellation()
+            do {
+                if let db = QueryEffects.soleUse(statement), let use {
+                    try await use(db)
+                } else {
+                    try await executeDDL(alias: alias, sql: statement)
+                }
+            } catch {
+                throw SQLScriptFailure(index: i + 1, total: statements.count, reason: Self.extractReason(from: error))
+            }
+            onProgress(i + 1)
+        }
+    }
+
+    /// A table's CREATE TABLE statement, as Table Info shows it: the server's own on MySQL
+    /// (SHOW CREATE TABLE, on the app's own MySQL client) and ClickHouse, the file's own on
+    /// SQLite. Where none can be read (PostgreSQL keeps none; a MySQL connection with Use
+    /// SSL; a server that client can't log in to), it is rebuilt from the columns and
+    /// indexes, without foreign keys, and `rebuilt` says so.
+    func fetchCreateTable(alias: String, database: String, table: String) async throws
+        -> (statement: String, rebuilt: Bool, reason: String?) {
+        switch engine(for: alias) {
+        case .mysql:
+            do {
+                let showCreate = "SHOW CREATE TABLE \(SQLBuilder.mysqlTable(database: database, table: table))"
+                let r = try await nativeMySQLQuery(alias: alias, sql: showCreate, logSQL: showCreate)
+                guard let first = r.rows.first, first.count > 1, !first[1].isEmpty else {
+                    throw SequelBridgeError.attachFailed("empty CREATE TABLE")
+                }
+                return (first[1], false, nil)
+            } catch {
+                let reason = Self.extractReason(from: error).replacingOccurrences(of: "\n", with: " ")
+                return (try await rebuiltCreateTable(alias: alias, database: database, table: table), true, reason)
+            }
+        case .clickhouse:
+            let sql = "SHOW CREATE TABLE \(SQLBuilder.duckIdent(database)).\(SQLBuilder.duckIdent(table))"
+            if let own = try? await clickhouseQuery(alias: alias, sql: sql).rows.first?.first, !own.isEmpty {
+                return (own, false, nil)
+            }
+            return (try await rebuiltCreateTable(alias: alias, database: database, table: table), true, nil)
+        case .sqlite:
+            let own = try await sqliteCreateStatement(alias, table: table)
+            if !own.isEmpty { return (own, false, nil) }
+            return (try await rebuiltCreateTable(alias: alias, database: database, table: table), true, nil)
+        case .postgres:
+            return (try await rebuiltCreateTable(alias: alias, database: database, table: table), true, nil)
+        }
+    }
+
+    /// CREATE TABLE rebuilt from the columns, indexes and table options: no foreign keys.
+    private func rebuiltCreateTable(alias: String, database: String, table: String) async throws -> String {
+        let cols = try await fetchColumns(alias: alias, database: database, table: table)
+        let idxs = try await fetchIndexes(alias: alias, database: database, table: table)
+        let meta = (try? await fetchTableMeta(alias: alias, database: database, table: table)) ?? []
+        func m(_ i: Int) -> String { i < meta.count ? meta[i] : "" }
+        // meta layout: [0]=engine [2]=auto_increment [3]=collation [5]=comment
+        return SQLBuilder.showCreateTable(table: table, columns: cols, indexes: idxs,
+                                          engine: m(0), collation: m(3), autoIncrement: m(2), comment: m(5))
+    }
+
     func nativeMySQLQuery(alias: String, sql: String, logSQL: String? = nil) async throws -> QueryResult {
         guard let cfg = mysqlConfigs[alias] else {
             throw SequelBridgeError.attachFailed("No MySQL connection named '\(alias)'.")
@@ -2099,4 +2148,12 @@ extension ResultSet: BulkColumnSource {
 
 extension ResultChunk: BulkColumnSource {
     nonisolated func columnStorageType(at index: DBInt) -> DatabaseType { columnDataType(at: index) }
+}
+
+/// Import SQL file: the statement that failed (1-based) and why.
+nonisolated struct SQLScriptFailure: Error, LocalizedError {
+    let index: Int
+    let total: Int
+    let reason: String
+    var errorDescription: String? { "Statement \(index) of \(total): \(reason)" }
 }

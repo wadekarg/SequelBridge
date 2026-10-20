@@ -172,6 +172,55 @@ struct MySQLIntegrationTests {
         #expect(Self.serverDefaultRules.contains(fk[5]))   // ON UPDATE not specified → the server's default
     }
 
+    @Test("Table Info shows the server's own CREATE TABLE, foreign keys and options included")
+    func serverCreateTable() async throws {
+        let engine = try await makeEngine()
+        let create = try await engine.fetchCreateTable(alias: Self.alias, database: Env.db, table: "orders")
+        #expect(!create.rebuilt, "rebuilt: \(create.reason ?? "")")
+        #expect(create.statement.hasPrefix("CREATE TABLE `orders`"), "got: \(create.statement.prefix(80))")
+        #expect(create.statement.contains("CONSTRAINT `fk_orders_customer` FOREIGN KEY"))
+        #expect(create.statement.contains("ENGINE=InnoDB"))
+    }
+
+    @Test("Import SQL file runs a dump's statements in order: executable comments, a ; inside a string")
+    func importDump() async throws {
+        let engine = try await makeEngine()
+        let dump = """
+        /*!40101 SET NAMES utf8mb4 */;
+        DROP TABLE IF EXISTS `sbwrite`.`imp_probe`;
+        CREATE TABLE `sbwrite`.`imp_probe` (`id` int NOT NULL, `name` varchar(20), PRIMARY KEY (`id`));
+        LOCK TABLES `sbwrite`.`imp_probe` WRITE;
+        INSERT INTO `sbwrite`.`imp_probe` VALUES (1,'a'),(2,'b;c');
+        UNLOCK TABLES;
+        """
+        let statements = SQLFile.importStatements(dump)
+        var done: [Int] = []
+        try await engine.runScript(alias: Self.alias, statements: statements) { done.append($0) }
+        #expect(statements.count == 4)   // LOCK TABLES and UNLOCK TABLES are skipped
+        #expect(done == (0..<statements.count).map { $0 + 1 })
+        let r = try await engine.serverPassthroughQuery(alias: Self.alias, serverSQL: "SELECT name FROM `sbwrite`.`imp_probe` ORDER BY id")
+        #expect(r.rows.map { $0[0] } == ["a", "b;c"])
+    }
+
+    @Test("Import SQL file stops at the first statement that fails, and says which")
+    func importStops() async throws {
+        let engine = try await makeEngine()
+        try await engine.mysqlExecute(alias: Self.alias, sql: "DROP TABLE IF EXISTS `sbwrite`.`imp_stop`")
+        try await engine.mysqlExecute(alias: Self.alias, sql: "CREATE TABLE `sbwrite`.`imp_stop` (`id` int PRIMARY KEY)")
+        let statements = ["INSERT INTO `sbwrite`.`imp_stop` VALUES (1)", "INSERT INTO `sbwrite`.`no_such_table_x` VALUES (1)",
+                          "INSERT INTO `sbwrite`.`imp_stop` VALUES (2)"]
+        do {
+            try await engine.runScript(alias: Self.alias, statements: statements) { _ in }
+            Issue.record("the failing statement didn't stop the import")
+        } catch let failure as SQLScriptFailure {
+            #expect(failure.index == 2 && failure.total == 3)
+            #expect(failure.reason.contains("no_such_table_x"), "got: \(failure.reason)")
+        }
+        let r = try await engine.serverPassthroughQuery(alias: Self.alias, serverSQL: "SELECT id FROM `sbwrite`.`imp_stop` ORDER BY id")
+        #expect(r.rows.map { $0[0] } == ["1"])
+        try await engine.mysqlExecute(alias: Self.alias, sql: "DROP TABLE `sbwrite`.`imp_stop`")
+    }
+
     // MARK: - Triggers panel
 
     @Test("fetchTriggers returns name, timing, event and statement")

@@ -330,6 +330,13 @@ struct StructurePanel: View {
                 .buttonStyle(.borderedProminent).controlSize(.mini)
                 .help("Add a column")
                 .accessibilityIdentifier("structure.addColumn")
+                Button { Task { await loadAll() } } label: {
+                    Image(systemName: "arrow.clockwise").frame(width: 20, height: 20)
+                }
+                .buttonStyle(.bordered).controlSize(.mini)
+                .keyboardShortcut("r", modifiers: .command)
+                .help("Refresh the structure (⌘R)")
+                .accessibilityIdentifier("structure.refresh")
             }
             .padding(.horizontal, 12).padding(.vertical, 5)
             .background(Color(NSColor.controlBackgroundColor))

@@ -62,10 +62,18 @@ nonisolated enum QueryEffects {
                 current.append(" "); continue
             }
             if ch == "/", i + 1 < c.count, c[i + 1] == "*" {
-                i += 2
-                while i + 1 < c.count, !(c[i] == "*" && c[i + 1] == "/") { i += 1 }
-                i = min(i + 2, c.count)
-                current.append(" "); continue
+                // MySQL's executable comment, /*!NNNNN code */ (MariaDB: /*M!NNNNN code */),
+                // runs its code: a mysqldump file is full of them.
+                var j = i + 2
+                var executable = false
+                if j < c.count, c[j] == "!" { executable = true; j += 1 }
+                else if j + 1 < c.count, c[j] == "M", c[j + 1] == "!" { executable = true; j += 2 }
+                if executable { while j < c.count, c[j].isNumber { j += 1 } }
+                var end = j
+                while end + 1 < c.count, !(c[end] == "*" && c[end + 1] == "/") { end += 1 }
+                if executable { current += " " + String(c[j..<min(end, c.count)]) + " " } else { current.append(" ") }
+                i = min(end + 2, c.count)
+                continue
             }
             if ch == ";" { out.append(current); current = ""; i += 1; continue }
             current.append(ch); i += 1

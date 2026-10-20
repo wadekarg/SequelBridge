@@ -25,7 +25,8 @@ extension QueryEngine {
         return try await metaQueryPublic(sql).rows
     }
 
-    private func createStatement(_ alias: String, table: String) async throws -> String {
+    /// The CREATE TABLE statement the file keeps for `table`, as written; empty when none.
+    func sqliteCreateStatement(_ alias: String, table: String) async throws -> String {
         let rows = try await masterRows(alias)
         return rows.first { $0.count >= 4 && $0[0] == "table" && $0[1] == table }?[3] ?? ""
     }
@@ -56,7 +57,7 @@ extension QueryEngine {
     func fetchColumnsSQLite(alias: String, database: String, table: String) async throws -> [ColumnInfo] {
         // Declared types and defaults come from the DDL, which preserves what the
         // author wrote (TEXT, REAL) rather than DuckDB's normalisation of it.
-        let ddl = try await createStatement(alias, table: table)
+        let ddl = try await sqliteCreateStatement(alias, table: table)
         let parsed = SQLiteSchema.parseColumns(fromCreateTable: ddl)
         guard !parsed.isEmpty else { return [] }
 
@@ -107,7 +108,7 @@ extension QueryEngine {
     // MARK: - Foreign keys
 
     func fetchRelationsSQLite(alias: String, database: String, table: String) async throws -> [[String]] {
-        SQLiteSchema.parseForeignKeys(fromCreateTable: try await createStatement(alias, table: table))
+        SQLiteSchema.parseForeignKeys(fromCreateTable: try await sqliteCreateStatement(alias, table: table))
     }
 
     // MARK: - Triggers
