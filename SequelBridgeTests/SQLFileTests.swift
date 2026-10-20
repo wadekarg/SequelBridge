@@ -33,6 +33,15 @@ struct SQLFileTests {
         #expect(try String(contentsOf: url, encoding: .utf8) == "SELECT 'é'")
     }
 
+    @Test("an import refuses COPY … FROM stdin, whose rows follow it in the file, and says how to dump instead")
+    func copyFromStdin() {
+        let reason = SQLFile.unsupported("COPY public.orders (id, status) FROM stdin")
+        #expect(reason?.contains("--inserts") == true, "got: \(reason ?? "nil")")
+        #expect(SQLFile.unsupported("copy t from STDIN with csv") != nil)
+        #expect(SQLFile.unsupported("COPY t FROM '/tmp/x.csv'") == nil)       // the server reads that file itself
+        #expect(SQLFile.unsupported("INSERT INTO t VALUES ('COPY x FROM stdin')") == nil)
+    }
+
     @Test("an import skips LOCK TABLES and UNLOCK TABLES, which only speed a dump up")
     func importStatements() {
         let dump = "LOCK TABLES `t` WRITE;\nINSERT INTO `t` VALUES (1);\nUNLOCK TABLES;\nunlock tables;"

@@ -251,11 +251,19 @@ struct WorkspaceSidebarView: View {
         importProgress = ImportProgress(file: url.lastPathComponent, done: 0, total: statements.count)
         importTask = Task {
             var outcome: Result<Void, Error> = .success(())
+            var lastRedraw = Date.distantPast
             do {
                 try await manager.queryEngine.runScript(
                     alias: conn.alias, statements: statements,
                     use: { db in await session.showDatabase(db, for: conn, manager: manager) }
-                ) { done in importProgress?.done = done }
+                ) { done in
+                    // A few redraws a second, not one per statement: a dump can hold thousands.
+                    let now = Date()
+                    if done == statements.count || now.timeIntervalSince(lastRedraw) > 0.1 {
+                        importProgress?.done = done
+                        lastRedraw = now
+                    }
+                }
             } catch { outcome = .failure(error) }
             let done = importProgress?.done ?? 0
             importProgress = nil

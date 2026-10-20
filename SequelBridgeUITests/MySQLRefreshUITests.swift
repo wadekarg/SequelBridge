@@ -75,4 +75,29 @@ final class MySQLRefreshUITests: XCTestCase {
         element("sidebar.connection.two").click()
         run("DROP TABLE ui_refresh_probe")
     }
+
+    func testControlCommandRRefreshesTheTables() {
+        element("sidebar.connection.two").click()
+        run("DROP TABLE IF EXISTS ui_refresh_keys; CREATE TABLE ui_refresh_keys (id INT PRIMARY KEY)")
+        XCTAssertTrue(element("sidebar.table.ui_refresh_keys").waitForExistence(timeout: 30))
+        element("sidebar.connection.one").click()
+        XCTAssertFalse(element("sidebar.table.ui_refresh_keys").waitForExistence(timeout: 3))
+        app.typeKey("r", modifierFlags: [.command, .control])
+        XCTAssertTrue(element("sidebar.table.ui_refresh_keys").waitForExistence(timeout: 30), "⌃⌘R didn't refresh the tables")
+        element("sidebar.connection.two").click()
+        run("DROP TABLE ui_refresh_keys")
+    }
+
+    func testOptionCommandRRunsEveryStatementAndCommandRTheCurrentOne() {
+        run("SELECT 'a-keys' AS a;\nSELECT 'b-keys' AS b")
+        let editor = element("query.editor")
+        editor.click()
+        editor.typeKey(.upArrow, modifierFlags: .command)      // the caret into the first statement
+        app.typeKey("r", modifierFlags: .command)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "value CONTAINS 'a-keys'")).firstMatch.waitForExistence(timeout: 30),
+                      "⌘R didn't run the statement under the cursor")
+        app.typeKey("r", modifierFlags: [.command, .option])
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "value CONTAINS 'b-keys'")).firstMatch.waitForExistence(timeout: 30),
+                      "⌥⌘R didn't run them all")
+    }
 }

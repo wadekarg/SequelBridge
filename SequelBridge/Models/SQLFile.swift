@@ -29,4 +29,13 @@ nonisolated enum SQLFile {
             return words != "LOCK TABLES" && words != "UNLOCK TABLES"
         }
     }
+
+    /// Why an import can't run `statement`, if it can't. `COPY … FROM stdin` (pg_dump's
+    /// default) is followed in the file by its rows, which only psql streams to the server.
+    static func unsupported(_ statement: String) -> String? {
+        let code = (QueryEffects.statements(statement).first ?? "").uppercased()
+        guard code.hasPrefix("COPY "),
+              code.range(of: #"\bFROM\s+STDIN\b"#, options: .regularExpression) != nil else { return nil }
+        return "COPY … FROM stdin needs psql to stream the rows after it; make the dump with pg_dump --inserts instead."
+    }
 }

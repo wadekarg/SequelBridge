@@ -66,7 +66,8 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   outdent them, and ⌘F opens the find bar.
 - Open and save `.sql` files in the Query tab (⌘O, ⌘S, ⇧⌘S), and Import SQL file… in the
   database menu: the file's statements run in order, with progress and Stop, and the first
-  that fails stops the import and says which. MySQL's `/*! … */` statements run.
+  that fails stops the import and says which. MySQL's `/*! … */` statements run; a
+  pg_dump made without `--inserts` (its `COPY … FROM stdin`) is refused with that advice.
 - A Sequel Ace checklist in the guide: each of its features, whether SequelBridge has it,
   and the test that proves it.
 

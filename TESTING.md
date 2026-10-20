@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 635 tests in 119 suites (about three minutes of tests after the build).
+at them, and runs all 636 tests in 119 suites (about three minutes of tests after the build).
 Then every MySQL suite runs a second time with its server pointed at MySQL 8.4.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
 benchmark (`--bench`), and `QueryCancelTests.interruptStopsServerStatement`, the spec
@@ -48,7 +48,8 @@ tabs all stay on screen, and run a statement that names no server on the active 
 Homebrew and seeds from `scripts/fixtures/mysql.sql`: pick a database, `USE`, several
 statements, Run Current, filter tables, edit a cell in place and set it to NULL, rename
 and duplicate a table, ⌘/, Table Info's `CREATE TABLE`, ⌘1–⌘6, the Console;
-`MySQLRefreshUITests` refreshes one connection after a change through another. The UI tests take over the screen while they run, so `scripts/run-all-tests.sh`
+`MySQLRefreshUITests` refreshes one connection after a change through another, by
+the button and by ⌃⌘R, and checks ⌘R (the statement under the cursor) against ⌥⌘R (all). The UI tests take over the screen while they run, so `scripts/run-all-tests.sh`
 leaves them out.
 
 ## What's in the suite
@@ -61,7 +62,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-635 tests across 94 files.
+636 tests across 94 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 

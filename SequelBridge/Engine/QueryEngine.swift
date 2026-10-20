@@ -1603,6 +1603,9 @@ final class QueryEngine {
                    onProgress: (Int) -> Void) async throws {
         for (i, statement) in statements.enumerated() {
             try Task.checkCancellation()
+            if let reason = SQLFile.unsupported(statement) {
+                throw SQLScriptFailure(index: i + 1, total: statements.count, reason: reason)
+            }
             do {
                 if let db = QueryEffects.soleUse(statement), let use {
                     try await use(db)
