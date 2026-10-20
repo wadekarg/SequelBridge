@@ -215,12 +215,8 @@ struct CreateTableSheet: View {
     private func generateSQL() -> String {
         let name = tableName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return "-- Enter a table name above" }
-        if conn.engine == .postgres {
-            // Postgres has no ENGINE or CHARSET, and identity is SERIAL.
-            return SQLBuilder.pgCreateTable(schema: database, table: name, columns: columns)
-        }
-        return SQLBuilder.createTable(database: database, table: name,
-                                      columns: columns, engine: engine, charset: charset)
+        return SQLBuilder.createTableSQL(engine: conn.engine, database: database, table: name,
+                                         columns: columns, storageEngine: engine, charset: charset)
     }
 
     // MARK: - Create

@@ -5,6 +5,20 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 ## 1.2.2 — 2026-10-19
 
 ### Fixed
+- Read-only mode held only in the app's own write functions. Below them, a statement
+  DuckDB ran still wrote to a read-only connection, as did an `EXPLAIN ANALYZE` of a
+  `DELETE` (which runs it), a stored function a `SELECT` called, Kill on PostgreSQL, and
+  a statement sent to ClickHouse. Now DuckDB attaches the connection read-only, the
+  server's own session is read-only (ClickHouse's `readonly=2`, left alone for an account
+  the server already holds read-only), and Kill is off for it.
+- On a SQLite file, Create Table sent MySQL's DDL (backticks, `ENGINE=`), so it failed,
+  and Structure refused every change. Both run in SQLite itself now, in SQLite's own
+  SQL: Create Table makes the types you pick and a single integer key that numbers new
+  rows (DuckDB, writing a SQLite schema, turns `DATE` into `VARCHAR` and an `INTEGER`
+  key into `BIGINT`, which numbers nothing); Structure adds, renames and drops columns
+  and indexes, and says why a type, NULL or default change can't be made. Triggers can
+  be added and dropped there too. A change while another connection holds the file says
+  the file is busy and what to do.
 - On a MySQL connection with Use SSL, EXPLAIN, a table's own `CREATE TABLE` (Table Info,
   dumps) and Table Maintenance didn't work: they run on the app's own MySQL client,
   which couldn't use SSL. It switches to TLS after MySQL's greeting now, as MySQL asks,

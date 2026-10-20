@@ -243,7 +243,9 @@ final class QueryEngine {
     /// a connection is re-attached to adopt the sidebar-selected database.
     private var attachedDSN: [String: String] = [:]
     /// File backing each attached SQLite alias; sqlite_scan needs the path.
-    private var sqlitePaths: [String: String] = [:]     // alias → active tunnel
+    private var sqlitePaths: [String: String] = [:]     // alias → the SQLite file's path
+    /// How long a change to a SQLite file waits for a lock another connection holds.
+    var sqliteBusyTimeout: TimeInterval = 5
     /// Native-client TCP params per MySQL alias (effective host/port after any SSH
     /// tunnel). Used only for statements mysql_scanner can't prepare — EXPLAIN and
     /// exact SHOW CREATE TABLE. nil for socket connections (native client is TCP-only).
@@ -259,6 +261,13 @@ final class QueryEngine {
     /// Not private: the ClickHouse write path lives in a separate extension file.
     func ensureWritable(_ alias: String) throws {
         if readOnlyAliases.contains(alias) { throw SequelBridgeError.readOnly(alias) }
+    }
+
+    /// Refuses `sql` on a read-only connection unless it only reads (EXPLAIN ANALYZE of a
+    /// write runs the write). The server's own read-only session is the backstop; this
+    /// says why in the app's words.
+    func ensureReads(_ sql: String, alias: String) throws {
+        if readOnlyAliases.contains(alias), !SQLBuilder.isReadOnly(sql) { throw SequelBridgeError.readOnly(alias) }
     }
 
     /// Runs a write the panels build (a Content-tab cell edit, insert or delete) against
@@ -548,10 +557,10 @@ final class QueryEngine {
                 mysqlConfigs[c.alias] = MySQLClient.Config(
                     host: nativeHost, port: nativePort, user: c.username,
                     password: password, database: c.database, useTLS: c.useSSL,
-                    socketPath: nativeSocket)
+                    socketPath: nativeSocket, readOnly: c.readOnly)
             }
 
-            let sql = "ATTACH '\(dsnParts)' AS \(sqlIdentifierQuote(c.alias)) (TYPE \(c.engine.attachType))"
+            let sql = "ATTACH '\(dsnParts)' AS \(sqlIdentifierQuote(c.alias)) \(Self.attachOptions(c))"
             Log.engine.info("ATTACH alias=\(c.alias, privacy: .public) host=\(c.host) type=\(c.connectionType.rawValue, privacy: .public)")
             try await userSerial.execute(sql)
             Log.engine.info("ATTACH succeeded: \(c.alias, privacy: .public)")
@@ -578,6 +587,13 @@ final class QueryEngine {
         }
     }
 
+    /// ATTACH's options. A read-only connection is attached READ_ONLY, so DuckDB itself
+    /// refuses a write to it on every path (its catalog, mysql_execute), and PostgreSQL's
+    /// statements run in read-only transactions, where the server refuses one too.
+    nonisolated static func attachOptions(_ c: Connection) -> String {
+        c.readOnly ? "(TYPE \(c.engine.attachType), READ_ONLY)" : "(TYPE \(c.engine.attachType))"
+    }
+
     /// ATTACHes a local SQLite file under the connection's alias; the file must exist.
     private func attachSQLite(_ c: Connection) async throws {
         let path = (c.database as NSString).expandingTildeInPath
@@ -586,7 +602,7 @@ final class QueryEngine {
         }
         try await ensureExtensionLoaded(c.engine.extensionName)
         do {
-            try await userSerial.execute("ATTACH \(SQLBuilder.literal(path)) AS \(sqlIdentifierQuote(c.alias)) (TYPE \(c.engine.attachType))")
+            try await userSerial.execute("ATTACH \(SQLBuilder.literal(path)) AS \(sqlIdentifierQuote(c.alias)) \(Self.attachOptions(c))")
         } catch {
             throw SequelBridgeError.attachFailed(Self.extractReason(from: error))
         }
@@ -616,13 +632,14 @@ final class QueryEngine {
         }
     }
 
-    /// sqlite_scanner has no execute() function; DuckDB runs the statement against
-    /// the attached file itself, which also means only DuckDB-parseable SQL works.
+    /// Runs a statement in SQLite itself, in SQLite's own SQL, on the file behind `alias`
+    /// (see SQLiteTool for why not through DuckDB). DuckDB sees the change at once.
     func sqliteExecute(alias: String, sql: String) async throws {
         try ensureWritable(alias)
+        guard let file = sqlitePaths[alias] else { throw SequelBridgeError.attachFailed("No SQLite file is open as \(alias).") }
         let start = Date()
         do {
-            try await userSerial.execute(sql)
+            try await SQLiteTool.run(sql, file: file, busyTimeout: sqliteBusyTimeout)
             logStatement(sql, nil, nil, Date().timeIntervalSince(start))
         } catch {
             let reason = Self.extractReason(from: error)
@@ -1645,6 +1662,7 @@ final class QueryEngine {
     /// Terminates a server-side session by id. MySQL: KILL; Postgres: pg_terminate_backend.
     /// The id is coerced to an integer so a grid cell can't inject SQL.
     func killProcess(alias: String, id: String) async throws {
+        try ensureWritable(alias)
         let pid = Int(id.trimmingCharacters(in: .whitespaces)) ?? -1
         guard pid >= 0 else { throw SequelBridgeError.attachFailed("Invalid process id") }
         switch engine(for: alias) {
@@ -1749,11 +1767,17 @@ final class QueryEngine {
     /// answer (a read through the passthrough can't run every one of them), and reads it.
     func tableMaintenance(_ task: TableMaintenance, alias: String, database: String, table: String) async throws -> String {
         if task.changesTheTable { try ensureWritable(alias) }
-        let answer = try await nativeMySQLQuery(alias: alias, sql: task.sql(database: database, table: table))
+        // CHECK and CHECKSUM only read, though their words aren't a read's.
+        let answer = try await nativeMySQLRun(alias: alias, sql: task.sql(database: database, table: table))
         return TableMaintenance.summary(columns: answer.columns, rows: answer.rows)
     }
 
     func nativeMySQLQuery(alias: String, sql: String, logSQL: String? = nil) async throws -> QueryResult {
+        try ensureReads(sql, alias: alias)
+        return try await nativeMySQLRun(alias: alias, sql: sql, logSQL: logSQL)
+    }
+
+    private func nativeMySQLRun(alias: String, sql: String, logSQL: String? = nil) async throws -> QueryResult {
         guard let cfg = mysqlConfigs[alias] else {
             throw SequelBridgeError.attachFailed("No MySQL connection named '\(alias)'.")
         }
@@ -1779,6 +1803,7 @@ final class QueryEngine {
     /// stripped, since it executes on the server directly against its default db.
     func explain(alias: String, serverSQL: String) async throws -> QueryResult {
         let explainSQL = "EXPLAIN \(serverSQL)"
+        try ensureReads(explainSQL, alias: alias)
         switch engine(for: alias) {
         case .mysql:
             // mysql_scanner can't run EXPLAIN through mysql_query on MariaDB (it prepares

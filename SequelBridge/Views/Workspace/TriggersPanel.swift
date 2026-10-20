@@ -37,17 +37,14 @@ struct TriggersPanel: View {
                     }
                 } label: { Image(systemName: "minus").frame(width: 20, height: 20) }
                 .buttonStyle(.bordered).controlSize(.mini)
-                .disabled(selectedId == nil)
+                .disabled(selectedId == nil || !TriggerEditing.canDrop(on: conn.engine))
+                .help(TriggerEditing.canDrop(on: conn.engine) ? "Drop trigger" : (TriggerEditing.reason(conn.engine) ?? ""))
                 Button { showCreateSheet = true } label: {
                     Image(systemName: "plus").frame(width: 20, height: 20)
                 }
                 .buttonStyle(.borderedProminent).controlSize(.mini)
-                // A Postgres trigger executes a function that has to exist first, so
-                // the MySQL inline-body form has nothing to map onto.
-                .disabled(conn.engine == .postgres)
-                .help(conn.engine == .postgres
-                      ? "Creating triggers on PostgreSQL is not supported yet — it needs a trigger function"
-                      : "Create trigger")
+                .disabled(!TriggerEditing.canCreate(on: conn.engine))
+                .help(TriggerEditing.canCreate(on: conn.engine) ? "Create trigger" : (TriggerEditing.reason(conn.engine) ?? ""))
             }
             .padding(.trailing, 12)
             Divider()
@@ -81,12 +78,12 @@ struct TriggersPanel: View {
         }
         .task(id: table.id) { await loadTriggers() }
         .sheet(isPresented: $showCreateSheet) {
-            CreateTriggerSheet(tableName: table.name,
+            CreateTriggerSheet(engine: conn.engine, tableName: table.name,
                                database: session.selectedDatabase[conn.alias] ?? conn.database) { sql in
                 Task {
                     actionError = nil
                     do {
-                        // CREATE TRIGGER is MySQL-only syntax — DuckDB has no grammar for it.
+                        // Runs on the server, or in SQLite itself: DuckDB has no CREATE TRIGGER.
                         try await manager.queryEngine.executeDDL(alias: conn.alias, sql: sql)
                     } catch {
                         actionError = QueryEngine.extractReason(from: error)
@@ -176,10 +173,7 @@ struct TriggersPanel: View {
 
     private func dropTrigger(_ t: TriggerInfo) async {
         let db = session.selectedDatabase[conn.alias] ?? conn.database
-        // Postgres attaches triggers to a table; MySQL scopes them to the schema.
-        let sql = conn.engine == .postgres
-            ? "DROP TRIGGER IF EXISTS \(SQLBuilder.duckIdent(t.name)) ON \(SQLBuilder.pgTable(schema: db, table: table.name))"
-            : SQLBuilder.dropTrigger(database: db, name: t.name)
+        let sql = SQLBuilder.dropTrigger(engine: conn.engine, database: db, table: table.name, name: t.name)
         actionError = nil
         do {
             try await manager.queryEngine.executeDDL(alias: conn.alias, sql: sql)
@@ -209,6 +203,7 @@ struct TriggersPanel: View {
 // MARK: - Create Trigger sheet
 
 private struct CreateTriggerSheet: View {
+    let engine: DatabaseEngine
     let tableName: String
     let database: String
     let onSave: (String) -> Void
@@ -219,7 +214,7 @@ private struct CreateTriggerSheet: View {
     @State private var triggerSQL    = "BEGIN\n  -- trigger body here\nEND"
 
     var generatedSQL: String {
-        SQLBuilder.createTrigger(database: database, table: tableName, name: name,
+        SQLBuilder.createTrigger(engine: engine, database: database, table: tableName, name: name,
                                  timing: timing, event: triggerEvent, body: triggerSQL)
     }
 

@@ -36,6 +36,10 @@ extension QueryEngine {
         // Validate now so a bad host or credential fails at connect, not first use.
         do {
             _ = try await client.query("SELECT 1")
+            if c.readOnly {
+                let current = try await client.query("SELECT value FROM system.settings WHERE name = 'readonly'")
+                client.readOnly = current.rows.first?.first == "0"
+            }
         } catch {
             stopTunnel(c.alias)
             throw error
@@ -49,6 +53,7 @@ extension QueryEngine {
     }
 
     func clickhouseQuery(alias: String, sql: String) async throws -> QueryResult {
+        try ensureReads(sql, alias: alias)
         let client = try clickhouseClient(for: alias)
         let start = Date()
         do {

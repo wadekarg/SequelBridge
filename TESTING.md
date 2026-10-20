@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 693 tests in 133 suites (about three minutes of tests after the build).
+at them, and runs all 708 tests in 139 suites (about three minutes of tests after the build).
 Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
 MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
@@ -72,7 +72,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-693 tests across 104 files.
+708 tests across 106 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -95,6 +95,9 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `ClickHouseTests` | `SB_CH_VERIFY` | ClickHouse native HTTP: connect, browse, typed rows, DDL |
 | `ClickHouseInsightsTests` | `SB_CH_VERIFY` | ClickHouse Query Insights over `system.query_log` (recent/slow/by-type) |
 | `ReadOnlyModeTests` | `SB_MYSQL_VERIFY` | safe mode refuses every write path, Content-tab edits included; reads still work |
+| `ReadOnlyStatementTests`, `ReadOnlySQLiteTests` | always | `EXPLAIN ANALYZE` of a write counts as a write; on a read-only SQLite file a statement through DuckDB, a typed one, a Content edit and Structure are all refused, the file is unchanged, and reads still work |
+| `ReadOnlyPostgresTests`, `ReadOnlyMySQLTests`, `ReadOnlyClickHouseTests` | `SB_PG_VERIFY`, `SB_MYSQL_VERIFY`, `SB_CH_VERIFY` | read-only below the interface: a statement through DuckDB, `mysql_execute`, the native client, `EXPLAIN ANALYZE` of a `DELETE`, `nextval()` and a stored function that inserts called from a `SELECT`, Kill, a ClickHouse `INSERT` or `DROP`, all refused with the rows unchanged; an account ClickHouse already holds read-only still reads |
+| `SQLitePromisesTests` | always | what the guide promises for a SQLite file, on one: Create Table (the types picked, an integer key that numbers rows), Structure's add, rename and drop of columns and indexes and its refusals, Content, export, triggers added, fired and dropped, a busy file |
 | `DatabaseDumpTests` | `SB_MYSQL_VERIFY` | whole-database SQL dump (all tables, schema + data) |
 | `PostgresTests` | `SB_PG_VERIFY` | PostgreSQL attach, query, joins |
 | `CrossEngineBenchmark` | `SB_BENCH` | timing (not correctness) for the MySQL×Postgres JOIN |

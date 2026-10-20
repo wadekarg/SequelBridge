@@ -21,7 +21,7 @@ Screenshots come from a demo instance on synthetic data.
 | Query results: edit values | ✓ | ✓ | ✓ | |
 | Add columns and indexes, Create Table | ✓ | ✓ | ✓ | type the `ALTER`/`CREATE` in the Query tab |
 | Relations (foreign keys) | ✓ | ✓ | ✓ | |
-| Triggers | ✓ | ✓ | ✓ | |
+| Triggers | ✓ | list, drop | ✓ | |
 | Routines | ✓ | ✓ | | |
 | Server: processes with Kill, variables, status | ✓ | ✓ | | |
 | Server: query insights from the query log | | | | ✓ |
@@ -70,9 +70,11 @@ same way.
 
 **Read-only (safe mode)** is a switch on the form. It shows as a badge on Home, and
 from then on the engine refuses every write against that connection: typed statements,
-cell edits, column DDL, imports, Kill. While a read-only connection is open in a
-workspace, a typed statement that writes is refused whichever server it names. Use it
-for production servers.
+cell edits, column DDL, imports, Kill, an `EXPLAIN ANALYZE` of a write (which runs it).
+Below that, DuckDB attaches the connection read-only and the server's own session is
+read-only (ClickHouse's `readonly=2`), so even a stored function a `SELECT` calls can't
+write. While a read-only connection is open in a workspace, a typed statement that
+writes is refused whichever server it names. Use it for production servers.
 
 ## Finding your way around
 
@@ -85,9 +87,9 @@ the selected table's rows, data and index size, engine, collation and timestamps
 Database…** (a name, and an encoding and collation from the server's lists, each
 starting at its default) and **Delete Database…**, which asks first; export as SQL;
 **Import SQL file…** on MySQL and PostgreSQL; on MySQL, import a CSV into a new table.
-A table's context menu has the table-level ones: `SELECT *`, copy name, export as SQL
-on MySQL, import a CSV, **Rename Table…**, **Duplicate Table…** (with or without its
-rows), Truncate and Drop on MySQL and PostgreSQL, and on MySQL **Table Maintenance**:
+A table's context menu has the table-level ones: `SELECT *` and copy name; on MySQL and
+PostgreSQL, import a CSV, **Rename Table…**, **Duplicate Table…** (with or without its
+rows), Truncate and Drop; and on MySQL, export as SQL and **Table Maintenance**:
 Analyze, Check, Optimize, Repair, Flush and Checksum, each showing the server's answer.
 
 Picking a database lists its tables; one that can't be opened says why, with
@@ -108,7 +110,11 @@ editor; double-clicking opens `SELECT * … LIMIT 200` in a new query tab.
 **Structure** lists the columns with type, length, nullability, key and default, and
 the table's indexes. Add a column or an index from here; the DDL is written in the
 server's dialect and shown in the Console. A generated column can't be changed here,
-since its expression isn't shown: change it with `ALTER TABLE` in the Query tab.
+since its expression isn't shown: change it with `ALTER TABLE` in the Query tab. On a
+SQLite file, Structure adds, renames and drops columns and adds and drops indexes, run
+by SQLite itself; changing a column's type, NULL or default says why it can't: SQLite
+would need the table made again. Create Table there makes the types you pick, and a
+single integer key numbers new rows itself.
 
 ![Content](images/content.png)
 
@@ -135,7 +141,9 @@ default, NULL, the server's own number) or that it is required.
 
 **Relations** shows the table's foreign keys: the referencing column, the table and
 column it points to, the ON DELETE and ON UPDATE rules, the constraint name.
-**Triggers** shows timing, event and body. **Table Info** shows the storage engine, row
+**Triggers** shows timing, event and body; **+** adds one and **−** drops the selected
+one. On PostgreSQL a trigger runs a trigger function that has to exist first, so one is
+added in the Query tab. **Table Info** shows the storage engine, row
 estimate, sizes, collation, comment, timestamps and the `CREATE TABLE` statement.
 **Routines** lists the database's stored procedures and functions with their
 definitions.

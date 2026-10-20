@@ -39,6 +39,7 @@ nonisolated enum SQLBuilder {
             guard let kw = firstWord(body)?.uppercased() else { continue }   // empty → ignore
             guard readLeadKeywords.contains(kw) else { return false }
             if kw == "WITH", containsWriteVerb(body) { return false }         // WITH … INSERT/UPDATE/DELETE
+            if ["EXPLAIN", "DESCRIBE", "DESC"].contains(kw), explainRunsAWrite(body) { return false }
         }
         return true
     }
@@ -84,6 +85,17 @@ nonisolated enum SQLBuilder {
     private static func firstWord(_ s: String) -> String? {
         let w = s.drop(while: { !($0.isLetter || $0 == "_") }).prefix(while: { $0.isLetter || $0 == "_" })
         return w.isEmpty ? nil : String(w)
+    }
+
+    /// EXPLAIN ANALYZE runs the statement it explains (PostgreSQL, MySQL 8, DuckDB), so one
+    /// of a write is a write. The statement starts after EXPLAIN's options: ANALYZE,
+    /// VERBOSE, FORMAT=…, or a parenthesized list, where ANALYZE false runs nothing.
+    private static func explainRunsAWrite(_ body: String) -> Bool {
+        let options = #"^\s*\w+((\s*\([^)]*\))|\s+(ANALY[SZ]E|VERBOSE|EXTENDED|PARTITIONS)\b|\s+FORMAT\s*=\s*\w+)*"#
+        guard let prefix = body.range(of: options, options: [.regularExpression, .caseInsensitive]) else { return false }
+        let runs = body[prefix].uppercased()
+            .range(of: #"\bANALY[SZ]E\b(?!\s*(=\s*)?(FALSE|OFF|0)\b)"#, options: .regularExpression) != nil
+        return runs && !isReadOnly(String(body[prefix.upperBound...]))
     }
 
     private static func containsWriteVerb(_ s: String) -> Bool {
@@ -620,6 +632,110 @@ nonisolated enum SQLBuilder {
         return s
     }
 
+    /// The Create Table sheet's statement, in the SQL of the engine that runs it. A SQLite
+    /// file's runs in SQLite itself; before, it got MySQL's (backticks, ENGINE=).
+    static func createTableSQL(engine: DatabaseEngine, database: String, table: String,
+                               columns: [NewColumnDef], storageEngine: String, charset: String) -> String {
+        switch engine {
+        case .postgres: return pgCreateTable(schema: database, table: table, columns: columns)
+        case .sqlite:   return sqliteCreateTable(table: table, columns: columns)
+        case .mysql, .clickhouse:
+            return createTable(database: database, table: table, columns: columns, engine: storageEngine, charset: charset)
+        }
+    }
+
+    private static let sqliteIntegerTypes: Set<String> = ["INT", "INTEGER", "BIGINT", "SMALLINT", "TINYINT", "MEDIUMINT"]
+
+    /// CREATE TABLE in SQLite's own SQL. One integer key column becomes SQLite's INTEGER
+    /// PRIMARY KEY, which numbers new rows itself.
+    static func sqliteCreateTable(table: String, columns: [NewColumnDef]) -> String {
+        let keys = columns.filter(\.isPrimaryKey)
+        let rowidKey = keys.count == 1 && sqliteIntegerTypes.contains(keys[0].baseType.uppercased())
+        var defs: [String] = []
+        for col in columns {
+            if rowidKey && col.isPrimaryKey { defs.append("\(duckIdent(col.name)) INTEGER PRIMARY KEY"); continue }
+            var def = "\(duckIdent(col.name)) \(sqliteType(col.baseType, full: col.fullType))"
+            if !col.nullable { def += " NOT NULL" }
+            def += sqliteDefault(col.defaultValue, nullable: col.nullable)
+            defs.append(def)
+        }
+        if !keys.isEmpty && !rowidKey {
+            defs.append("PRIMARY KEY (\(keys.map { duckIdent($0.name) }.joined(separator: ", ")))")
+        }
+        return "CREATE TABLE \(duckIdent(table)) (\(defs.joined(separator: ", ")))"
+    }
+
+    /// The type as picked, except MySQL's own, which SQLite would give the wrong affinity
+    /// (ENUM and JSON numeric) or which mean SQLite's TEXT, INTEGER or BLOB.
+    static func sqliteType(_ base: String, full: String) -> String {
+        switch base.uppercased() {
+        case "MEDIUMTEXT", "LONGTEXT", "TINYTEXT", "ENUM", "SET", "JSON": return "TEXT"
+        case "YEAR", "MEDIUMINT":                                       return "INTEGER"
+        case "TINYBLOB", "MEDIUMBLOB", "LONGBLOB":                      return "BLOB"
+        default:                                                        return full
+        }
+    }
+
+    /// A DEFAULT clause SQLite takes: its CURRENT_ keywords, NULL and numbers bare, a
+    /// function call in parentheses (SQLite takes no bare expression), anything else quoted.
+    static func sqliteDefault(_ value: String, nullable: Bool) -> String {
+        guard !value.isEmpty else { return "" }
+        let upper = value.uppercased()
+        if upper == "NULL" { return nullable ? " DEFAULT NULL" : "" }
+        if ["CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME"].contains(upper) { return " DEFAULT \(upper)" }
+        if isFunctionDefault(value) { return " DEFAULT (\(value))" }
+        if Int(value) != nil || Double(value) != nil { return " DEFAULT \(value)" }
+        return " DEFAULT \(literal(value))"
+    }
+
+    /// Structure's save on a SQLite file, in SQLite's own SQL: what SQLite can do (add,
+    /// rename and drop a column; add and drop an index), or why not. SQLite can't change
+    /// a column's type, NULL or default, nor add a key, without the table rebuilt.
+    static func sqliteAlterStatements(table: String, columnEdits: [ColumnEdit],
+                                      originalColumns: [ColumnInfo], deletedColumnNames: Set<String>,
+                                      indexEdits: [IndexEdit], deletedIndexNames: Set<String>)
+        -> (statements: [String], refusal: String?) {
+        let rebuild = "the table would have to be made again. Adding, renaming and dropping columns and indexes work."
+        let tbl = duckIdent(table)
+        var stmts: [String] = []
+        // Indexes first: SQLite won't drop a column an index still uses.
+        for name in deletedIndexNames.sorted() {
+            if name == "PRIMARY" { return ([], "SQLite can't drop a table's primary key: \(rebuild)") }
+            stmts.append("DROP INDEX \(duckIdent(name))")
+        }
+        for name in deletedColumnNames.sorted() {
+            stmts.append("ALTER TABLE \(tbl) DROP COLUMN \(duckIdent(name))")
+        }
+        for edit in columnEdits where !deletedColumnNames.contains(edit.originalName ?? "") {
+            if edit.isNew {
+                guard edit.keyType.isEmpty, edit.extra.isEmpty else {
+                    return ([], "SQLite can't add \(edit.name) as a key or auto-numbered column to a table that exists: \(rebuild)")
+                }
+                var def = "ALTER TABLE \(tbl) ADD COLUMN \(duckIdent(edit.name)) \(sqliteType(edit.baseType, full: edit.fullType))"
+                if !edit.nullable { def += " NOT NULL" }
+                def += sqliteDefault(edit.defaultValue, nullable: edit.nullable)
+                stmts.append(def)
+                continue
+            }
+            guard let orig = originalColumns.first(where: { $0.name == edit.originalName }),
+                  edit.hasChanges(from: orig) else { continue }
+            var unrenamed = edit
+            unrenamed.name = orig.name
+            if unrenamed.hasChanges(from: orig) {
+                return ([], "SQLite can't change \(orig.name)'s type, NULL or default: \(rebuild)")
+            }
+            stmts.append("ALTER TABLE \(tbl) RENAME COLUMN \(duckIdent(orig.name)) TO \(duckIdent(edit.name))")
+        }
+        for edit in indexEdits where edit.isNew {
+            if edit.indexType.uppercased().contains("PRIMARY") {
+                return ([], "SQLite can't add a primary key to a table that exists: \(rebuild)")
+            }
+            let unique = edit.indexType.uppercased() == "UNIQUE" ? "UNIQUE " : ""
+            stmts.append("CREATE \(unique)INDEX \(duckIdent(edit.name)) ON \(tbl) (\(edit.columns.map(duckIdent).joined(separator: ", ")))")
+        }
+        return (stmts, nil)
+    }
+
     static func createTable(database: String, table: String, columns: [NewColumnDef],
                             engine: String, charset: String) -> String {
         var colDefs: [String] = []
@@ -705,6 +821,31 @@ nonisolated enum SQLBuilder {
         // whose default schema is not necessarily the one selected in the sidebar.
         "CREATE TRIGGER \(mysqlIdent(name)) \(timing) \(event) "
         + "ON \(mysqlTable(database: database, table: table)) FOR EACH ROW \(body)"
+    }
+
+    /// CREATE TRIGGER in the engine's own SQL. SQLite's body is always a BEGIN … END block,
+    /// so one statement typed alone is put in one.
+    static func createTrigger(engine: DatabaseEngine, database: String, table: String, name: String,
+                              timing: String, event: String, body: String) -> String {
+        guard engine == .sqlite else {
+            return createTrigger(database: database, table: table, name: name, timing: timing, event: event, body: body)
+        }
+        var block = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if block.range(of: #"^BEGIN\b"#, options: [.regularExpression, .caseInsensitive]) == nil {
+            if block.hasSuffix(";") { block.removeLast() }
+            block = "BEGIN\n  \(block);\nEND"
+        }
+        return "CREATE TRIGGER \(duckIdent(name)) \(timing) \(event) ON \(duckIdent(table)) FOR EACH ROW \(block)"
+    }
+
+    /// DROP TRIGGER in the engine's own SQL: PostgreSQL names the trigger's table, MySQL
+    /// its database, SQLite neither.
+    static func dropTrigger(engine: DatabaseEngine, database: String, table: String, name: String) -> String {
+        switch engine {
+        case .postgres: return "DROP TRIGGER IF EXISTS \(duckIdent(name)) ON \(pgTable(schema: database, table: table))"
+        case .sqlite:   return "DROP TRIGGER IF EXISTS \(duckIdent(name))"
+        case .mysql, .clickhouse: return dropTrigger(database: database, name: name)
+        }
     }
 
     static func dropTrigger(database: String, name: String) -> String {

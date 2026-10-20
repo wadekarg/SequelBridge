@@ -16,6 +16,10 @@ final class ClickHouseClient {
     private let baseURL: URL
     private let user: String
     private let password: String
+    /// Sends readonly=2 with every statement, so the server refuses a write (settings can
+    /// still change). Off for an account the server already holds read-only, which would
+    /// refuse the setting itself.
+    var readOnly = false
 
     // `inflight` is written from the cooperative pool (post) and read from the
     // @MainActor (cancel), so every access goes through this lock to avoid a data race.
@@ -58,7 +62,9 @@ final class ClickHouseClient {
     }
 
     private func post(_ body: String) async throws -> String {
-        var request = URLRequest(url: baseURL)
+        var url = baseURL
+        if readOnly { url.append(queryItems: [URLQueryItem(name: "readonly", value: "2")]) }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = Data(body.utf8)
         request.setValue(user, forHTTPHeaderField: "X-ClickHouse-User")

@@ -597,6 +597,14 @@ struct QueryPanelView: View {
             }
         }
 
+        // Safe mode: refuse to run a write against a read-only connection, before any
+        // path runs it (EXPLAIN ANALYZE of a write runs the write).
+        if !SQLBuilder.isReadOnly(baseSQL),
+           let ro = session.connections.first(where: { manager.queryEngine.isReadOnly($0.alias) }) {
+            setTab { $0.error = SequelBridgeError.readOnly(ro.name).errorDescription }
+            return
+        }
+
         // A typed `EXPLAIN …` takes the Explain button's path — server-native EXPLAIN,
         // on the native client for MySQL — when its one target is MySQL/MariaDB or
         // PostgreSQL. Through the passthrough it fails on MariaDB: mysql_query prepares
@@ -606,13 +614,6 @@ struct QueryPanelView: View {
            let target = explainTarget(for: baseSQL).conn,
            target.engine == .mysql || target.engine == .postgres {
             await explainQuery(tabIndex: tabIndex, sql: inner)
-            return
-        }
-
-        // Safe mode: refuse to run a write against a read-only connection.
-        if !SQLBuilder.isReadOnly(baseSQL),
-           let ro = session.connections.first(where: { manager.queryEngine.isReadOnly($0.alias) }) {
-            setTab { $0.error = SequelBridgeError.readOnly(ro.name).errorDescription }
             return
         }
 

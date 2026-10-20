@@ -44,6 +44,8 @@ final class MySQLClient {
         let useTLS: Bool
         /// A Unix socket to connect through instead of host and port.
         var socketPath: String? = nil
+        /// A read-only connection's session is read-only on the server too.
+        var readOnly = false
     }
 
     enum MySQLClientError: LocalizedError, CustomStringConvertible {
@@ -90,6 +92,7 @@ final class MySQLClient {
         }
         defer { link.close() }
         try await handshake(link)
+        if config.readOnly { _ = try await comQuery(link, "SET SESSION TRANSACTION READ ONLY") }
         return try await comQuery(link, sql)
     }
 

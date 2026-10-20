@@ -761,12 +761,19 @@ struct StructurePanel: View {
             isSaving = false
             return
         case .sqlite:
-            // SQLite cannot change a column's type, nullability or default at all —
-            // the documented workaround is to rebuild the table and copy the data.
-            // Generating an ALTER here would only produce a confusing server error.
-            saveError = "SQLite does not support altering columns. Recreating the table is the only way to change its structure."
-            isSaving = false
-            return
+            // What SQLite can do: add, rename and drop a column, add and drop an index. A
+            // type, NULL or default change says why it can't.
+            let plan = SQLBuilder.sqliteAlterStatements(
+                table: table.name,
+                columnEdits: columnEdits, originalColumns: originalColumns,
+                deletedColumnNames: deletedColumnNames,
+                indexEdits: indexEdits, deletedIndexNames: deletedIndexNames)
+            if let refusal = plan.refusal {
+                saveError = refusal
+                isSaving = false
+                return
+            }
+            stmts = plan.statements
         case .mysql:
             let generated = SQLBuilder.generatedColumnEdits(columnEdits, originals: originalColumns)
             guard generated.isEmpty else {

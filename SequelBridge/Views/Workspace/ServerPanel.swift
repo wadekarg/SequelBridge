@@ -105,8 +105,8 @@ struct ServerPanel: View {
                     Label("Kill", systemImage: "stop.circle")
                 }
                 .buttonStyle(.bordered).controlSize(.small)
-                .disabled(selectedRows.isEmpty)
-                .help("Terminate the selected process(es)")
+                .disabled(selectedRows.isEmpty || conn.readOnly)
+                .help(conn.readOnly ? "This connection is read-only, so Kill is off" : "Terminate the selected process(es)")
             }
             Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.plain).foregroundColor(.secondary).help("Refresh")
