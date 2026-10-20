@@ -5,6 +5,11 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 ## 1.2.2 — 2026-10-19
 
 ### Fixed
+- On a MySQL connection with Use SSL, EXPLAIN, a table's own `CREATE TABLE` (Table Info,
+  dumps) and Table Maintenance didn't work: they run on the app's own MySQL client,
+  which couldn't use SSL. It switches to TLS after MySQL's greeting now, as MySQL asks,
+  so all three work on SSL-only servers such as Amazon RDS or Azure. Like the rest of
+  the app it encrypts without checking the certificate, and refuses a server without SSL.
 - On MySQL 8.0 and 8.4, saving a change in Structure to a column whose default is
   `CURRENT_TIMESTAMP` (a `created_at` column) failed with a syntax error: MySQL 8 reports
   such a column's Extra as `DEFAULT_GENERATED`, which was copied into the `ALTER`. A

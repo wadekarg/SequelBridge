@@ -365,11 +365,13 @@ the server asks for: `mysql_native_password` (MariaDB, MySQL 5.7) or
 `caching_sha2_password` (MySQL 8 and later). A first `caching_sha2_password` login needs
 the password itself, so over TCP the client fetches the server's RSA key and sends the
 password encrypted with it; over a Unix socket it sends it in clear, as MySQL allows.
-It can't use SSL yet: MySQL switches to TLS inside the protocol, after its greeting. On
-a connection marked Use SSL it refuses to connect rather than send in clear, so EXPLAIN
-shows that reason and a dump rebuilds its `CREATE TABLE` from metadata, without foreign
-keys, and says so in the dump. A refused or unreachable server fails at once, and no
-connect waits longer than ten seconds. Everything else goes through the scanner.
+With Use SSL it does what MySQL asks: after the plain-text greeting it sends the
+SSLRequest, switches the same connection to TLS (a `URLSessionStreamTask`, whose
+`startSecureConnection()` can; Network.framework can't), and logs in inside it, where a
+first `caching_sha2_password` login sends the password itself. Like the scanner's
+`ssl_mode=required`, it encrypts without checking the server's certificate, and a
+server that doesn't offer SSL is refused, never asked in clear. A refused or
+unreachable server fails at once, and no connect waits longer than ten seconds. Everything else goes through the scanner.
 
 ## Metadata
 
@@ -457,9 +459,7 @@ and loaded with `allow_unsigned_extensions`.
   typed, not clicked.
 - An SSH server that offers only DSA (`ssh-dss`) host keys cannot be reached: current
   macOS `ssh` no longer supports DSA at all.
-- The app's own MySQL client has no SSL yet: on a MySQL connection with Use SSL, EXPLAIN
-  is unavailable and dumps lose their foreign keys. Use SSL can't name a CA or client
-  certificate, and doesn't verify the server's.
+- Use SSL can't name a CA or client certificate, and doesn't verify the server's.
 
 ## Testing
 

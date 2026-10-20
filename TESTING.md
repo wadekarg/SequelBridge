@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 688 tests in 132 suites (about three minutes of tests after the build).
+at them, and runs all 691 tests in 132 suites (about three minutes of tests after the build).
 Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
 MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
@@ -72,7 +72,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-688 tests across 103 files.
+691 tests across 103 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -82,7 +82,7 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `DatabaseSwitchTests` | `SB_MYSQL_VERIFY` | the database picked at the top of the left panel: its tables are listed and queries run there; two picks close together end on the second; one that can't be opened says why and the connection stays on its database; `USE` in the Query tab moves the pick; CREATE/DROP of tables and databases refresh the lists, and dropping the picked database goes back to the connection's own |
 | `MySQLRelationsTests` | `SB_MYSQL_VERIFY` | the Relations tab's foreign-key lookup: the server's plan reads only that table's constraints (no "Scanned all databases"); a two-column key and a second key listed once each, columns in key order; the same names in another database stay out |
 | `MySQLAuthTests` | always | the app's own MySQL client's login pieces: both password scrambles against reference values, the RSA password exchange |
-| `SSLConnectionTests` | `SB_SSL_VERIFY` | Use SSL: MySQL 8.4 connects encrypted; MariaDB 10.0 and PostgreSQL 16 without TLS are refused with the reason and no password; EXPLAIN and dumps on an SSL connection fail fast or say what they rebuilt |
+| `SSLConnectionTests` | `SB_SSL_VERIFY` | Use SSL: MySQL 8.4 connects encrypted; MariaDB 10.0 and PostgreSQL 16 without TLS are refused with the reason and no password; the app's own MySQL client switches to TLS after the greeting (its `Ssl_cipher`), so EXPLAIN, the server's `CREATE TABLE` and Table Maintenance work on an SSL connection, and refuses a server without SSL |
 | `ConnectionErrorTests` | always | a driver's connection error keeps its reason and loses the connection string and every password |
 | `MySQL8Tests` | `SB_MYSQL8_VERIFY` | MySQL 8.4: that client's `caching_sha2_password` login (full and cached), a switch to `mysql_native_password`, a wrong password, EXPLAIN, a dump's `CREATE TABLE` with its foreign keys |
 | `QueryEngineDDLTests` | `SB_MYSQL_VERIFY` | DDL via `mysqlExecute` (not the fatal `mysql_query` path) |

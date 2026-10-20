@@ -61,10 +61,9 @@ password, an unknown host, SSL required but not offered.
 **Use SSL** makes a MySQL or PostgreSQL connection require an encrypted session, and
 fail if the server doesn't offer one; the server's certificate isn't checked. Without
 it the connection is still encrypted when the server offers TLS, as MySQL 8 does by
-default. On ClickHouse it switches to HTTPS. On a MySQL connection with Use SSL, the
-Explain button isn't available yet, and a table dump rebuilds its `CREATE TABLE`
-without the foreign keys (it says so): both run on the app's own MySQL client, which
-can't use SSL yet.
+default. On ClickHouse it switches to HTTPS. The app's own MySQL client, which runs
+EXPLAIN, reads a table's `CREATE TABLE` and runs Table Maintenance, follows Use SSL the
+same way.
 
 **Read-only (safe mode)** is a switch on the form. It shows as a badge on Home, and
 from then on the engine refuses every write against that connection: typed statements,

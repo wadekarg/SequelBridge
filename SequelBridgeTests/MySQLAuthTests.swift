@@ -74,12 +74,12 @@ struct MySQLAuthTests {
         #expect(throws: (any Error).self) { try outcome.get() }
     }
 
-    @MainActor @Test("SSL on this client is refused with a clear message, before it connects")
-    func sslRefused() async throws {
+    @MainActor @Test("SSL to a server that isn't there fails at once, saying it couldn't connect")
+    func sslUnreachable() async throws {
         let c = MySQLClient(.init(host: "127.0.0.1", port: 1, user: "u", password: "p", database: "", useTLS: true))
         let outcome = try #require(await finishes(within: 5) { try await c.query("SELECT 1") },
                                    "the client was still waiting after 5 seconds")
         guard case .failure(let error) = outcome else { Issue.record("it connected"); return }
-        #expect("\(error)".contains("SSL"), "got: \(error)")
+        #expect("\(error)".localizedCaseInsensitiveContains("connect"), "got: \(error)")
     }
 }

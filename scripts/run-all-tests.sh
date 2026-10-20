@@ -269,7 +269,7 @@ run_tests() {
 # The MySQL family suites again, with their server pointed at MySQL 8.4, MariaDB 11.4
 # and MySQL 8.0 in turn. MariaDB 10.0 stays the second server, so MultiServer joins
 # across versions.
-MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests ContentBrowseTests ServerToolsTests QueryTabAsTypedTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests
+MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests ContentBrowseTests ServerToolsTests QueryTabAsTypedTests SSLConnectionTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests
               RealSchemaTests MultiServerTests DestructiveDDLVerifyTests QueryResultEditTests PostgresTests
               ClickHouseBridgeTests CrossEngineJoinTests CrossJoinReductionTests FallbackMaterializeDBTests
               QueryCancelTests PushdownDBTests)
@@ -280,6 +280,7 @@ run_mysql_pass() { # label port log-name
   (
     export TEST_RUNNER_SB_MYSQL_PORT=$2  TEST_RUNNER_SB_MYSQL_PORT2=$MARIA_PORT
     export TEST_RUNNER_SB_XJOIN_PORT=$2  TEST_RUNNER_SB_CHB_MY_PORT=$2
+    export TEST_RUNNER_SB_SSL_TLS_PORT=$2      # each of these servers offers TLS
     set +e
     xcodebuild test "${xcflags[@]}" 2>&1 | tee "$ROOT/.build/run-all-tests-$3.log" | \
       grep -E "Test run with|✘|error:|\*\* TEST"
@@ -307,6 +308,8 @@ export_db_env
 if [ -n "$MYSQL_PORT_OVERRIDE" ]; then
   export TEST_RUNNER_SB_MYSQL_PORT=$MYSQL_PORT_OVERRIDE TEST_RUNNER_SB_XJOIN_PORT=$MYSQL_PORT_OVERRIDE
   export TEST_RUNNER_SB_CHB_MY_PORT=$MYSQL_PORT_OVERRIDE
+  # Every server here but MariaDB 10.0 offers TLS: the SSL suite uses the one picked.
+  [ "$MYSQL_PORT_OVERRIDE" != "$MARIA_PORT" ] && export TEST_RUNNER_SB_SSL_TLS_PORT=$MYSQL_PORT_OVERRIDE
 fi
 rc=0
 run_tests || rc=1

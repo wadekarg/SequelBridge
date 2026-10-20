@@ -73,19 +73,24 @@ final class MySQLClient {
 
     // MARK: - Public
 
-    /// What a connection marked "Use SSL" gets: MySQL switches to TLS inside the protocol,
-    /// after its plain-text greeting, which this client doesn't do yet.
-    static let sslUnsupported = "The app's own MySQL client, which runs EXPLAIN and reads the server's CREATE TABLE, can't use SSL yet, so neither is available on a connection with Use SSL ticked."
+    /// What a server without SSL gets from a connection marked "Use SSL": refused, never
+    /// in clear.
+    static let sslMissing = "The server doesn't offer SSL, and this connection has Use SSL ticked, so it wasn't asked anything."
 
     /// Runs one text-protocol query and returns its columns + rows (NULL → nil).
-    /// Opens, authenticates, queries, and closes a fresh connection each call.
+    /// Opens, authenticates, queries, and closes a fresh connection each call. "Use SSL"
+    /// over TCP switches to TLS after MySQL's plain-text greeting, as MySQL asks; a Unix
+    /// socket is a secure channel already.
     func query(_ sql: String) async throws -> (columns: [String], rows: [[String?]]) {
-        // Never in clear on a connection the user asked to encrypt.
-        if config.useTLS && config.socketPath == nil { throw MySQLClientError.connection(Self.sslUnsupported) }
-        let conn = try await connect()
-        defer { conn.cancel() }
-        try await handshake(conn)
-        return try await comQuery(conn, sql)
+        let link: MySQLLink
+        if config.useTLS && config.socketPath == nil {
+            link = TLSStreamLink(host: config.host, port: config.port, timeout: Self.connectTimeout)
+        } else {
+            link = NWLink(try await connect())
+        }
+        defer { link.close() }
+        try await handshake(link)
+        return try await comQuery(link, sql)
     }
 
     // MARK: - Connection
@@ -144,50 +149,29 @@ final class MySQLClient {
 
     // MARK: - Raw packet IO (3-byte length + 1-byte sequence + payload)
 
-    private func sendRaw(_ conn: NWConnection, _ data: Data) async throws {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            conn.send(content: data, completion: .contentProcessed { err in
-                if let err { cont.resume(throwing: MySQLClientError.connection(err.localizedDescription)) }
-                else { cont.resume() }
-            })
-        }
-    }
-
-    private func recvExact(_ conn: NWConnection, _ n: Int) async throws -> Data {
-        guard n > 0 else { return Data() }
-        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
-            conn.receive(minimumIncompleteLength: n, maximumLength: n) { data, _, _, err in
-                if let err { cont.resume(throwing: MySQLClientError.connection(err.localizedDescription)); return }
-                guard let data, data.count == n else {
-                    cont.resume(throwing: MySQLClientError.protocolError("Short read (\(data?.count ?? 0)/\(n))")); return
-                }
-                cont.resume(returning: data)
-            }
-        }
-    }
-
     /// Reads one protocol packet; returns (payload, sequenceId).
-    private func readPacket(_ conn: NWConnection) async throws -> (Data, UInt8) {
-        let header = try await recvExact(conn, 4)
+    private func readPacket(_ conn: MySQLLink) async throws -> (Data, UInt8) {
+        let header = try await conn.receive(4)
         let len = Int(header[0]) | (Int(header[1]) << 8) | (Int(header[2]) << 16)
         let seq = header[3]
-        let payload = try await recvExact(conn, len)
+        let payload = try await conn.receive(len)
         return (payload, seq)
     }
 
-    private func writePacket(_ conn: NWConnection, _ payload: Data, seq: UInt8) async throws {
+    private func writePacket(_ conn: MySQLLink, _ payload: Data, seq: UInt8) async throws {
         var out = Data(capacity: payload.count + 4)
         let len = payload.count
         out.append(UInt8(len & 0xff)); out.append(UInt8((len >> 8) & 0xff)); out.append(UInt8((len >> 16) & 0xff))
         out.append(seq)
         out.append(payload)
-        try await sendRaw(conn, out)
+        try await conn.send(out)
     }
 
     // MARK: - Handshake + auth
 
-    private func handshake(_ conn: NWConnection) async throws {
-        let (greeting, seq) = try await readPacket(conn)
+    private func handshake(_ conn: MySQLLink) async throws {
+        let (greeting, greetingSeq) = try await readPacket(conn)
+        var seq = greetingSeq
         if greeting.first == 0xff { throw Self.parseError(greeting) }
         var p = ByteReader(greeting)
         _ = p.u8()                                  // protocol version (10)
@@ -221,6 +205,21 @@ final class MySQLClient {
         var flags: UInt32 = CLIENT_PROTOCOL_41 | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH
             | CLIENT_LONG_PASSWORD | CLIENT_TRANSACTIONS | CLIENT_LONG_FLAG
         if !config.database.isEmpty { flags |= CLIENT_CONNECT_WITH_DB }
+
+        // "Use SSL": ask for TLS in plain text (the SSLRequest: the response's first 32
+        // bytes), switch the connection to TLS, then send the full response inside it.
+        if let tls = conn as? TLSStreamLink {
+            guard capabilities & CLIENT_SSL != 0 else { throw MySQLClientError.connection(Self.sslMissing) }
+            flags |= CLIENT_SSL
+            var request = Data()
+            request.appendLE(flags)
+            request.appendLE(UInt32(16_777_216))
+            request.append(45)
+            request.append(Data(repeating: 0, count: 23))
+            seq = seq &+ 1
+            try await writePacket(conn, request, seq: seq)
+            tls.startTLS()
+        }
 
         var resp = Data()
         resp.appendLE(flags)
@@ -263,8 +262,8 @@ final class MySQLClient {
                 authPath = .cachingSha2Fast                 // OK follows
             case 0x01 where plugin == Self.sha2 && reply.count >= 2 && reply[1] == 0x04:
                 authPath = .cachingSha2Full
-                if config.socketPath != nil {
-                    // A Unix socket is a secure channel: the password goes in clear.
+                if config.socketPath != nil || conn is TLSStreamLink {
+                    // A Unix socket or TLS is a secure channel: the password goes in clear.
                     try await writePacket(conn, Data(config.password.utf8) + Data([0]), seq: rseq &+ 1)
                 } else {
                     // Plain TCP: ask for the server's RSA key and send the password encrypted with it.
@@ -351,7 +350,7 @@ final class MySQLClient {
 
     // MARK: - COM_QUERY
 
-    private func comQuery(_ conn: NWConnection, _ sql: String) async throws -> (columns: [String], rows: [[String?]]) {
+    private func comQuery(_ conn: MySQLLink, _ sql: String) async throws -> (columns: [String], rows: [[String?]]) {
         var payload = Data([0x03])                  // COM_QUERY
         payload.append(Data(sql.utf8))
         try await writePacket(conn, payload, seq: 0)
@@ -423,6 +422,7 @@ private let CLIENT_PROTOCOL_41: UInt32      = 0x00000200
 private let CLIENT_TRANSACTIONS: UInt32     = 0x00002000
 private let CLIENT_SECURE_CONNECTION: UInt32 = 0x00008000
 private let CLIENT_PLUGIN_AUTH: UInt32      = 0x00080000
+private let CLIENT_SSL: UInt32              = 0x00000800
 
 // MARK: - Little-endian append
 
@@ -500,5 +500,131 @@ private struct ByteReader {
         guard let n = lenEncInt() else { return nil }
         let raw = bytes(Int(n))
         return String(decoding: raw, as: UTF8.self)
+    }
+}
+
+// MARK: - The connection under the protocol
+
+/// Bytes to and from the server, whichever way they travel.
+private protocol MySQLLink: AnyObject {
+    func send(_ data: Data) async throws
+    /// Exactly `n` bytes, or an error.
+    func receive(_ n: Int) async throws -> Data
+    func close()
+}
+
+/// Plain TCP or a Unix socket, through Network.framework.
+private final class NWLink: MySQLLink {
+    private let conn: NWConnection
+    init(_ conn: NWConnection) { self.conn = conn }
+
+    func send(_ data: Data) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            conn.send(content: data, completion: .contentProcessed { err in
+                if let err { cont.resume(throwing: MySQLClient.MySQLClientError.connection(err.localizedDescription)) }
+                else { cont.resume() }
+            })
+        }
+    }
+
+    func receive(_ n: Int) async throws -> Data {
+        guard n > 0 else { return Data() }
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+            conn.receive(minimumIncompleteLength: n, maximumLength: n) { data, _, _, err in
+                if let err { cont.resume(throwing: MySQLClient.MySQLClientError.connection(err.localizedDescription)); return }
+                guard let data, data.count == n else {
+                    cont.resume(throwing: MySQLClient.MySQLClientError.protocolError("Short read (\(data?.count ?? 0)/\(n))")); return
+                }
+                cont.resume(returning: data)
+            }
+        }
+    }
+
+    func close() { conn.cancel() }
+}
+
+/// TCP that switches to TLS part-way, which MySQL's SSL needs (its greeting comes in
+/// plain text) and Network.framework can't do: a URLSession stream task, whose
+/// startSecureConnection() does exactly that. Like the app's other MySQL connection
+/// (ssl_mode=required), it encrypts without checking the server's certificate.
+private final class TLSStreamLink: NSObject, MySQLLink, URLSessionDelegate, URLSessionTaskDelegate, @unchecked Sendable {
+    private let host: String
+    private let port: Int
+    private let timeout: TimeInterval
+    private var session: URLSession?
+    private var stream: URLSessionStreamTask?
+
+    init(host: String, port: Int, timeout: TimeInterval) {
+        self.host = host; self.port = port; self.timeout = timeout
+        super.init()
+    }
+
+    /// The stream task, made on first use: its session needs this object as delegate.
+    private var live: URLSessionStreamTask {
+        if let stream { return stream }
+        let s = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
+        let t = s.streamTask(withHostName: host, port: port)
+        t.resume()
+        session = s; stream = t
+        return t
+    }
+
+    func send(_ data: Data) async throws {
+        let stream = live
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            stream.write(data, timeout: timeout) { err in
+                if let err { cont.resume(throwing: MySQLClient.MySQLClientError.connection(err.localizedDescription)) }
+                else { cont.resume() }
+            }
+        }
+    }
+
+    func receive(_ n: Int) async throws -> Data {
+        guard n > 0 else { return Data() }
+        let stream = live
+        var out = Data()
+        while out.count < n {
+            let chunk: Data = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+                stream.readData(ofMinLength: 1, maxLength: n - out.count, timeout: timeout) { data, atEOF, err in
+                    if let err { cont.resume(throwing: MySQLClient.MySQLClientError.connection(err.localizedDescription)); return }
+                    guard let data, !data.isEmpty else {
+                        cont.resume(throwing: MySQLClient.MySQLClientError.protocolError(atEOF ? "The server closed the connection." : "Short read"))
+                        return
+                    }
+                    cont.resume(returning: data)
+                }
+            }
+            out.append(chunk)
+        }
+        return out
+    }
+
+    /// Switches to TLS once the writes and reads already queued are done.
+    func startTLS() { live.startSecureConnection() }
+
+    func close() {
+        stream?.cancel()
+        session?.invalidateAndCancel()
+    }
+
+    // ssl_mode=required: encrypted, the certificate not checked.
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        accept(challenge, completionHandler)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        accept(challenge, completionHandler)
+    }
+
+    private func accept(_ challenge: URLAuthenticationChallenge,
+                        _ completionHandler: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           let trust = challenge.protectionSpace.serverTrust {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            completionHandler(.performDefaultHandling, nil)
+        }
     }
 }
