@@ -113,7 +113,7 @@ final class PostgresWorkflowUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Table Settings"].waitForExistence(timeout: 10), "the Create Table sheet didn't open")
         XCTAssertFalse(app.staticTexts["Engine"].exists, "PostgreSQL has no storage engine to pick")
         XCTAssertFalse(app.staticTexts["Charset"].exists, "PostgreSQL has no per-table charset to pick")
-        app.buttons["Cancel"].click()
+        app.windows.buttons["Cancel"].click()   // not the Touch Bar's copy
     }
 
     func testEditACellInPlace() {

@@ -357,7 +357,8 @@ final class MySQLWorkflowUITests: XCTestCase {
 
         element("sidebar.databaseMenu").click()
         app.menuItems["Delete Database “ui_added”…"].click()
-        let confirm = app.buttons["Delete “ui_added”"]
+        // In the window: a MacBook's Touch Bar shows a dialog's buttons too, a second match.
+        let confirm = app.windows.buttons["Delete “ui_added”"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 10), "no confirmation")
         confirm.click()
         XCTAssertTrue(waitForValue(element("sidebar.database"), "sbtest"), "didn't go back to the connection's own database")
@@ -370,7 +371,7 @@ final class MySQLWorkflowUITests: XCTestCase {
         menu.click()
         app.menuItems["Check Table"].click()
         XCTAssertTrue(app.staticTexts["status: OK"].waitForExistence(timeout: 30), "CHECK TABLE's answer isn't shown")
-        app.buttons["OK"].click()
+        app.windows.buttons["OK"].click()
     }
 
     // The README promises the Console shows every statement the app runs; its own reads
