@@ -31,9 +31,10 @@ statement. No ETL, no staging tables, no exporting CSVs between systems.
   [The rules](guide/QUERYING.md)
 - **No row cap.** Results stream into a compact grid. A 4.7-million-row join over a VPN
   shows its first rows after about twelve seconds.
-- **Nothing hidden.** The Console tab shows every statement the app sent on your
-  behalf. Read-only mode is enforced by the engine, not the interface. Passwords live
-  in your Keychain.
+- **Nothing hidden.** The Console tab shows every statement the app runs: yours, the
+  ones it builds for you (an edit, a page of rows), and its own reads of your tables,
+  columns and keys, marked as the app's. Read-only mode is enforced by the engine, not
+  the interface. Passwords live in your Keychain.
 
 ## Install
 
@@ -48,7 +49,7 @@ matching DuckDB scanner extension once and keeps it; that first connect needs in
 | | |
 |---|---|
 | macOS | 14 (Sonoma) or later, Apple Silicon and Intel |
-| MySQL / MariaDB | tested with MySQL 8.4 and MariaDB 10.0 |
+| MySQL / MariaDB | tested with MySQL 8.0 and 8.4, MariaDB 10.0 and 11.4 |
 | PostgreSQL | tested with 16 |
 | SQLite | version 3 files |
 | ClickHouse | tested with 26.9, over the HTTP interface |

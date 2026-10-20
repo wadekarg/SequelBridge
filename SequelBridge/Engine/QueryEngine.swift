@@ -620,10 +620,14 @@ final class QueryEngine {
     /// the attached file itself, which also means only DuckDB-parseable SQL works.
     func sqliteExecute(alias: String, sql: String) async throws {
         try ensureWritable(alias)
+        let start = Date()
         do {
             try await userSerial.execute(sql)
+            logStatement(sql, nil, nil, Date().timeIntervalSince(start))
         } catch {
-            throw SequelBridgeError.attachFailed(Self.extractReason(from: error))
+            let reason = Self.extractReason(from: error)
+            logStatement(sql, nil, reason, Date().timeIntervalSince(start))
+            throw SequelBridgeError.attachFailed(reason)
         }
     }
 
@@ -636,10 +640,10 @@ final class QueryEngine {
         let start = Date()
         do {
             try await userSerial.execute(call)
-            onStatement?(sql, nil, nil, Date().timeIntervalSince(start))
+            logStatement(sql, nil, nil, Date().timeIntervalSince(start))
         } catch {
             let reason = Self.extractReason(from: error)
-            onStatement?(sql, nil, reason, Date().timeIntervalSince(start))
+            logStatement(sql, nil, reason, Date().timeIntervalSince(start))
             throw SequelBridgeError.attachFailed(reason)
         }
     }
@@ -662,21 +666,23 @@ final class QueryEngine {
         let start = Date()
         let ownTransaction = !queryTabTransaction
         do {
-            if ownTransaction { try await userSerial.execute("BEGIN TRANSACTION") }
+            // The transaction and the count are the app's own statements: the Console shows them as such.
+            if ownTransaction { try await userSerial.execute("BEGIN TRANSACTION"); logStatement("BEGIN TRANSACTION", nil, nil, 0, appsOwn: true) }
             try await userSerial.execute("CALL mysql_execute(\(SQLBuilder.literal(alias)), \(SQLBuilder.literal(sql)))")
             let counted = try await userSerial.query("SELECT * FROM mysql_query(\(SQLBuilder.literal(alias)), 'SELECT ROW_COUNT()')")
-            if ownTransaction { try await userSerial.execute("COMMIT") }
+            logStatement("SELECT ROW_COUNT()", 1, nil, 0, appsOwn: true)
+            if ownTransaction { try await userSerial.execute("COMMIT"); logStatement("COMMIT", nil, nil, 0, appsOwn: true) }
             // The scanner caches the server's catalog: a table made a moment ago would be
             // invisible to the next DuckDB-level statement.
             try? await userSerial.execute("CALL mysql_clear_cache()")
             let rows = counted.rowCount > 0 ? Self.extractColumn(counted, colIndex: 0, rowRange: 0..<1).first ?? nil : nil
             let changed = rows.flatMap { Int($0) }.flatMap { $0 >= 0 ? $0 : nil }
-            onStatement?(sql, changed, nil, Date().timeIntervalSince(start))
+            logStatement(sql, changed, nil, Date().timeIntervalSince(start))
             return changed
         } catch {
-            if ownTransaction { try? await userSerial.execute("ROLLBACK") }
+            if ownTransaction { try? await userSerial.execute("ROLLBACK"); logStatement("ROLLBACK", nil, nil, 0, appsOwn: true) }
             let reason = Self.extractReason(from: error)
-            onStatement?(sql, nil, reason, Date().timeIntervalSince(start))
+            logStatement(sql, nil, reason, Date().timeIntervalSince(start))
             throw SequelBridgeError.attachFailed(reason)
         }
     }
@@ -706,10 +712,10 @@ final class QueryEngine {
             // a moment ago is invisible to the very next DuckDB-level statement.
             // Observed on TiDB, cheap everywhere.
             try? await userSerial.execute("CALL mysql_clear_cache()")
-            onStatement?(sql, nil, nil, Date().timeIntervalSince(start))
+            logStatement(sql, nil, nil, Date().timeIntervalSince(start))
         } catch {
             let reason = Self.extractReason(from: error)
-            onStatement?(sql, nil, reason, Date().timeIntervalSince(start))
+            logStatement(sql, nil, reason, Date().timeIntervalSince(start))
             throw SequelBridgeError.attachFailed(reason)
         }
     }
@@ -893,6 +899,18 @@ final class QueryEngine {
     /// points this at the console. Metadata lookups stay silent; logging every
     /// SHOW behind a panel refresh would bury the statements the user actually ran.
     var onStatement: ((String, Int?, String?, TimeInterval) -> Void)?
+    /// The Console's hook for the statements the app builds or reads on its own: an edit,
+    /// a page of rows, the tables and columns it lists. `onStatement` gets the ones typed
+    /// in the Query tab (StatementSource.typedByYou); without this hook it gets them all.
+    var onAppStatement: ((String, Int?, String?, TimeInterval) -> Void)?
+
+    /// Sends a statement to the Console, as yours inside a Query-tab run, else as the
+    /// app's; `appsOwn` marks the app's own reads even during one of your runs.
+    func logStatement(_ sql: String, _ rows: Int?, _ error: String?, _ duration: TimeInterval,
+                      typed: Bool = StatementSource.typedByYou, appsOwn: Bool = false) {
+        if typed && !appsOwn { onStatement?(sql, rows, error, duration) }
+        else { (onAppStatement ?? onStatement)?(sql, rows, error, duration) }
+    }
 
     /// Runs a query and returns the COMPLETE result. Extraction happens on the DB
     /// actor (off the main thread), in chunks. Used by internal callers and paged
@@ -910,7 +928,7 @@ final class QueryEngine {
             head = try await s.openStream(sql)
         } catch {
             noteTransaction(sql, lane: lane, succeeded: false)
-            onStatement?(logged, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
+            logStatement(logged, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
             throw error
         }
         noteTransaction(sql, lane: lane, succeeded: true)
@@ -922,14 +940,14 @@ final class QueryEngine {
             }
         } catch {
             await s.closeStream(head.id)   // release the cursor on cancel/error
-            onStatement?(logged, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
+            logStatement(logged, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
             throw error
         }
         var result = QueryResult(columns: head.columns, cells: cells,
                                  executionTime: Date().timeIntervalSince(start))
         result.columnTypes = head.types.map { Self.duckDBTypeName($0) }
         result.totalRowCount = cells.rowCount
-        onStatement?(logged, cells.rowCount, nil, result.executionTime)
+        logStatement(logged, cells.rowCount, nil, result.executionTime)
         return result
     }
 
@@ -942,11 +960,11 @@ final class QueryEngine {
     struct QueryStream: Sendable { let id: Int; let lane: Lane; let hasMore: Bool }
 
     /// Streams still being pulled, for the console entry written when they finish.
-    private var openStreams: [Int: (logged: String, start: Foundation.Date)] = [:]
+    private var openStreams: [Int: (logged: String, start: Foundation.Date, typed: Bool)] = [:]
 
     private func finishStream(_ id: Int, rows: Int?, error: String? = nil) {
         guard let entry = openStreams.removeValue(forKey: id) else { return }
-        onStatement?(entry.logged, rows, error, Foundation.Date().timeIntervalSince(entry.start))
+        logStatement(entry.logged, rows, error, Foundation.Date().timeIntervalSince(entry.start), typed: entry.typed)
     }
 
     /// Runs the query and returns the FIRST chunk immediately (instant paint) plus a
@@ -971,7 +989,7 @@ final class QueryEngine {
             }
         } catch {
             noteTransaction(sql, lane: lane, succeeded: false)
-            onStatement?(logged, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
+            logStatement(logged, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
             throw error
         }
         noteTransaction(sql, lane: lane, succeeded: true)
@@ -982,9 +1000,9 @@ final class QueryEngine {
         result.totalRowCount = result.rowCount
         let hasMore = first?.hasMore ?? false
         if hasMore {
-            openStreams[head.id] = (logged, start)
+            openStreams[head.id] = (logged, start, StatementSource.typedByYou)
         } else {
-            onStatement?(logged, result.rowCount, nil, result.executionTime)
+            logStatement(logged, result.rowCount, nil, result.executionTime)
         }
         return (result, QueryStream(id: head.id, lane: lane, hasMore: hasMore))
     }
@@ -1336,7 +1354,11 @@ final class QueryEngine {
 
     private func metaQuery(_ sql: String) async throws -> QueryResult {
         let start = Date()
-        let resultSet = try await metaSerial.query(sql)
+        let resultSet: ResultSet
+        do { resultSet = try await metaSerial.query(sql) } catch {
+            logStatement(sql, nil, Self.extractReason(from: error), Date().timeIntervalSince(start), appsOwn: true)
+            throw error
+        }
         let colCount = Int(resultSet.columnCount)
         let rowCount = Int(resultSet.rowCount)
         let columns = (0..<colCount).map { resultSet.columnName(at: DBInt($0)) }
@@ -1347,6 +1369,7 @@ final class QueryEngine {
         var result = QueryResult(columns: columns, cells: CellTable(chunk: .init(columns: colData, rowCount: rowCount)),
                                  executionTime: Date().timeIntervalSince(start))
         result.columnTypes = (0..<colCount).map { Self.duckDBTypeName(resultSet[DBInt($0)].underlyingDatabaseType) }
+        logStatement(sql, rowCount, nil, result.executionTime, appsOwn: true)
         return result
     }
 
@@ -1354,7 +1377,11 @@ final class QueryEngine {
     /// stats query never blocks the fast duckdb_columns/duckdb_constraints structure load.
     private func sidebarQuery(_ sql: String) async throws -> QueryResult {
         let start = Date()
-        let resultSet = try await sidebarSerial.query(sql)
+        let resultSet: ResultSet
+        do { resultSet = try await sidebarSerial.query(sql) } catch {
+            logStatement(sql, nil, Self.extractReason(from: error), Date().timeIntervalSince(start), appsOwn: true)
+            throw error
+        }
         let colCount = Int(resultSet.columnCount)
         let rowCount = Int(resultSet.rowCount)
         let columns = (0..<colCount).map { resultSet.columnName(at: DBInt($0)) }
@@ -1363,6 +1390,7 @@ final class QueryEngine {
         var result = QueryResult(columns: columns, cells: CellTable(chunk: .init(columns: colData, rowCount: rowCount)),
                                  executionTime: Date().timeIntervalSince(start))
         result.columnTypes = (0..<colCount).map { Self.duckDBTypeName(resultSet[DBInt($0)].underlyingDatabaseType) }
+        logStatement(sql, rowCount, nil, result.executionTime, appsOwn: true)
         return result
     }
 
@@ -1737,10 +1765,10 @@ final class QueryEngine {
                                      executionTime: Date().timeIntervalSince(start))
             result.nullMask = rows.map { $0.map { $0 == nil } }
             result.totalRowCount = rows.count
-            onStatement?(logSQL ?? sql, rows.count, nil, result.executionTime)
+            logStatement(logSQL ?? sql, rows.count, nil, result.executionTime)
             return result
         } catch {
-            onStatement?(logSQL ?? sql, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
+            logStatement(logSQL ?? sql, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
             throw error
         }
     }

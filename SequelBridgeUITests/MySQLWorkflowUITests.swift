@@ -361,6 +361,23 @@ final class MySQLWorkflowUITests: XCTestCase {
         app.buttons["OK"].click()
     }
 
+    // The README promises the Console shows every statement the app runs; its own reads
+    // (the columns Structure lists) were never logged.
+    func testConsoleShowsTheAppsOwnReadsMarkedAndYoursAlone() {
+        run("SELECT 'yours-probe' AS v")
+        XCTAssertTrue(text(containing: "yours-probe").waitForExistence(timeout: 30))
+        table("orders").click()
+        app.typeKey("1", modifierFlags: .command)
+        XCTAssertTrue(element("structure.addColumn").waitForExistence(timeout: 15))
+        app.typeKey("9", modifierFlags: .command)
+        XCTAssertTrue(text(containing: "SHOW FULL COLUMNS FROM `sbtest`.`orders`").waitForExistence(timeout: 15),
+                      "Structure's read of the columns isn't in the Console")
+        XCTAssertTrue(app.staticTexts["by the app"].exists, "the app's read isn't marked as the app's")
+        app.radioButtons["Yours"].click()
+        XCTAssertTrue(waitForGone(text(containing: "SHOW FULL COLUMNS")), "Yours still lists the app's reads")
+        XCTAssertTrue(text(containing: "yours-probe").exists, "Yours dropped your own statement")
+    }
+
     func testJumpToAPageAndChangeTheRowsPerPage() {
         pick(database: "sbwrite")
         // Rows 1001–1300; a page starts with the id of its first row.

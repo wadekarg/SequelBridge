@@ -79,6 +79,9 @@ class WorkspaceSession: ObservableObject {
         let rowsAffected: Int?
         let error: String?
         let duration: TimeInterval
+        /// True for a statement the app built or ran on its own; nil (older history) or
+        /// false for one you typed in the Query tab.
+        var byApp: Bool? = nil
     }
 
     /// Statement history persists across launches; the console shows it.
@@ -134,10 +137,11 @@ class WorkspaceSession: ObservableObject {
         }
     }
 
-    func appendConsole(sql: String, rowsAffected: Int?, error: String?, duration: TimeInterval) {
+    func appendConsole(sql: String, rowsAffected: Int?, error: String?, duration: TimeInterval, byApp: Bool = false) {
         let entry = ConsoleEntry(
             timestamp: Date(), sql: sql,
-            rowsAffected: rowsAffected, error: error, duration: duration
+            rowsAffected: rowsAffected, error: error, duration: duration,
+            byApp: byApp ? true : nil
         )
         consoleLog.append(entry)
         // Cap the in-memory log the same way HistoryStore caps the on-disk one, so a

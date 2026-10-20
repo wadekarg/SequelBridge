@@ -5,6 +5,17 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 ## 1.2.2 — 2026-10-19
 
 ### Fixed
+- On MySQL 8.0 and 8.4, saving a change in Structure to a column whose default is
+  `CURRENT_TIMESTAMP` (a `created_at` column) failed with a syntax error: MySQL 8 reports
+  such a column's Extra as `DEFAULT_GENERATED`, which was copied into the `ALTER`. A
+  generated column (VIRTUAL or STORED) can't be edited there any more, since its
+  expression isn't shown and would be lost; and a text default ending in a bracket, such
+  as `n/a (none)`, stays text. Found by testing against MariaDB 11.4 and MySQL 8.0, now
+  part of every test run beside MariaDB 10.0 and MySQL 8.4.
+- The Console didn't show the app's own reads (the tables, columns and keys behind the
+  panels), though the README promised every statement. They're there now, marked as the
+  app's, with All and Yours to show only what you ran; the Recent menu lists only what
+  you typed.
 - On MySQL, a Query-tab statement that returns no rows runs on the server as typed, as
   in Sequel Ace, and says how many rows it changed. DuckDB used to read it first: it
   refused MySQL's own syntax (`AUTO_INCREMENT`, `UNSIGNED`, `TINYINT(1)`, backticks,

@@ -560,7 +560,12 @@ struct QueryPanelView: View {
     /// in Sequel Ace (a server prepares one statement at a time): each takes its own path,
     /// the first that fails stops the run and says which it was, and the last one's result
     /// stays on screen. `statement` runs that one statement instead of the editor's text.
+    /// A run of what you typed: the Console marks its statements as yours.
     private func runQuery(tabIndex: Int, statement: String? = nil) async {
+        await StatementSource.$typedByYou.withValue(true) { await runTypedQuery(tabIndex: tabIndex, statement: statement) }
+    }
+
+    private func runTypedQuery(tabIndex: Int, statement: String?) async {
         guard tabIndex < session.tabs.count else { return }
         // Address the tab by its stable id, not its position: a tab closed mid-query
         // shifts every later index, so using tabIndex across an await would write the
@@ -1077,6 +1082,10 @@ struct QueryPanelView: View {
 
     /// A lone `USE db`: the same switch as picking `db` at the top of the left panel.
     private func runUse(_ sql: String, database db: String, on conn: Connection, tabID: UUID) async {
+        await StatementSource.$typedByYou.withValue(true) { await runTypedUse(sql, database: db, on: conn, tabID: tabID) }
+    }
+
+    private func runTypedUse(_ sql: String, database db: String, on conn: Connection, tabID: UUID) async {
         func setTab(_ body: (inout QueryTab) -> Void) {
             guard let i = session.tabs.firstIndex(where: { $0.id == tabID }) else { return }
             body(&session.tabs[i])
@@ -1109,6 +1118,10 @@ struct QueryPanelView: View {
     /// and shows the plan grid in the results panel. `sql` overrides the editor's
     /// text (a typed `EXPLAIN …` passes the statement after the keyword).
     private func explainQuery(tabIndex: Int, sql override: String? = nil) async {
+        await StatementSource.$typedByYou.withValue(true) { await explainTypedQuery(tabIndex: tabIndex, sql: override) }
+    }
+
+    private func explainTypedQuery(tabIndex: Int, sql override: String?) async {
         guard tabIndex < session.tabs.count else { return }
         let tabID = session.tabs[tabIndex].id
         func setTab(_ body: (inout QueryTab) -> Void) {

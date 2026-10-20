@@ -28,7 +28,7 @@ enum ConsoleExporter {
     static func recent(_ entries: [WorkspaceSession.ConsoleEntry], limit: Int = 10) -> [String] {
         var seen = Set<String>()
         var out: [String] = []
-        for entry in entries.reversed() {
+        for entry in entries.reversed() where entry.byApp != true {   // what you typed, not what the app ran
             let sql = entry.sql.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !sql.isEmpty, !seen.contains(sql) else { continue }
             seen.insert(sql)

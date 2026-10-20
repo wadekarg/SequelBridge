@@ -6,6 +6,13 @@ import UniformTypeIdentifiers
 struct ConsolePanelView: View {
     @ObservedObject var session: WorkspaceSession
     @State private var copiedId: UUID? = nil
+    /// Only the statements you typed, without the ones the app runs for you.
+    @State private var yoursOnly = false
+
+    private var shown: [WorkspaceSession.ConsoleEntry] {
+        let all = session.consoleLog.reversed()
+        return yoursOnly ? all.filter { $0.byApp != true } : Array(all)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -13,6 +20,17 @@ struct ConsolePanelView: View {
                 Label("Console", systemImage: "terminal")
                     .font(.headline)
                 Spacer()
+                // Every statement is here: yours, and the ones the app runs for you (an edit,
+                // a page of rows, the tables and columns it lists).
+                Picker("Show", selection: $yoursOnly) {
+                    Text("All").tag(false)
+                    Text("Yours").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .help("All: every statement, the app's own included. Yours: what you ran in the Query tab.")
+                .accessibilityIdentifier("console.show")
                 Button("Export…") { exportConsole() }
                     .font(.caption)
                     .buttonStyle(.plain)
@@ -37,7 +55,7 @@ struct ConsolePanelView: View {
                     Image(systemName: "terminal")
                         .font(.system(size: 32))
                         .foregroundColor(.secondary.opacity(0.3))
-                    Text("Queries you run will appear here")
+                    Text("Every statement appears here: yours, and the ones the app runs for you")
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -46,11 +64,16 @@ struct ConsolePanelView: View {
                     // Newest first: the most recent query sits at the top, so it's always
                     // visible without scrolling. Only the DISPLAY is reversed — consoleLog
                     // stays chronological so an exported .sql runs in execution order.
-                    List(Array(session.consoleLog.reversed())) { entry in
+                    List(shown) { entry in
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 8) {
                                 Text(entry.timestamp.formatted(date: .omitted, time: .standard))
                                     .font(.caption2).monospacedDigit().foregroundColor(.secondary)
+                                if entry.byApp == true {
+                                    Text("by the app").font(.caption2).foregroundColor(.secondary)
+                                        .padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                                }
                                 Spacer()
                                 if entry.error != nil {
                                     Text("ERROR").font(.caption2.bold()).foregroundColor(.red)
@@ -72,6 +95,7 @@ struct ConsolePanelView: View {
                             }
                             Text(entry.sql)
                                 .font(Theme.mono(11))
+                                .foregroundColor(entry.byApp == true ? .secondary : .primary)
                                 .lineLimit(3)
                                 .textSelection(.enabled)
                             if let err = entry.error {

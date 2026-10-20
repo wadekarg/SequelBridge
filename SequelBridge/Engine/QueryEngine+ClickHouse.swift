@@ -53,11 +53,11 @@ extension QueryEngine {
         let start = Date()
         do {
             let r = try await client.query(sql)
-            onStatement?(sql, r.totalRowCount, nil, Date().timeIntervalSince(start))
+            logStatement(sql, r.totalRowCount, nil, Date().timeIntervalSince(start))
             return r
         } catch {
             let reason = Self.extractReason(from: error)
-            onStatement?(sql, nil, reason, Date().timeIntervalSince(start))
+            logStatement(sql, nil, reason, Date().timeIntervalSince(start))
             throw error
         }
     }
@@ -260,9 +260,9 @@ extension QueryEngine {
         let start = Date()
         do {
             try await client.execute(sql)
-            onStatement?(sql, nil, nil, Date().timeIntervalSince(start))
+            logStatement(sql, nil, nil, Date().timeIntervalSince(start))
         } catch {
-            onStatement?(sql, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
+            logStatement(sql, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
             throw error
         }
     }
