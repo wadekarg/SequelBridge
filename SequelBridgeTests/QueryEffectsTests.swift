@@ -103,6 +103,19 @@ struct AsTypedRoutingTests {
         }
     }
 
+    @Test("on PostgreSQL too, but SET and RESET stay DuckDB's: on the server they'd change a connection the app reuses")
+    func postgres() {
+        #expect(QueryEffects.runsAsTyped("CREATE TABLE t (id SERIAL PRIMARY KEY, note VARCHAR(40))", engine: .postgres))
+        #expect(QueryEffects.runsAsTyped("COMMENT ON COLUMN t.note IS 'n'", engine: .postgres))
+        #expect(QueryEffects.runsAsTyped("UPDATE t SET half = qty / 2", engine: .postgres))
+        #expect(!QueryEffects.runsAsTyped("SET search_path TO other", engine: .postgres))
+        #expect(!QueryEffects.runsAsTyped("reset all", engine: .postgres))
+        #expect(!QueryEffects.runsAsTyped("BEGIN", engine: .postgres))
+        #expect(!QueryEffects.runsAsTyped("SELECT 1", engine: .postgres))
+        #expect(QueryEffects.runsAsTyped("SET @x = 1", engine: .mysql), "MySQL's SET stays as typed")
+        #expect(!QueryEffects.runsAsTyped("CREATE TABLE t (id INT)", engine: .sqlite), "SQLite files are DuckDB's own")
+    }
+
     @Test("which statements begin and end a transaction in the Query tab")
     func transactionChange() {
         for sql in ["BEGIN", "begin work", "START TRANSACTION", "BEGIN TRANSACTION"] { #expect(QueryEffects.transactionChange(sql) == true, "\(sql)") }

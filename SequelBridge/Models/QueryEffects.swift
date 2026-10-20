@@ -45,9 +45,13 @@ nonisolated enum QueryEffects {
     /// changed what it accepted (a VARCHAR(40) column became TEXT). Reads already go to
     /// the server, `USE` has a path of its own, and transaction control stays DuckDB's,
     /// whose transaction keeps one server connection for the statements in it.
-    static func runsAsTyped(_ sql: String) -> Bool {
-        guard let statement = statements(sql).first else { return false }
+    /// On PostgreSQL likewise (DuckDB dropped a VARCHAR's length and divided integers
+    /// as floats), except SET and RESET: on the server they'd change the session of a
+    /// connection the app goes on to reuse, so they stay DuckDB's as before.
+    static func runsAsTyped(_ sql: String, engine: DatabaseEngine = .mysql) -> Bool {
+        guard engine == .mysql || engine == .postgres, let statement = statements(sql).first else { return false }
         if SQLBuilder.isRowReturning(statement) || soleUse(statement) != nil { return false }
+        if engine == .postgres, matches(sessionSetting, statement) { return false }
         return !matches(transactionControl, statement)
     }
 
@@ -124,6 +128,7 @@ nonisolated enum QueryEffects {
     private static let dropDatabase = regex("^DROP\\s+(?:DATABASE|SCHEMA)\(gap)(?:IF\\s+EXISTS\(gap))?\(name)\\s*$")
     private static let databaseDDL = regex("^(?:CREATE|DROP)\\s+(?:DATABASE|SCHEMA)\\b")
     private static let transactionControl = regex("^(?:BEGIN|START\\s+TRANSACTION|COMMIT|ROLLBACK|END)\\b")
+    private static let sessionSetting = regex("^(?:SET|RESET)\\b")
     private static let lockTables = regex("^(?:UN)?LOCK\\s+TABLES?\\b")
     private static let autocommit = regex("^SET\\s+(?:(?:SESSION|LOCAL|GLOBAL)\\s+|@@(?:SESSION\\.|LOCAL\\.|GLOBAL\\.)?)?autocommit\\b")
 

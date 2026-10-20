@@ -14,6 +14,12 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   Query tab, these statements wait for its `COMMIT` or `ROLLBACK`. `LOCK TABLES` and
   `SET autocommit` are refused, saying why: SequelBridge's statements don't share one
   server connection, so they would stay on a connection the app reuses.
+- On PostgreSQL likewise: DuckDB refused `SERIAL`, `RETURNING`, `to_char`, `ALTER
+  COLUMN … TYPE`, `COMMENT ON`, `GRANT`, `CREATE FUNCTION`, `DO` and `VACUUM`, dropped
+  a `VARCHAR(40)` column's length, and divides integers as floats (`5 / 2` is 2.5 in
+  DuckDB, 2 in PostgreSQL). Such statements run on the server as typed now; PostgreSQL
+  reports no row count this way, so the run says Done. `SET` and `RESET` stay as they
+  were.
 - Keyboard shortcuts could act on the wrong table or connection: a button's shortcut
   kept the action from when it was first drawn. ⌘R in the Structure tab reloaded the
   first table opened there, under the name of the table on screen; ⇧⌘R and ⌃⌘R

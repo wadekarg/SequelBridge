@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 676 tests in 129 suites (about three minutes of tests after the build).
+at them, and runs all 679 tests in 130 suites (about three minutes of tests after the build).
 Then every MySQL suite runs a second time with its server pointed at MySQL 8.4.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
 benchmark (`--bench`), and `QueryCancelTests.interruptStopsServerStatement`, the spec
@@ -68,7 +68,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-676 tests across 101 files.
+679 tests across 102 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 

@@ -642,8 +642,8 @@ struct QueryPanelView: View {
         let sql: String
 
         var clickhouseAlias: String? = nil
-        // A MySQL statement that returns no rows runs on its server as typed (Sequel Ace's
-        // way): DuckDB refused MySQL's own syntax and changed what it accepted.
+        // A MySQL or PostgreSQL statement that returns no rows runs on its server as typed
+        // (Sequel Ace's way): DuckDB refused their own syntax and changed what it accepted.
         var asTyped: (alias: String, serverSQL: String)? = nil
         // Fast path: a read that targets ONE MySQL/Postgres server is pushed to that
         // server via the passthrough (server applies LIMIT/WHERE/indexes) instead of
@@ -680,7 +680,8 @@ struct QueryPanelView: View {
                     clickhouseAlias = conn.alias
                 } else if let pt = passthroughIfEligible(conn) {
                     passthrough = pt
-                } else if conn.engine == .mysql, QueryEffects.runsAsTyped(baseSQL) {
+                } else if conn.engine == .mysql || conn.engine == .postgres,
+                          QueryEffects.runsAsTyped(baseSQL, engine: conn.engine) {
                     asTyped = (conn.alias, SQLBuilder.stripAliasPrefix(baseSQL, alias: conn.alias))
                 } else {
                     // Writes/DDL and non-default databases: the scanner path resolves

@@ -653,6 +653,12 @@ final class QueryEngine {
         // (A nested BEGIN can't probe for the Query tab's transaction: in DuckDB a failed
         // statement aborts the transaction it ran in.)
         try ensureWritable(alias)
+        if engine(for: alias) == .postgres {
+            // postgres_execute reports no row count, and a counting data-modifying CTE
+            // can't go through postgres_query either: it wraps the query in COPY.
+            try await postgresExecute(alias: alias, sql: sql)
+            return nil
+        }
         let start = Date()
         let ownTransaction = !queryTabTransaction
         do {
