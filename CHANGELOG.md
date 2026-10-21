@@ -13,6 +13,8 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   the file. Nothing is sent to a server whose key changed.
 - The SSH form said only a key could log in and that a blank SSH Key meant
   `~/.ssh/id_rsa`. With it blank, ssh uses your usual keys and ssh-agent, or a password.
+- Home cut the reason a connection failed to the narrow space beside Connect ("…wasn't
+  trusted, so Seque…"). It has a row of its own above the button now, in full.
 - On MySQL, editing a cell, adding or deleting a row in Content, or editing a query
   result went through DuckDB, which first read the column list of every table in the
   database: on a database of thousands of tables the edit seemed to hang (16 s for

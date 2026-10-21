@@ -85,6 +85,14 @@ final class SSHHostKeyUITests: XCTestCase {
         return nil
     }
 
+    /// Home's reason for a failed connect has a row of its own above Connect: beside the
+    /// button it had a narrow column and was cut off ("…wasn't trusted, so Seque…").
+    private func assertMessageAboveConnect(file: StaticString = #filePath, line: UInt = #line) {
+        let message = element("home.connectError"), connect = app.buttons["home.connect"]
+        XCTAssertLessThanOrEqual(message.frame.maxY, connect.frame.minY, "the message shares Connect's row",
+                                 file: file, line: line)
+    }
+
     private func connectFromHome() {
         app.buttons["home.select.\(alias)"].click()
         app.buttons["home.connect"].click()
@@ -99,6 +107,7 @@ final class SSHHostKeyUITests: XCTestCase {
         XCTAssertTrue(text(containing: "SHA256:").exists, "the question didn't show the key's fingerprint")
         cancel.click()
         XCTAssertTrue(text(containing: "wasn't trusted").waitForExistence(timeout: 30), "declining didn't say why it stopped")
+        assertMessageAboveConnect()
         XCTAssertEqual(remembered, "", "a server not trusted was remembered")
 
         app.buttons["home.connect"].click()
@@ -113,6 +122,7 @@ final class SSHHostKeyUITests: XCTestCase {
         let forget = app.buttons["home.forgetHostKey"]
         XCTAssertTrue(forget.waitForExistence(timeout: 60), "no way offered past the changed key")
         XCTAssertTrue(text(containing: "SSH key has changed").exists, "the changed key wasn't said plainly")
+        assertMessageAboveConnect()
 
         forget.click()
         XCTAssertTrue(text(containing: "Forget the old key for").waitForExistence(timeout: 10), "forgetting didn't ask first")

@@ -239,42 +239,44 @@ struct HomeView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
+            // Why the last connect failed, in full on a row of its own: beside Connect the
+            // panel left it a narrow column, and it was cut off.
             if let err = connectError {
-                VStack(alignment: .leading, spacing: 6) {
-                    // A changed server key is said in full: it is what to check before going on.
-                    Label(err, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundColor(.red)
-                        .font(.caption)
-                        .lineLimit(keyChange == nil ? 2 : 6)
-                        .help(err)
-                        .accessibilityIdentifier("home.connectError")
-                    if let change = keyChange {
-                        Button("Forget the Old Key and Connect…") { Task { await forgetAndConnect(change) } }
-                            .controlSize(.small)
-                            .accessibilityIdentifier("home.forgetHostKey")
-                    }
+                Label(err, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundColor(.red)
+                    .font(.caption)
+                    .lineLimit(10)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(err)
+                    .accessibilityIdentifier("home.connectError")
+                if let change = keyChange {
+                    Button("Forget the Old Key and Connect…") { Task { await forgetAndConnect(change) } }
+                        .controlSize(.small)
+                        .accessibilityIdentifier("home.forgetHostKey")
                 }
             }
-            Spacer()
-            Text(selectedIds.isEmpty ? "" : "\(selectedIds.count) selected")
-                .font(.caption).foregroundColor(.secondary)
-            Button {
-                Task { await connect() }
-            } label: {
-                if isConnecting {
-                    HStack(spacing: 6) {
-                        ProgressView().scaleEffect(0.7)
-                        Text("Connecting…")
+            HStack(spacing: 12) {
+                Spacer()
+                Text(selectedIds.isEmpty ? "" : "\(selectedIds.count) selected")
+                    .font(.caption).foregroundColor(.secondary)
+                Button {
+                    Task { await connect() }
+                } label: {
+                    if isConnecting {
+                        HStack(spacing: 6) {
+                            ProgressView().scaleEffect(0.7)
+                            Text("Connecting…")
+                        }
+                    } else {
+                        Text("Connect" + (selectedIds.isEmpty ? "" : " (\(selectedIds.count))"))
                     }
-                } else {
-                    Text("Connect" + (selectedIds.isEmpty ? "" : " (\(selectedIds.count))"))
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(selectedIds.isEmpty || isConnecting)
+                .accessibilityIdentifier("home.connect")
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(selectedIds.isEmpty || isConnecting)
-            .accessibilityIdentifier("home.connect")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
