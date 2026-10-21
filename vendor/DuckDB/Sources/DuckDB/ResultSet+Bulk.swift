@@ -161,6 +161,11 @@ private extension duckdb_string {
 }
 
 public extension ResultSet {
+  /// The digits a DECIMAL column keeps after the point; nil for any other type.
+  func decimalScale(at index: DBInt) -> Int? {
+    self[index].underlyingLogicalType.decimalProperties.map { Int($0.scale) }
+  }
+
   func bulk(_ type: String.Type,    column: DBInt, rows: Range<DBInt>) -> [String?]    { stringCells(column: column, rows: rows) }
   func bulk(_ type: Bool.Type,      column: DBInt, rows: Range<DBInt>) -> [Bool?]      { primitiveCells(Bool.self,   column: column, rows: rows) }
   func bulk(_ type: Int8.Type,      column: DBInt, rows: Range<DBInt>) -> [Int8?]      { primitiveCells(Int8.self,   column: column, rows: rows) }

@@ -59,6 +59,25 @@ final class PostgresClient {
         return result
     }
 
+    /// Runs `statements` one after another on one connection, each as a query of its own
+    /// (one message with several runs them as one transaction, where VACUUM, CREATE INDEX
+    /// CONCURRENTLY and CREATE DATABASE can't run), and returns the last one's result. A
+    /// failure stops there and says which statement it was when there are several.
+    func run(_ statements: [String]) async throws -> (columns: [String], rows: [[String?]]) {
+        let link = try await open()
+        defer { link.close() }
+        try await startup(link)
+        var last: (columns: [String], rows: [[String?]]) = ([], [])
+        for (n, sql) in statements.enumerated() {
+            do { last = try await simpleQuery(link, sql) }
+            catch where statements.count > 1 {
+                throw PostgresClientError.server("Statement \(n + 1) of \(statements.count): \(error.localizedDescription)")
+            }
+        }
+        try? await link.send(Self.message("X", Data()))
+        return last
+    }
+
     // MARK: - Connection
 
     private func open() async throws -> WireLink {

@@ -33,6 +33,11 @@ public final class ResultChunk {
   public func columnDataType(at index: DBInt) -> DatabaseType {
     chunk.withVector(at: index) { $0.logicalType.underlyingDataType }
   }
+
+  /// The digits a DECIMAL column keeps after the point; nil for any other type.
+  public func decimalScale(at index: DBInt) -> Int? {
+    chunk.withVector(at: index) { $0.logicalType.decimalProperties.map { Int($0.scale) } }
+  }
 }
 
 extension ResultChunk: ChunkWalker {

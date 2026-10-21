@@ -291,7 +291,7 @@ run_tests() {
 MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests ContentBrowseTests ServerToolsTests QueryTabAsTypedTests SSLConnectionTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests ReadOnlyMySQLTests MySQLNativeStatementTests MySQLScannerCacheTests MySQLRowWriteTests
               RealSchemaTests MultiServerTests DestructiveDDLVerifyTests QueryResultEditTests PostgresTests
               ClickHouseBridgeTests CrossEngineJoinTests CrossJoinReductionTests FallbackMaterializeDBTests
-              QueryCancelTests PushdownDBTests)
+              QueryCancelTests PushdownDBTests MySQLCorpusTests)
 run_mysql_pass() { # label port log-name
   local xcflags=(-scheme SequelBridge -configuration "$CONFIG" -destination "$DESTINATION" -parallel-testing-enabled NO)
   local s; for s in "${MYSQL_SUITES[@]}"; do xcflags+=(-only-testing:"SequelBridgeTests/$s"); done
@@ -301,6 +301,7 @@ run_mysql_pass() { # label port log-name
     export TEST_RUNNER_SB_XJOIN_PORT=$2  TEST_RUNNER_SB_CHB_MY_PORT=$2
     export TEST_RUNNER_SB_SSL_TLS_PORT=$2      # each of these servers offers TLS
     export TEST_RUNNER_SB_MYSQL_BIG_DB=        # the 3,275-table database is MariaDB 10.0's
+    export TEST_RUNNER_SB_MYSQL_SOCKET=        # the socket relay reaches MariaDB 10.0 only
     set +e
     xcodebuild test "${xcflags[@]}" 2>&1 | tee "$ROOT/.build/run-all-tests-$3.log" | \
       grep -E "Test run with|✘|error:|\*\* TEST"

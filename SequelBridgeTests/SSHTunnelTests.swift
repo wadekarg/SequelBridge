@@ -400,6 +400,28 @@ struct SSHTunnelTests {
         }
     }
 
+    /// Picking another database on a MySQL connection re-attaches it. Over SSH that stopped
+    /// the tunnel and logged in again: a password, or a one-time code, asked at every pick.
+    @Test("switching a MySQL connection's database over SSH keeps its tunnel: ssh asks once, not at every pick",
+          .enabled(if: SSHEnv.enabled && !SSHEnv.keyPath.isEmpty))
+    func databaseSwitchKeepsTheTunnel() async throws {
+        let conn = passwordConnection(alias: "sshswitch")
+        var entry = try JSONSerialization.jsonObject(with: JSONEncoder().encode(conn)) as! [String: Any]
+        entry["password"] = SSHEnv.dbPass
+        let list = FileManager.default.temporaryDirectory.appendingPathComponent("sb-switch-\(UUID().uuidString.prefix(8)).json")
+        try JSONSerialization.data(withJSONObject: [entry]).write(to: list)
+        let manager = try ConnectionManager(arguments: ["app", "-SBConnectionsFile", list.path])
+        let asked = try await answering({ $0.kind == .password ? "sbssh123" : nil }) {
+            try await manager.connect([conn])
+            _ = try await manager.switchDatabase(alias: "sshswitch", to: "sbwrite")
+            _ = try await manager.switchDatabase(alias: "sshswitch", to: "sbtest")
+            let r = try await manager.queryEngine.query(#"SELECT COUNT(*) FROM "sshswitch"."sbtest"."customers""#)
+            #expect(r.rows.first?.first == "3")
+        }
+        #expect(asked.count == 1, "ssh logged in \(asked.count) times: \(asked.map(\.prompt))")
+        try? await manager.queryEngine.detach("sshswitch")
+    }
+
     /// A public key of the test server's own type (ED25519) that isn't the server's.
     func fakeHostKey() throws -> String {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-fake-\(UUID().uuidString.prefix(8))")

@@ -23,7 +23,7 @@ nonisolated enum QueryEffects {
         for statement in statements(sql) {
             if tableDDLVerbs.contains(firstWord(statement)) { outcome.reloadTables = true }
             if matches(databaseDDL, statement) { outcome.reloadDatabases = true }
-            if let picked = identifier(useStatement, in: statement) {
+            if let picked = identifier(useStatement, in: statement) ?? identifier(setSearchPath, in: statement) {
                 if picked != outcome.database { outcome.database = picked; outcome.reloadDatabases = true }
             } else if let dropped = identifier(dropDatabase, in: statement), let current = outcome.database,
                       dropped == current || (!caseSensitive && dropped.caseInsensitiveCompare(current) == .orderedSame) {
@@ -33,12 +33,23 @@ nonisolated enum QueryEffects {
         return outcome
     }
 
-    /// The database `sql` picks when it is a lone `USE` statement.
+    /// The database `sql` picks when it is a lone `USE` statement, or on PostgreSQL the
+    /// schema a lone `SET search_path TO x` picks.
     static func soleUse(_ sql: String) -> String? {
         let all = statements(sql)
         guard all.count == 1 else { return nil }
-        return identifier(useStatement, in: all[0])
+        return identifier(useStatement, in: all[0]) ?? identifier(setSearchPath, in: all[0])
     }
+
+    /// A lone SET or RESET: it changes only the connection that runs it, which here is
+    /// the statement's own (a script's statements share one, needsOneSession).
+    static func isSessionSetting(_ sql: String) -> Bool {
+        let all = statements(sql)
+        return all.count == 1 && matches(sessionSetting, all[0])
+    }
+
+    /// What a lone SET or RESET says it did.
+    static let settingNote = "Done. A setting lasts for the run it is in: run it together with the statements it is for (SET …; SELECT …)."
 
     /// On MySQL, whether the Query tab runs `sql` on the server as typed, as Sequel Ace
     /// does: a statement that returns no rows. DuckDB refused MySQL's own syntax and
@@ -63,11 +74,47 @@ nonisolated enum QueryEffects {
     static func runsOnNativeClient(_ sql: String, engine: DatabaseEngine) -> Bool {
         guard let statement = statements(sql).first else { return false }
         switch engine {
-        case .mysql:               return ["SHOW", "HELP", "CHECK", "CHECKSUM"].contains(firstWord(statement))
+        // CALL too: run as typed, a procedure's rows left the scanner's connection out of
+        // step ("Commands out of sync"), so it failed.
+        case .mysql:               return ["SHOW", "HELP", "CHECK", "CHECKSUM", "CALL"].contains(firstWord(statement))
         case .postgres:            return ["SHOW", "EXPLAIN"].contains(firstWord(statement))
         case .sqlite, .clickhouse: return false
         }
     }
+
+    /// Whether a script's statements must share one server connection: one sets what a
+    /// later one reads (a variable, a temporary table, a prepared statement, a setting, a
+    /// transaction, a lock, a cursor). One connection per statement lost it: SET @d =
+    /// '2026-01-01'; SELECT … WHERE placed > @d counted nothing, without an error.
+    static func needsOneSession(_ statements: [String], engine: DatabaseEngine) -> Bool {
+        // A SQLite script runs in one go, as in the sqlite3 shell: a transaction, a temporary
+        // table or a PRAGMA carries to the statements after it.
+        if engine == .sqlite { return statements.count > 1 }
+        guard statements.count > 1, engine == .mysql || engine == .postgres else { return false }
+        let sessionWords: Set<String> = ["SET", "RESET", "PREPARE", "EXECUTE", "DEALLOCATE", "BEGIN", "START", "COMMIT",
+                                         "ROLLBACK", "END", "SAVEPOINT", "RELEASE", "LOCK", "UNLOCK", "LISTEN", "UNLISTEN",
+                                         "DECLARE", "FETCH", "MOVE", "CLOSE", "DISCARD"]
+        return statements.contains { raw in
+            guard let s = Self.statements(raw).first else { return false }
+            if sessionWords.contains(firstWord(s)) || matches(temporaryTable, s) { return true }
+            guard engine == .mysql else { return false }
+            let bare = s.replacingOccurrences(of: #"'(?:''|\\.|[^'])*'"#, with: "''", options: .regularExpression)
+            return bare.range(of: #"(?<![@\w])@[A-Za-z_]"#, options: .regularExpression) != nil            // @var, not @@var
+                || bare.range(of: #"(?i)\b(LAST_INSERT_ID|FOUND_ROWS|ROW_COUNT)\s*\("#, options: .regularExpression) != nil
+        }
+    }
+
+    /// A WITH whose parts change rows (PostgreSQL's data-modifying CTE, "WITH moved AS
+    /// (DELETE … RETURNING *) SELECT …"): a write, though it starts like a read, and one
+    /// PostgreSQL refuses inside the subquery the passthrough wraps every read in.
+    static func isDataModifyingWith(_ sql: String) -> Bool {
+        guard let statement = statements(sql).first, firstWord(statement) == "WITH" else { return false }
+        let bare = statement.replacingOccurrences(of: #"'(?:''|[^'])*'"#, with: "''", options: .regularExpression)
+        return bare.range(of: #"(?i)\b(INSERT|UPDATE|DELETE|MERGE)\b"#, options: .regularExpression) != nil
+    }
+
+    /// BEGIN, START TRANSACTION, COMMIT, ROLLBACK or END.
+    static func isTransactionControl(_ sql: String) -> Bool { transactionChange(sql) != nil }
 
     /// Whether `sql` begins a transaction (true) or ends one (false); nil for any other.
     static func transactionChange(_ sql: String) -> Bool? {
@@ -144,6 +191,8 @@ nonisolated enum QueryEffects {
     private static let transactionControl = regex("^(?:BEGIN|START\\s+TRANSACTION|COMMIT|ROLLBACK|END)\\b")
     private static let sessionSetting = regex("^(?:SET|RESET)\\b")
     private static let lockTables = regex("^(?:UN)?LOCK\\s+TABLES?\\b")
+    private static let setSearchPath = regex("^SET\\s+(?:SESSION\\s+)?search_path\\s*(?:TO|=)\\s*\(name)\\s*$")
+    private static let temporaryTable = regex("^CREATE\\s+(?:GLOBAL\\s+|LOCAL\\s+)?TEMP(?:ORARY)?\\s+TABLE\\b")
     private static let autocommit = regex("^SET\\s+(?:(?:SESSION|LOCAL|GLOBAL)\\s+|@@(?:SESSION\\.|LOCAL\\.|GLOBAL\\.)?)?autocommit\\b")
 
     private static func regex(_ pattern: String) -> NSRegularExpression {

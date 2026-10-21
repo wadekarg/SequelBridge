@@ -97,6 +97,30 @@ final class MySQLClient {
         return try await comQuery(link, sql)
     }
 
+    /// Runs `statements` one after another on one connection, so a variable set, a
+    /// temporary table made or a transaction begun by one is there for the next; returns
+    /// the last one's result. A failure stops there and says which statement it was.
+    func run(_ statements: [String]) async throws -> (columns: [String], rows: [[String?]]) {
+        let link: WireLink
+        if config.useTLS && config.socketPath == nil {
+            link = TLSWireLink(host: config.host, port: config.port, timeout: Self.connectTimeout)
+        } else {
+            link = NWWireLink(try await NWWireLink.connect(host: config.host, port: config.port,
+                                                          socketPath: config.socketPath, timeout: Self.connectTimeout))
+        }
+        defer { link.close() }
+        try await handshake(link)
+        if config.readOnly { _ = try await comQuery(link, "SET SESSION TRANSACTION READ ONLY") }
+        var last: (columns: [String], rows: [[String?]]) = ([], [])
+        for (n, sql) in statements.enumerated() {
+            do { last = try await comQuery(link, sql) }
+            catch where statements.count > 1 {
+                throw MySQLClientError.connection("Statement \(n + 1) of \(statements.count): \(error.localizedDescription)")
+            }
+        }
+        return last
+    }
+
     // MARK: - Connection
 
     private static let connectTimeout: TimeInterval = 10
@@ -156,8 +180,10 @@ final class MySQLClient {
         switchedPlugin = false
 
         // Build the handshake response.
+        // MULTI_RESULTS: a CALL may return rows (MySQL refuses without it); only the
+        // first result set is read, the connection closes after it.
         var flags: UInt32 = CLIENT_PROTOCOL_41 | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH
-            | CLIENT_LONG_PASSWORD | CLIENT_TRANSACTIONS | CLIENT_LONG_FLAG
+            | CLIENT_LONG_PASSWORD | CLIENT_TRANSACTIONS | CLIENT_LONG_FLAG | CLIENT_MULTI_RESULTS
         if !config.database.isEmpty { flags |= CLIENT_CONNECT_WITH_DB }
 
         // "Use SSL": ask for TLS in plain text (the SSLRequest: the response's first 32
@@ -311,7 +337,10 @@ final class MySQLClient {
 
         let (first, _) = try await readPacket(conn)
         if first.first == 0xff { throw Self.parseError(first) }
-        if first.first == 0x00 || first.first == 0xfe { return ([], []) }  // OK: no result set
+        if first.first == 0x00 || first.first == 0xfe {                     // OK: no result set
+            if Self.moreResults(okPacket: first) { try await drainResults(conn) }
+            return ([], [])
+        }
 
         var r = ByteReader(first)
         let colCount = Int(r.lenEncInt() ?? 0)
@@ -333,7 +362,12 @@ final class MySQLClient {
             let pkt: Data
             if let p = pending { pkt = p; pending = nil } else { (pkt, _) = try await readPacket(conn) }
             if pkt.first == 0xff { throw Self.parseError(pkt) }
-            if (pkt.first == 0xfe && pkt.count < 9) { break }   // EOF → end of rows
+            if (pkt.first == 0xfe && pkt.count < 9) {           // EOF → end of rows
+                // A CALL's rows are followed by its own OK: read past it, so the next
+                // statement on this connection reads its own answer.
+                if Self.moreResults(eofPacket: pkt) { try await drainResults(conn) }
+                break
+            }
             var rr = ByteReader(pkt)
             var row: [String?] = []
             row.reserveCapacity(colCount)
@@ -341,6 +375,49 @@ final class MySQLClient {
             rows.append(row)
         }
         return (columns, rows)
+    }
+
+    /// Reads and drops the results a server sends after the first (a CALL's closing OK, a
+    /// second result set), until it says no more follow.
+    private func drainResults(_ conn: WireLink) async throws {
+        while true {
+            let (pkt, _) = try await readPacket(conn)
+            if pkt.first == 0xff { throw Self.parseError(pkt) }
+            if pkt.first == 0x00 || pkt.first == 0xfe {
+                if Self.moreResults(okPacket: pkt) { continue }
+                return
+            }
+            var r = ByteReader(pkt)
+            let colCount = Int(r.lenEncInt() ?? 0)
+            for _ in 0..<colCount { _ = try await readPacket(conn) }
+            var more = false
+            var seenColumnsEOF = false
+            while true {
+                let (row, _) = try await readPacket(conn)
+                if row.first == 0xff { throw Self.parseError(row) }
+                if row.first == 0xfe && row.count < 9 {
+                    if !seenColumnsEOF { seenColumnsEOF = true; continue }
+                    more = Self.moreResults(eofPacket: row)
+                    break
+                }
+            }
+            if !more { return }
+        }
+    }
+
+    /// SERVER_MORE_RESULTS_EXISTS in an OK packet: 0x00, affected rows and last insert id
+    /// (length-encoded), then the status flags.
+    private static func moreResults(okPacket p: Data) -> Bool {
+        var r = ByteReader(p)
+        _ = r.u8(); _ = r.lenEncInt(); _ = r.lenEncInt()
+        return r.u16() & 0x0008 != 0
+    }
+
+    /// The same flag in an EOF packet: 0xfe, two bytes of warnings, then the status flags.
+    private static func moreResults(eofPacket p: Data) -> Bool {
+        var r = ByteReader(p)
+        _ = r.u8(); _ = r.u16()
+        return r.u16() & 0x0008 != 0
     }
 
     // MARK: - Parsing helpers
@@ -377,6 +454,7 @@ private let CLIENT_TRANSACTIONS: UInt32     = 0x00002000
 private let CLIENT_SECURE_CONNECTION: UInt32 = 0x00008000
 private let CLIENT_PLUGIN_AUTH: UInt32      = 0x00080000
 private let CLIENT_SSL: UInt32              = 0x00000800
+private let CLIENT_MULTI_RESULTS: UInt32    = 0x00020000
 
 // MARK: - Little-endian append
 

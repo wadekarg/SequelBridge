@@ -42,12 +42,30 @@ final class ClickHouseClient {
 
     // MARK: - Statements
 
+    /// The result format comes from the request (`default_format`), not from text added
+    /// to the statement: appended to `INSERT … VALUES (…)` it was read as one more row
+    /// ("Cannot parse input"), and `DELETE` and a statement with its own FORMAT refused it.
+    /// A statement with its own FORMAT clause comes back as that text, a line per row.
     func query(_ sql: String) async throws -> QueryResult {
         let start = Date()
-        let text = try await post(sql + "\nFORMAT TSVWithNamesAndTypes")
-        var result = Self.parseTSVWithNamesAndTypes(text)
+        let text = try await post(sql)
+        var result: QueryResult
+        if Self.hasOwnFormat(sql) {
+            var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            if lines.last?.isEmpty == true { lines.removeLast() }
+            result = QueryResult(columns: ["result"], rows: lines.map { [$0] }, executionTime: 0)
+            result.totalRowCount = lines.count
+        } else {
+            result = Self.parseTSVWithNamesAndTypes(text)
+        }
         result.executionTime = Date().timeIntervalSince(start)
         return result
+    }
+
+    /// Whether `sql` ends with a FORMAT clause of its own ("… FORMAT JSON").
+    static func hasOwnFormat(_ sql: String) -> Bool {
+        let body = QueryEffects.statements(sql).last ?? sql
+        return body.range(of: #"(?i)\bFORMAT\s+[A-Za-z0-9_]+\s*;?\s*$"#, options: .regularExpression) != nil
     }
 
     /// DDL and anything else whose result body is irrelevant.
@@ -63,6 +81,7 @@ final class ClickHouseClient {
 
     private func post(_ body: String) async throws -> String {
         var url = baseURL
+        url.append(queryItems: [URLQueryItem(name: "default_format", value: "TSVWithNamesAndTypes")])
         if readOnly { url.append(queryItems: [URLQueryItem(name: "readonly", value: "2")]) }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

@@ -17,8 +17,11 @@ nonisolated enum SQLScript {
         let range: NSRange
     }
 
-    /// The statements of `sql`, each as written.
-    static func statements(_ sql: String) -> [String] { pieces(sql).map(\.text) }
+    /// The statements of `sql`, each as written. `engine` is the server they run on, for
+    /// what counts as a comment there; nil reads them as MySQL does.
+    static func statements(_ sql: String, engine: DatabaseEngine? = nil) -> [String] {
+        pieces(sql, engine: engine).map(\.text)
+    }
 
     /// The statement the editor's caret is in, else the one just before it, else the
     /// first one after it.
@@ -35,17 +38,22 @@ nonisolated enum SQLScript {
     /// client and Sequel Ace, makes `x` the separator until the next DELIMITER line, so
     /// a procedure body keeps its semicolons. A piece that is only whitespace and
     /// comments is dropped.
-    static func pieces(_ sql: String) -> [Piece] {
+    static func pieces(_ sql: String, engine: DatabaseEngine? = nil) -> [Piece] {
         let s = sql as NSString
         let n = s.length
         var out: [Piece] = []
         var delimiter: [unichar] = [59]   // ;
+        // "#" starts a comment on MySQL and ClickHouse; on PostgreSQL it is an operator (#>>).
+        let hashComments = engine != .postgres && engine != .sqlite
         var start = 0
         var i = 0
         var atLineStart = true
 
         func at(_ k: Int) -> unichar { s.character(at: k) }
         func isSpace(_ c: unichar) -> Bool { c == 32 || c == 9 || c == 10 || c == 13 }
+        func isWordChar(_ c: unichar) -> Bool {
+            (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95 || c == 36 || c > 127
+        }
         func endOfLine(_ k: Int) -> Int { var j = k; while j < n && at(j) != 10 { j += 1 }; return j }
         func flush(end: Int, next: Int) {
             let raw = s.substring(with: NSRange(location: start, length: end - start))
@@ -93,7 +101,19 @@ nonisolated enum SQLScript {
                 i = min(j + 1, n)
                 continue
             }
-            if c == 35 || (c == 45 && i + 1 < n && at(i + 1) == 45 && (i + 2 == n || isSpace(at(i + 2)))) {
+            // $tag$ … $tag$ (PostgreSQL's dollar quoting): a function or DO body keeps its
+            // semicolons. Not $1 (a parameter) nor the $ inside a name such as a$b.
+            if c == 36, i == 0 || !isWordChar(at(i - 1)) {
+                var j = i + 1
+                while j < n, isWordChar(at(j)), at(j) != 36 { j += 1 }
+                if j < n, at(j) == 36, j == i + 1 || !(at(i + 1) >= 48 && at(i + 1) <= 57) {
+                    let tag = s.substring(with: NSRange(location: i, length: j - i + 1))
+                    let close = s.range(of: tag, options: [], range: NSRange(location: j + 1, length: n - j - 1))
+                    i = close.location == NSNotFound ? n : NSMaxRange(close)
+                    continue
+                }
+            }
+            if (c == 35 && hashComments) || (c == 45 && i + 1 < n && at(i + 1) == 45 && (i + 2 == n || isSpace(at(i + 2)))) {
                 i = endOfLine(i)                                       // # or -- to the end of the line
                 continue
             }

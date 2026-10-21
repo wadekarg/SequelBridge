@@ -281,13 +281,47 @@ nonisolated enum SQLBuilder {
     /// passthrough (a SELECT wrapper). Writes and DDL are deliberately excluded — they
     /// need the execute() path (mysql_execute) or DuckDB's scanner DML, not a table
     /// function that must bind an output column.
+    /// `sql` with each "-- comment" turned into a /* comment */ (outside quotes, '…', "…"
+    /// and $$…$$), so the statement can sit inside brackets without the comment
+    /// swallowing what follows it.
+    static func lineCommentsAsBlocks(_ sql: String) -> String {
+        let c = Array(sql)
+        var out = ""
+        var i = 0
+        while i < c.count {
+            let ch = c[i]
+            if ch == "'" || ch == "\"" {
+                var j = i + 1
+                while j < c.count, c[j] != ch { j += 1 }
+                out.append(contentsOf: c[i...min(j, c.count - 1)]); i = j + 1; continue
+            }
+            if ch == "$", i + 1 < c.count, let end = c[(i + 1)...].firstIndex(of: "$"),
+               c[(i + 1)..<end].allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }), !(c[i + 1].isNumber) {
+                let tag = Array(c[i...end])
+                var j = end + 1
+                while j + tag.count <= c.count, Array(c[j..<(j + tag.count)]) != tag { j += 1 }
+                let stop = min(j + tag.count, c.count)
+                out.append(contentsOf: c[i..<stop]); i = stop; continue
+            }
+            if ch == "-", i + 1 < c.count, c[i + 1] == "-" {
+                var j = i + 2
+                while j < c.count, c[j] != "\n" { j += 1 }
+                let text = String(c[(i + 2)..<j]).replacingOccurrences(of: "*/", with: "* /")
+                out += "/*\(text) */"; i = j; continue
+            }
+            out.append(ch); i += 1
+        }
+        return out
+    }
+
     static func isRowReturning(_ sql: String) -> Bool {
         var s = Substring(sql)
         // Skip leading whitespace, line/block comments and opening parens so
         // "(SELECT …)", "-- note\nSELECT …" and "/* */ WITH …" all classify correctly.
         loop: while true {
             s = s.drop(while: { $0.isWhitespace || $0 == "(" })
-            if s.hasPrefix("--") {
+            // MySQL's # comment too: no statement starts with PostgreSQL's # operator.
+            if s.hasPrefix("--") || s.hasPrefix("#") {
                 if let nl = s.firstIndex(of: "\n") { s = s[s.index(after: nl)...]; continue }
                 return false
             }

@@ -275,6 +275,7 @@ struct QueryPanelView: View {
                     .controlSize(.small)
                     .tint(.red)
                     .keyboardShortcut(.escape, modifiers: [])
+                    .accessibilityIdentifier("query.cancel")
                 } else {
                     Button {
                         if let idx = session.tabs.firstIndex(where: { $0.id == session.activeTabId }) {
@@ -457,12 +458,16 @@ struct QueryPanelView: View {
     /// database the connection is attached with. Also what the metadata lookups and
     /// passthrough fetches of a cross-server query are qualified with.
     private func catalogDatabase(for alias: String) -> String {
-        if let picked = session.selectedDatabase[alias] { return picked }
-        switch session.connections.first(where: { $0.alias == alias })?.engine {
-        case .postgres: return "public"
-        case .sqlite:   return "main"
-        default:        return manager.queryEngine.attachedDatabase(alias)
-        }
+        QueryRoute.catalogDatabase(alias, connections: session.connections, facts: routeFacts)
+    }
+
+    /// What QueryRoute needs to know about one open connection.
+    private func routeFacts(_ alias: String) -> QueryRoute.Facts {
+        QueryRoute.Facts(isReadOnly: manager.queryEngine.isReadOnly(alias),
+                         hasServerPassthrough: manager.queryEngine.hasServerPassthrough(alias),
+                         attachedDatabase: manager.queryEngine.attachedDatabase(alias),
+                         selectedDatabase: session.selectedDatabase[alias],
+                         inTransaction: manager.queryEngine.inQueryTabTransaction)
     }
 
     /// Rewrites alias.table → "alias"."selected_db"."table" for every connected server.
@@ -583,7 +588,16 @@ struct QueryPanelView: View {
         guard !baseSQL.isEmpty else { return }
 
         if statement == nil {
-            let statements = SQLScript.statements(baseSQL)
+            let engine = SQLBuilder.soleTarget(of: baseSQL, connections: session.connections,
+                                               active: session.activeConnectionAlias)?.engine
+            let statements = SQLScript.statements(baseSQL, engine: engine)
+            // A script whose statements share what each sets (SET @d …; SELECT … @d) runs
+            // on one connection of the server's own client, as in Sequel Ace.
+            if let script = QueryRoute.sessionScript(statements, connections: session.connections,
+                                                     active: session.activeConnectionAlias, facts: routeFacts) {
+                await runSessionScript(script, sql: baseSQL, tabID: tabID)
+                return
+            }
             if statements.count > 1 {
                 for (n, one) in statements.enumerated() {
                     guard let index = session.tabs.firstIndex(where: { $0.id == tabID }) else { return }
@@ -598,50 +612,11 @@ struct QueryPanelView: View {
             }
         }
 
-        // Safe mode: refuse to run a write against a read-only connection, before any
-        // path runs it (EXPLAIN ANALYZE of a write runs the write).
-        if !SQLBuilder.isReadOnly(baseSQL),
-           let ro = session.connections.first(where: { manager.queryEngine.isReadOnly($0.alias) }) {
-            setTab { $0.error = SequelBridgeError.readOnly(ro.name).errorDescription }
-            return
-        }
-
-        // A typed `EXPLAIN …` takes the Explain button's path — server-native EXPLAIN,
-        // on the native client for MySQL — when its one target is MySQL/MariaDB or
-        // PostgreSQL. Through the passthrough it fails on MariaDB: mysql_query prepares
-        // every statement to learn its result types, and EXPLAIN isn't preparable
-        // ("Failed to fetch return types"). Other engines keep DuckDB's own EXPLAIN.
-        if let inner = SQLBuilder.strippedExplain(baseSQL),
-           let target = explainTarget(for: baseSQL).conn,
-           target.engine == .mysql || target.engine == .postgres {
-            await explainQuery(tabIndex: tabIndex, sql: inner)
-            return
-        }
-
-        // `USE db` picks that database at the top of the left panel, the way Sequel Ace's
-        // database menu follows it, and the statements after it run there.
-        if let db = QueryEffects.soleUse(baseSQL),
-           let conn = SQLBuilder.soleTarget(of: baseSQL, connections: session.connections,
-                                            active: session.activeConnectionAlias),
-           conn.engine == .mysql {
-            await runUse(baseSQL, database: db, on: conn, tabID: tabID)
-            return
-        }
-
-        // On MySQL, LOCK TABLES and SET autocommit would outlive the statement on a server
-        // connection the app reuses: refused, saying why.
-        if let target = SQLBuilder.soleTarget(of: baseSQL, connections: session.connections,
-                                              active: session.activeConnectionAlias),
-           target.engine == .mysql, let reason = QueryEffects.refusal(baseSQL) {
-            setTab { $0.error = reason }
-            return
-        }
-
-        // Resolve SQL before starting the task.
+        // Resolve SQL before starting the task (QueryRoute: refused, Explain's path, USE, as
+        // typed, the app's own client, ClickHouse, the passthrough, or DuckDB's catalog).
         // Single server: record alias+db so the task can await the USE before querying.
         // Multi server: expand alias.table → "alias"."db"."table" now (no USE needed).
-        struct ContextToSet { let alias: String; let db: String }
-        var pendingContext: ContextToSet? = nil
+        var pendingContext: QueryRoute.Context? = nil
         var semiJoin: SemiJoinExec? = nil
         var crossJoin: CrossJoinExec? = nil
         var clickhouseBridge: ClickHouseBridgeExec? = nil
@@ -652,160 +627,123 @@ struct QueryPanelView: View {
         // A MySQL or PostgreSQL statement that returns no rows runs on its server as typed
         // (Sequel Ace's way): DuckDB refused their own syntax and changed what it accepted.
         var asTyped: (alias: String, serverSQL: String)? = nil
-        // Fast path: a read that targets ONE MySQL/Postgres server is pushed to that
-        // server via the passthrough (server applies LIMIT/WHERE/indexes) instead of
-        // DuckDB's scanner fetching the whole table. This applies whether that server
-        // is the only one connected or one of several — a query that touches a single
-        // server never needs the cross-engine scanner. See QueryEngine's "Server
-        // passthrough" note. Returns nil (→ scanner path) unless every condition holds:
-        // MySQL/PG, a row-returning statement, and the selected database is the
-        // connection's DSN default (the passthrough pool ignores server-side USE, so
-        // only then do unqualified names resolve correctly on the server).
+        // A read that targets ONE MySQL/Postgres server is pushed to that server via the
+        // passthrough (server applies LIMIT/WHERE/indexes) instead of DuckDB's scanner
+        // fetching the whole table. See QueryEngine's "Server passthrough" note.
         var passthrough: (alias: String, serverSQL: String)? = nil
         // A statement the passthrough can't run (SHOW CREATE TABLE on MySQL, SHOW on
         // PostgreSQL): the app's own client for that server runs it, in the database picked.
         var native: (alias: String, serverSQL: String, database: String)? = nil
-        func nativeIfNeeded(_ conn: Connection) -> (alias: String, serverSQL: String, database: String)? {
-            guard QueryEffects.runsOnNativeClient(baseSQL, engine: conn.engine) else { return nil }
-            return (conn.alias, SQLBuilder.stripAliasPrefix(baseSQL, alias: conn.alias), catalogDatabase(for: conn.alias))
-        }
-        func passthroughIfEligible(_ conn: Connection) -> (alias: String, serverSQL: String)? {
-            // Use the database the connection is actually ATTACHED with (the DSN default),
-            // which the sidebar keeps in sync by re-attaching when you pick a database.
-            // mysql_query/postgres_query fetch that default schema first, so it must be
-            // non-empty and match the selected database; otherwise fall back to the
-            // scanner (3-part path), which needs no default schema.
-            let dsn = manager.queryEngine.attachedDatabase(conn.alias)
-            let db = session.selectedDatabase[conn.alias] ?? dsn
-            guard manager.queryEngine.hasServerPassthrough(conn.alias),
-                  !dsn.isEmpty,
-                  db == dsn,
-                  SQLBuilder.isRowReturning(baseSQL) else { return nil }
-            return (conn.alias, SQLBuilder.stripAliasPrefix(baseSQL, alias: conn.alias))
-        }
 
-        let referenced = session.connections.filter { SQLBuilder.referencesAlias(baseSQL, $0.alias) }
-        if session.connections.count <= 1 || referenced.isEmpty {
-            // One connection, or a statement that names no server (SHOW TABLES, SELECT *
-            // FROM orders): it runs on the connection picked at the top of the left panel.
-            if let conn = SQLBuilder.soleTarget(of: baseSQL, connections: session.connections,
-                                                active: session.activeConnectionAlias) {
-                if conn.engine == .clickhouse {
-                    clickhouseAlias = conn.alias
-                } else if let nat = nativeIfNeeded(conn) {
-                    native = nat
-                } else if let pt = passthroughIfEligible(conn) {
-                    passthrough = pt
-                } else if conn.engine == .mysql || conn.engine == .postgres,
-                          QueryEffects.runsAsTyped(baseSQL, engine: conn.engine) {
-                    asTyped = (conn.alias, SQLBuilder.stripAliasPrefix(baseSQL, alias: conn.alias))
-                } else {
-                    // Writes/DDL and non-default databases: the scanner path resolves
-                    // names via DuckDB's USE context.
-                    let db = session.selectedDatabase[conn.alias] ?? conn.database
-                    pendingContext = ContextToSet(alias: conn.alias, db: db)
-                }
-            }
+        switch QueryRoute.plan(baseSQL, connections: session.connections, active: session.activeConnectionAlias,
+                               facts: routeFacts) {
+        case .refused(let reason):
+            setTab { $0.error = reason }
+            return
+        case .explain(let inner):
+            await explainQuery(tabIndex: tabIndex, sql: inner)
+            return
+        case .use(let alias, let db):
+            guard let conn = session.connections.first(where: { $0.alias == alias }) else { return }
+            await runUse(baseSQL, database: db, on: conn, tabID: tabID)
+            return
+        case .asTyped(let alias, let serverSQL):
+            asTyped = (alias, serverSQL)
             sql = baseSQL
-        } else {
-            if referenced.count == 1, referenced[0].engine == .clickhouse {
-                // Only the ClickHouse server is named. It runs on its native client,
-                // outside DuckDB's catalog, so neither the passthrough nor the scanner
-                // can take it; the alias becomes the database the sidebar picked.
-                clickhouseAlias = referenced[0].alias
-                sql = SQLBuilder.clickhouseSoleServerSQL(baseSQL, alias: referenced[0].alias,
-                                                         database: catalogDatabase(for: referenced[0].alias))
-            } else if referenced.count == 1, let nat = nativeIfNeeded(referenced[0]) {
-                native = nat
-                sql = baseSQL
-            } else if referenced.count == 1, let pt = passthroughIfEligible(referenced[0]) {
-                // Only one server is referenced, so there is nothing to join across —
-                // push it to that server for the same speed as a lone connection.
-                passthrough = pt
-                sql = baseSQL
+        case .native(let alias, let serverSQL, let database):
+            native = (alias, serverSQL, database)
+            sql = baseSQL
+        case .clickhouse(let alias, let chSQL):
+            clickhouseAlias = alias
+            sql = chSQL
+        case .passthrough(let alias, let serverSQL):
+            passthrough = (alias, serverSQL)
+            sql = baseSQL
+        case .scanner(let scannerSQL, let context):
+            pendingContext = context
+            sql = scannerSQL
+        case .acrossServers:
+            // Two or more servers. Prefer a semi-join reduction — run the subquery
+            // on its server, inline its values, push the outer query to its server —
+            // over the cross-server scanner, which would drag whole tables to the
+            // client. Requires the OUTER server to be passthrough-capable (MySQL/PG
+            // with a database); the subquery (the small side) runs via the scanner.
+            let connAliases = session.connections.map(\.alias)
+            if let sj = SQLBuilder.detectSemiJoin(baseSQL, aliases: connAliases),
+               session.connections.contains(where: { $0.alias == sj.outerAlias }),
+               manager.queryEngine.hasServerPassthrough(sj.outerAlias),
+               !manager.queryEngine.attachedDatabase(sj.outerAlias).isEmpty {
+                let (subExpanded, subErr) = expandAliases(in: sj.subquery)
+                let (fallback, fallbackErr) = expandAliases(in: baseSQL)
+                if let err = fallbackErr { setTab { $0.error = err }; return }
+                if subErr == nil {
+                    // Run the subquery through its server's passthrough when eligible
+                    // (same conditions as any single-server read); otherwise the scanner.
+                    var subPT: (alias: String, serverSQL: String)? = nil
+                    let subDSN = manager.queryEngine.attachedDatabase(sj.subAlias)
+                    if session.connections.contains(where: { $0.alias == sj.subAlias }),
+                       manager.queryEngine.hasServerPassthrough(sj.subAlias),
+                       !subDSN.isEmpty,
+                       (session.selectedDatabase[sj.subAlias] ?? subDSN) == subDSN {
+                        subPT = (sj.subAlias, SQLBuilder.stripAliasPrefix(sj.subquery, alias: sj.subAlias))
+                    }
+                    semiJoin = SemiJoinExec(reduction: sj, subPassthrough: subPT,
+                                            subScannerSQL: subExpanded, fallbackSQL: fallback)
+                }
+                sql = fallback   // used only if the reduction can't proceed at run time
+            } else if let cj = SQLBuilder.detectCrossJoin(baseSQL, aliases: connAliases),
+                      let engA = session.connections.first(where: { $0.alias == cj.a.server })?.engine,
+                      let engB = session.connections.first(where: { $0.alias == cj.b.server })?.engine,
+                      (engA == .clickhouse) != (engB == .clickhouse) {
+                // Two-table join with exactly one ClickHouse side. ClickHouse is native
+                // HTTP (outside DuckDB's catalog), so the join can't run on the scanner
+                // — bridge it at run time (see QueryEngine.clickHouseJoinPlan).
+                clickhouseBridge = ClickHouseBridgeExec(reduction: cj)
+                sql = baseSQL   // the bridge rewrites it at run time
+            } else if let cj = SQLBuilder.detectCrossJoin(baseSQL, aliases: connAliases),
+                      session.connections.contains(where: { $0.alias == cj.a.server }),
+                      session.connections.contains(where: { $0.alias == cj.b.server }),
+                      manager.queryEngine.hasServerPassthrough(cj.a.server)
+                        || manager.queryEngine.hasServerPassthrough(cj.b.server) {
+                // Two-table cross-server inner join with at least one MySQL/Postgres
+                // side: that side streams through the join from its server (run time
+                // picks the probe — see QueryEngine.crossJoinPlan); the other side may
+                // be a local SQLite table. The scanner fallback handles everything else.
+                let (fallback, fallbackErr) = expandAliases(in: baseSQL)
+                if let err = fallbackErr { setTab { $0.error = err }; return }
+                crossJoin = CrossJoinExec(reduction: cj, fallbackSQL: fallback)
+                sql = fallback   // used only if the plan can't proceed at run time
             } else {
-                // Two or more servers. Prefer a semi-join reduction — run the subquery
-                // on its server, inline its values, push the outer query to its server —
-                // over the cross-server scanner, which would drag whole tables to the
-                // client. Requires the OUTER server to be passthrough-capable (MySQL/PG
-                // with a database); the subquery (the small side) runs via the scanner.
-                let connAliases = session.connections.map(\.alias)
-                if let sj = SQLBuilder.detectSemiJoin(baseSQL, aliases: connAliases),
-                   session.connections.contains(where: { $0.alias == sj.outerAlias }),
-                   manager.queryEngine.hasServerPassthrough(sj.outerAlias),
-                   !manager.queryEngine.attachedDatabase(sj.outerAlias).isEmpty {
-                    let (subExpanded, subErr) = expandAliases(in: sj.subquery)
-                    let (fallback, fallbackErr) = expandAliases(in: baseSQL)
-                    if let err = fallbackErr { setTab { $0.error = err }; return }
-                    if subErr == nil {
-                        // Run the subquery through its server's passthrough when eligible
-                        // (same conditions as any single-server read); otherwise the scanner.
-                        var subPT: (alias: String, serverSQL: String)? = nil
-                        let subDSN = manager.queryEngine.attachedDatabase(sj.subAlias)
-                        if session.connections.contains(where: { $0.alias == sj.subAlias }),
-                           manager.queryEngine.hasServerPassthrough(sj.subAlias),
-                           !subDSN.isEmpty,
-                           (session.selectedDatabase[sj.subAlias] ?? subDSN) == subDSN {
-                            subPT = (sj.subAlias, SQLBuilder.stripAliasPrefix(sj.subquery, alias: sj.subAlias))
-                        }
-                        semiJoin = SemiJoinExec(reduction: sj, subPassthrough: subPT,
-                                                subScannerSQL: subExpanded, fallbackSQL: fallback)
-                    }
-                    sql = fallback   // used only if the reduction can't proceed at run time
-                } else if let cj = SQLBuilder.detectCrossJoin(baseSQL, aliases: connAliases),
-                          let engA = session.connections.first(where: { $0.alias == cj.a.server })?.engine,
-                          let engB = session.connections.first(where: { $0.alias == cj.b.server })?.engine,
-                          (engA == .clickhouse) != (engB == .clickhouse) {
-                    // Two-table join with exactly one ClickHouse side. ClickHouse is native
-                    // HTTP (outside DuckDB's catalog), so the join can't run on the scanner
-                    // — bridge it at run time (see QueryEngine.clickHouseJoinPlan).
-                    clickhouseBridge = ClickHouseBridgeExec(reduction: cj)
-                    sql = baseSQL   // the bridge rewrites it at run time
-                } else if let cj = SQLBuilder.detectCrossJoin(baseSQL, aliases: connAliases),
-                          session.connections.contains(where: { $0.alias == cj.a.server }),
-                          session.connections.contains(where: { $0.alias == cj.b.server }),
-                          manager.queryEngine.hasServerPassthrough(cj.a.server)
-                            || manager.queryEngine.hasServerPassthrough(cj.b.server) {
-                    // Two-table cross-server inner join with at least one MySQL/Postgres
-                    // side: that side streams through the join from its server (run time
-                    // picks the probe — see QueryEngine.crossJoinPlan); the other side may
-                    // be a local SQLite table. The scanner fallback handles everything else.
-                    let (fallback, fallbackErr) = expandAliases(in: baseSQL)
-                    if let err = fallbackErr { setTab { $0.error = err }; return }
-                    crossJoin = CrossJoinExec(reduction: cj, fallbackSQL: fallback)
-                    sql = fallback   // used only if the plan can't proceed at run time
+                // Cross-engine JOIN / anything not reducible: expand to 3-part
+                // "alias"."db"."table" so DuckDB's scanner can span the servers.
+                let (expanded, expandError) = expandAliases(in: baseSQL)
+                if let err = expandError { setTab { $0.error = err }; return }
+                // Speed the slow part up: materialize each remote (MySQL/Postgres)
+                // table via the passthrough into a DuckDB TEMP table instead of letting
+                // the scanner drag it over the wire row by row. SQLite refs are left as
+                // scanner refs (fast local scan). The plain scanner `expanded` stays the
+                // run-time backstop if any materialization fails.
+                var remoteAliases: Set<String> = []
+                var dbByAlias: [String: String] = [:]
+                for conn in session.connections where manager.queryEngine.canPassthrough(conn.alias) {
+                    remoteAliases.insert(conn.alias)
+                    dbByAlias[conn.alias] = catalogDatabase(for: conn.alias)
+                }
+                var seq = 0
+                let plan = SQLBuilder.planFallback(baseSQL, remoteAliases: remoteAliases) { _, _ in
+                    defer { seq += 1 }; return SQLBuilder.duckIdent("__sb_mat_\(seq)")
+                }
+                if plan.materializations.isEmpty {
+                    sql = expanded            // nothing remote to speed up
                 } else {
-                    // Cross-engine JOIN / anything not reducible: expand to 3-part
-                    // "alias"."db"."table" so DuckDB's scanner can span the servers.
-                    let (expanded, expandError) = expandAliases(in: baseSQL)
-                    if let err = expandError { setTab { $0.error = err }; return }
-                    // Speed the slow part up: materialize each remote (MySQL/Postgres)
-                    // table via the passthrough into a DuckDB TEMP table instead of letting
-                    // the scanner drag it over the wire row by row. SQLite refs are left as
-                    // scanner refs (fast local scan). The plain scanner `expanded` stays the
-                    // run-time backstop if any materialization fails.
-                    var remoteAliases: Set<String> = []
-                    var dbByAlias: [String: String] = [:]
-                    for conn in session.connections where manager.queryEngine.canPassthrough(conn.alias) {
-                        remoteAliases.insert(conn.alias)
-                        dbByAlias[conn.alias] = catalogDatabase(for: conn.alias)
-                    }
-                    var seq = 0
-                    let plan = SQLBuilder.planFallback(baseSQL, remoteAliases: remoteAliases) { _, _ in
-                        defer { seq += 1 }; return SQLBuilder.duckIdent("__sb_mat_\(seq)")
-                    }
-                    if plan.materializations.isEmpty {
-                        sql = expanded            // nothing remote to speed up
-                    } else {
-                        // Expand the SQLite refs in the rewritten SQL to 3-part; the quoted
-                        // temp idents are skipped (expandAliases copies quoted spans verbatim).
-                        let (matExpanded, matErr) = expandAliases(in: plan.rewrittenSQL)
-                        if let err = matErr { setTab { $0.error = err }; return }
-                        fallbackMaterialize = FallbackMaterializeExec(
-                            materializations: plan.materializations, dbByAlias: dbByAlias,
-                            materializedSQL: matExpanded, scannerSQL: expanded)
-                        sql = expanded            // used only if materialization can't proceed
-                    }
+                    // Expand the SQLite refs in the rewritten SQL to 3-part; the quoted
+                    // temp idents are skipped (expandAliases copies quoted spans verbatim).
+                    let (matExpanded, matErr) = expandAliases(in: plan.rewrittenSQL)
+                    if let err = matErr { setTab { $0.error = err }; return }
+                    fallbackMaterialize = FallbackMaterializeExec(
+                        materializations: plan.materializations, dbByAlias: dbByAlias,
+                        materializedSQL: matExpanded, scannerSQL: expanded)
+                    sql = expanded            // used only if materialization can't proceed
                 }
             }
         }
@@ -829,7 +767,7 @@ struct QueryPanelView: View {
                 // Await USE before running the query — eliminates the race condition where
                 // the query runs before setDefaultContext's USE completes on userSerial.
                 if let ctx = pendingContext {
-                    await manager.queryEngine.setDefaultContextAwaited(alias: ctx.alias, database: ctx.db)
+                    await manager.queryEngine.setDefaultContextAwaited(alias: ctx.alias, database: ctx.database)
                 }
                 if let typed = asTyped {
                     let changed = try await manager.queryEngine.runAsTyped(alias: typed.alias, sql: typed.serverSQL)
@@ -902,8 +840,8 @@ struct QueryPanelView: View {
                         (first, stream) = (opened.first, opened.stream)
                         bridgeTempTables = opened.temps
                     } else if let pt = passthrough {
-                        (first, stream) = try await manager.queryEngine.openServerStreamingQuery(
-                            alias: pt.alias, serverSQL: pt.serverSQL, firstChunk: 2_000)
+                        (first, stream) = try await manager.queryEngine.openServerRead(
+                            alias: pt.alias, serverSQL: pt.serverSQL, database: catalogDatabase(for: pt.alias), firstChunk: 2_000)
                     } else {
                         (first, stream) = try await manager.queryEngine.openStreamingQuery(sql, firstChunk: 2_000)
                     }
@@ -1098,6 +1036,42 @@ struct QueryPanelView: View {
         }
         guard let statement = SQLScript.statement(at: cursorLocation, in: session.tabs[tabIndex].sql) else { return }
         await runQuery(tabIndex: tabIndex, statement: statement)
+    }
+
+    /// A script on one connection (QueryRoute.sessionScript): the last statement's result,
+    /// or the first that failed, which it names.
+    private func runSessionScript(_ script: QueryRoute.SessionScript, sql: String, tabID: UUID) async {
+        func setTab(_ body: (inout QueryTab) -> Void) {
+            guard let i = session.tabs.firstIndex(where: { $0.id == tabID }) else { return }
+            body(&session.tabs[i])
+        }
+        guard case .run(let alias, let statements, let database) = script else {
+            if case .refused(let reason) = script { setTab { $0.error = reason } }
+            return
+        }
+        setTab {
+            $0.isRunning = true; $0.error = nil; $0.result = nil
+            $0.runID = UUID(); $0.editTarget = nil; $0.editBlockedReason = ResultEditing.notOneTable
+        }
+        startElapsedTimer()
+        let task = Task {
+            do {
+                let result = try await manager.queryEngine.nativeScript(alias: alias, statements: statements, database: database)
+                setTab { $0.result = runClock.stamped(result) }
+            } catch is CancellationError {
+                setTab { $0.error = "Cancelled" }
+            } catch {
+                setTab { $0.error = QueryEngine.extractReason(from: error) }
+            }
+            setTab { $0.isRunning = false }
+            stopElapsedTimer()
+            if let conn = session.connections.first(where: { $0.alias == alias }) {
+                await session.followRun(sql, on: conn, manager: manager)
+            }
+        }
+        runningTask = task
+        await task.value
+        runningTask = nil
     }
 
     /// A lone `USE db`: the same switch as picking `db` at the top of the left panel.

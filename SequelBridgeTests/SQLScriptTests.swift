@@ -68,4 +68,21 @@ struct SQLScriptTests {
         #expect(split("/*M!100100 SET @x = 1 */;") == ["/*M!100100 SET @x = 1 */"])
         #expect(split("/* a plain comment */;") == [])
     }
+
+    @Test("a PostgreSQL body in $$ … $$ or $tag$ … $tag$ keeps its semicolons; $1 and a$b are no quotes")
+    func dollarQuotes() {
+        #expect(split("CREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$; SELECT 2") == [
+            "CREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$", "SELECT 2"])
+        #expect(split("SELECT $tag$a;b$tag$; SELECT 2") == ["SELECT $tag$a;b$tag$", "SELECT 2"])
+        #expect(split("DO $$ BEGIN PERFORM 1; END $$; SELECT 3") == ["DO $$ BEGIN PERFORM 1; END $$", "SELECT 3"])
+        #expect(split("SELECT $1, a$b; SELECT 2") == ["SELECT $1, a$b", "SELECT 2"])
+    }
+
+    @Test("# starts a comment on MySQL and ClickHouse; on PostgreSQL it is an operator (#>>)")
+    func hashByEngine() {
+        #expect(SQLScript.statements("SELECT meta #>> '{a}' FROM t; SELECT 2", engine: .postgres)
+                == ["SELECT meta #>> '{a}' FROM t", "SELECT 2"])
+        #expect(SQLScript.statements("SELECT 1 # a note; still the note\n; SELECT 2", engine: .mysql)
+                == ["SELECT 1 # a note; still the note", "SELECT 2"])
+    }
 }

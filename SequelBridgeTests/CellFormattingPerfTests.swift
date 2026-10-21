@@ -65,6 +65,27 @@ struct TemporalRenderingTests {
         ])
     }
 
+    @Test("a DECIMAL shows the digits its column keeps: 12345678.90, not 12345678.9")
+    func decimalScale() async throws {
+        let engine = try QueryEngine()
+        let r = try await engine.query("""
+            SELECT 12345678.90::DECIMAL(10,2) AS money, 10.5::DECIMAL(10,2) AS half, 0::DECIMAL(5,2) AS zero,
+                   -1.5::DECIMAL(10,3) AS neg, 7::DECIMAL(4,0) AS whole,
+                   12345678901234567890.0123456789::DECIMAL(30,10) AS wide
+            """)
+        #expect(r.rows[0] == ["12345678.90", "10.50", "0.00", "-1.500", "7", "12345678901234567890.0123456789"])
+    }
+
+    @Test("an infinite timestamp or date (PostgreSQL's 'infinity') shows as infinity; formatting one aborted the app")
+    func infinity() async throws {
+        let engine = try QueryEngine()
+        let r = try await engine.query("""
+            SELECT 'infinity'::TIMESTAMP, '-infinity'::TIMESTAMP, 'infinity'::DATE, '-infinity'::DATE,
+                   'infinity'::TIMESTAMPTZ
+            """)
+        #expect(r.rows[0] == ["infinity", "-infinity", "infinity", "-infinity", "infinity"])
+    }
+
     @Test("a blob renders as lowercase hex")
     func blobHex() async throws {
         let engine = try QueryEngine()

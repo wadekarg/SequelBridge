@@ -379,6 +379,9 @@ final class QueryEngine {
         let extPath = try await Self.prepareExtension(named: name)
         try await userSerial.execute("LOAD '\(extPath)'")
         Log.engine.info("\(name, privacy: .public) loaded from \(extPath, privacy: .public)")
+        // PostgreSQL arrays as PostgreSQL writes them ({math,engines}): read as lists, the
+        // grid had no way to show them and they read NULL.
+        if name.hasPrefix("postgres") { try? await userSerial.execute("SET GLOBAL pg_array_as_varchar = true") }
     }
 
     func ensureMySQLExtensionLoaded() async throws {
@@ -594,6 +597,18 @@ final class QueryEngine {
         sshTunnels.removeValue(forKey: alias)
     }
 
+    /// The local port to reach `c` through: its alias's own tunnel while that still runs to
+    /// the same place, else a new one (`started`). A database switch attaches again through
+    /// the running tunnel: starting a new one logged in to SSH again, and asked a one-time
+    /// code again, at every pick.
+    func tunnelPort(for c: Connection) async throws -> (port: Int, started: Bool) {
+        if let running = sshTunnels[c.alias], running.isRunning, running.route == SSHTunnel.Route(c) {
+            return (running.localPort, false)
+        }
+        stopTunnel(c.alias)
+        return (try await startTunnel(for: c), true)
+    }
+
     func attach(_ c: Connection, password: String) async throws {
         // Track safe mode for every engine, before the per-engine early returns below.
         if c.readOnly { readOnlyAliases.insert(c.alias) } else { readOnlyAliases.remove(c.alias) }
@@ -613,6 +628,7 @@ final class QueryEngine {
         var nativeHost = c.host
         var nativePort = c.port
         var nativeSocket: String? = nil
+        var startedTunnel = false
         switch c.connectionType {
         case .tcpip:
             dsnParts = Self.buildDSN(for: c, password: password)
@@ -622,7 +638,7 @@ final class QueryEngine {
         case .ssh:
             var tunneled = c
             tunneled.host = "127.0.0.1"
-            tunneled.port = try await startTunnel(for: c)
+            (tunneled.port, startedTunnel) = try await tunnelPort(for: c)
             nativeHost = tunneled.host
             nativePort = tunneled.port
             dsnParts = Self.buildDSN(for: tunneled, password: password)
@@ -661,8 +677,10 @@ final class QueryEngine {
             }
         } catch {
             // Roll back partial state: if the SSH tunnel started but a later step
-            // (extension load / ATTACH) failed, the tunnel would otherwise leak.
-            stopTunnel(c.alias)
+            // (extension load / ATTACH) failed, the tunnel would otherwise leak. One kept
+            // from before (a database switch) stays for the switch back.
+            if startedTunnel { stopTunnel(c.alias) }
+            attachedDSN.removeValue(forKey: c.alias)
             mysqlConfigs.removeValue(forKey: c.alias)
             postgresConfigs.removeValue(forKey: c.alias)
             engines.removeValue(forKey: c.alias)
@@ -799,6 +817,9 @@ final class QueryEngine {
     /// Whether a transaction begun in the Query tab (its BEGIN runs in DuckDB, on the user
     /// lane) is open: a statement run as typed joins it instead of opening its own.
     private var queryTabTransaction = false
+    /// Whether a transaction begun in the Query tab is open (QueryRoute: a statement then
+    /// runs in it, not on a connection of its own).
+    var inQueryTabTransaction: Bool { queryTabTransaction }
 
     /// Follows BEGIN, COMMIT and ROLLBACK on the user lane. An end always ends it, even one
     /// that fails (DuckDB rolls back a COMMIT it can't make); a begin counts once it ran.
@@ -829,7 +850,9 @@ final class QueryEngine {
         }
     }
 
-    func detach(_ alias: String) async throws {
+    /// Detaches `alias`. `keepingTunnel` leaves its SSH tunnel running, for a database
+    /// switch that attaches again through it.
+    func detach(_ alias: String, keepingTunnel: Bool = false) async throws {
         if engines[alias] == .clickhouse {
             clickhouseClients[alias] = nil
             engines[alias] = nil
@@ -847,7 +870,7 @@ final class QueryEngine {
             mysqlConfigs.removeValue(forKey: alias)
             postgresConfigs.removeValue(forKey: alias)
             readOnlyAliases.remove(alias)
-            stopTunnel(alias)
+            if !keepingTunnel { stopTunnel(alias) }
         }
         // DuckDB refuses to DETACH the *active* database. attach() runs `USE
         // "alias"."db"`, so the alias being detached is usually the default — and
@@ -855,6 +878,7 @@ final class QueryEngine {
         // attached. That leak is why reconnecting to the same server errored. Switch
         // the default back to the in-memory catalog first so DETACH always applies.
         try? await userSerial.execute("USE memory")
+        duckDefault = nil
         // Serialized with user queries — DETACH on the main thread while a query
         // runs on the actor's thread would use the non-thread-safe handle twice.
         do {
@@ -976,6 +1000,10 @@ final class QueryEngine {
     /// Sets the default catalog+schema so unqualified table names resolve correctly.
     /// Call this when the user selects a database in the sidebar.
     private var activeContexts: [String: String] = [:]  // alias → last-set database
+    /// The one default DuckDB has for the user lane ("alias\u{1}database"), nil when it is
+    /// unknown or the in-memory catalog. A USE for an alias whose own last database is the
+    /// same is still needed when another alias's USE (or Test Connection's) came between.
+    private var duckDefault: String?
 
     /// The database currently set as the default context for `alias`, or nil if
     /// none has been applied yet. Read-only; exposed so tests can verify that the
@@ -986,7 +1014,8 @@ final class QueryEngine {
     /// the subsequent query runs. The non-async wrapper below is kept for sidebar use.
     func setDefaultContextAwaited(alias: String, database: String) async {
         guard !alias.isEmpty, !database.isEmpty else { return }
-        guard activeContexts[alias] != database else { return }
+        let key = alias + "\u{1}" + database
+        guard duckDefault != key else { return }
         let use = "USE \(sqlIdentifierQuote(alias)).\(sqlIdentifierQuote(database))"
         do {
             do {
@@ -1000,6 +1029,7 @@ final class QueryEngine {
             // (the old behaviour) meant a failed USE was swallowed yet the guard above
             // then skipped every retry, silently leaving unqualified names unresolved.
             activeContexts[alias] = database
+            duckDefault = key
             tableMetaCache = tableMetaCache.filter { !$0.key.hasPrefix("\(alias).") }
         } catch {
             Log.engine.error("USE \(alias, privacy: .public).\(database, privacy: .public) failed: \(Self.extractReason(from: error), privacy: .public)")
@@ -1094,6 +1124,8 @@ final class QueryEngine {
         let start = Date()
         let logged = logSQL ?? sql
         let s = serial(lane)
+        // A USE typed in the Query tab moves DuckDB's default where the app can't follow.
+        if lane == .user, sql.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().hasPrefix("USE ") { duckDefault = nil }
         let head: SerialConnection.StreamHead
         let first: SerialConnection.Pulled?
         do {
@@ -1171,7 +1203,12 @@ final class QueryEngine {
     private func passthroughWrap(alias: String, serverSQL: String) -> String? {
         switch engine(for: alias) {
         case .mysql:    return "SELECT * FROM mysql_query(\(SQLBuilder.literal(alias)), \(SQLBuilder.literal(serverSQL)))"
-        case .postgres: return "SELECT * FROM postgres_query(\(SQLBuilder.literal(alias)), \(SQLBuilder.literal(serverSQL)))"
+        case .postgres:
+            // postgres_query nests the statement in a subquery, where a "-- comment" took
+            // the closing bracket with it: as /* comments */ they end where they're meant to.
+            let sql = SQLBuilder.lineCommentsAsBlocks(serverSQL)
+            return "SELECT * FROM postgres_query(\(SQLBuilder.literal(alias)), \(SQLBuilder.literal(sql)))"
+        case .sqlite:   return "SELECT * FROM sqlite_query(\(SQLBuilder.literal(alias)), \(SQLBuilder.literal(serverSQL)))"
         default:        return nil
         }
     }
@@ -1882,11 +1919,97 @@ final class QueryEngine {
     /// app's own client for the server: in `database` when given, a MySQL database or a
     /// PostgreSQL schema.
     func nativeQuery(alias: String, sql: String, database: String?) async throws -> QueryResult {
+        let result: QueryResult
         switch engine(for: alias) {
-        case .mysql:    return try await nativeMySQLQuery(alias: alias, sql: sql, database: database)
-        case .postgres: return try await nativePostgresQuery(alias: alias, sql: sql, schema: database)
-        case .sqlite, .clickhouse:
+        case .mysql:    result = try await nativeMySQLQuery(alias: alias, sql: sql, database: database)
+        case .postgres: result = try await nativePostgresQuery(alias: alias, sql: sql, schema: database)
+        case .sqlite:   result = try await sqliteQuery(alias: alias, sql: sql)
+        case .clickhouse:
             throw SequelBridgeError.attachFailed("This connection has no client of the app's own.")
+        }
+        // DuckDB's copy of the server's catalog would miss a table a write just made.
+        if !SQLBuilder.isReadOnly(sql) { await clearScannerCache(alias) }
+        // A statement that returns nothing (a CALL that only writes, a VACUUM) says it ran.
+        guard result.columns.isEmpty else { return result }
+        let said = QueryEffects.isSessionSetting(sql) ? QueryEffects.settingNote : "Done"
+        return QueryResult(columns: ["Result"], rows: [[said]], executionTime: result.executionTime)
+    }
+
+    /// A Query-tab script on one connection of the app's own client for the server, so a
+    /// variable, a temporary table, a prepared statement or a transaction one statement
+    /// makes is there for the next (QueryEffects.needsOneSession); the last statement's
+    /// result. In `database`: a MySQL database or a PostgreSQL schema.
+    func nativeScript(alias: String, statements: [String], database: String?) async throws -> QueryResult {
+        for statement in statements { try ensureReads(statement, alias: alias) }
+        let start = Date()
+        let logged = statements.joined(separator: ";\n")
+        do {
+            let (cols, rows): (columns: [String], rows: [[String?]])
+            switch engine(for: alias) {
+            case .mysql:
+                guard var cfg = mysqlConfigs[alias] else { throw SequelBridgeError.attachFailed("No MySQL connection named '\(alias)'.") }
+                if let database, !database.isEmpty { cfg.database = database }
+                (cols, rows) = try await MySQLClient(cfg).run(statements)
+            case .postgres:
+                guard let cfg = postgresConfigs[alias] else { throw SequelBridgeError.attachFailed("No PostgreSQL connection named '\(alias)'.") }
+                let path = database.map { ["SET search_path TO \(SQLBuilder.duckIdent($0))"] } ?? []
+                (cols, rows) = try await PostgresClient(cfg).run(path + statements)
+            case .sqlite:
+                // One run of SQLite's own tool: the statements share it, as in the sqlite3 shell.
+                guard let file = sqlitePaths[alias] else { throw SequelBridgeError.attachFailed("No SQLite file is open as \(alias).") }
+                (cols, rows) = try await SQLiteTool.query(statements.joined(separator: ";\n"), file: file,
+                                                          busyTimeout: sqliteBusyTimeout, readOnly: readOnlyAliases.contains(alias))
+            case .clickhouse:
+                throw SequelBridgeError.attachFailed("This connection has no client of the app's own.")
+            }
+            if statements.contains(where: { !SQLBuilder.isReadOnly($0) }) { await clearScannerCache(alias) }
+            var result = cols.isEmpty ? QueryResult(columns: ["Result"], rows: [["Done"]], executionTime: 0)
+                : QueryResult(columns: cols, rows: rows.map { $0.map { $0 ?? "NULL" } }, executionTime: 0)
+            if !cols.isEmpty { result.nullMask = rows.map { $0.map { $0 == nil } } }
+            result.executionTime = Date().timeIntervalSince(start)
+            result.totalRowCount = result.rowCount
+            logStatement(logged, cols.isEmpty ? nil : rows.count, nil, result.executionTime)
+            return result
+        } catch {
+            logStatement(logged, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
+            throw error
+        }
+    }
+
+    /// The Query tab's read on one server, pushed to it whole (the passthrough). DuckDB's
+    /// mysql_query and postgres_query refuse a result with two columns of one name
+    /// ("SELECT a.id, b.id …", or "SELECT *" over a join): the app's own client for the
+    /// server runs those instead, and the rows come back whole.
+    func openServerRead(alias: String, serverSQL: String, database: String, firstChunk: Int) async throws
+        -> (result: QueryResult, stream: QueryStream) {
+        do {
+            return try await openServerStreamingQuery(alias: alias, serverSQL: serverSQL, firstChunk: firstChunk)
+        } catch let error where Self.extractReason(from: error).localizedCaseInsensitiveContains("duplicate column name")
+                    && (mysqlConfigs[alias] != nil || postgresConfigs[alias] != nil || sqlitePaths[alias] != nil) {
+            let whole = try await nativeQuery(alias: alias, sql: serverSQL, database: database)
+            return (whole, QueryStream(id: -1, lane: .user, hasMore: false))
+        }
+    }
+
+    /// Runs `sql` in SQLite itself, in SQLite's own SQL (see SQLiteTool): its functions,
+    /// PRAGMA, INSERT OR REPLACE, RETURNING, triggers. Through DuckDB they failed, and a
+    /// CREATE TABLE's INTEGER PRIMARY KEY no longer numbered rows.
+    func sqliteQuery(alias: String, sql: String) async throws -> QueryResult {
+        try ensureReads(sql, alias: alias)
+        guard let file = sqlitePaths[alias] else { throw SequelBridgeError.attachFailed("No SQLite file is open as \(alias).") }
+        let start = Date()
+        do {
+            let (cols, rows) = try await SQLiteTool.query(sql, file: file, busyTimeout: sqliteBusyTimeout,
+                                                          readOnly: readOnlyAliases.contains(alias))
+            var result = QueryResult(columns: cols, rows: rows.map { $0.map { $0 ?? "NULL" } },
+                                     executionTime: Date().timeIntervalSince(start))
+            result.nullMask = rows.map { $0.map { $0 == nil } }
+            result.totalRowCount = rows.count
+            logStatement(sql, cols.isEmpty ? nil : rows.count, nil, result.executionTime)
+            return result
+        } catch {
+            logStatement(sql, nil, Self.extractReason(from: error), Date().timeIntervalSince(start))
+            throw error
         }
     }
 
@@ -1896,10 +2019,12 @@ final class QueryEngine {
         guard let cfg = postgresConfigs[alias] else {
             throw SequelBridgeError.attachFailed("No PostgreSQL connection named '\(alias)'.")
         }
-        let sent = schema.map { "SET search_path TO \(SQLBuilder.duckIdent($0)); \(sql)" } ?? sql
+        // search_path in a message of its own: sent with the statement, the two ran as one
+        // transaction, where VACUUM and CREATE INDEX CONCURRENTLY can't.
+        let sent = (schema.map { ["SET search_path TO \(SQLBuilder.duckIdent($0))"] } ?? []) + [sql]
         let start = Date()
         do {
-            let (cols, rows) = try await PostgresClient(cfg).query(sent)
+            let (cols, rows) = try await PostgresClient(cfg).run(sent)
             var result = QueryResult(columns: cols,
                                      rows: rows.map { $0.map { $0 ?? "NULL" } },
                                      executionTime: Date().timeIntervalSince(start))
@@ -2255,7 +2380,8 @@ final class QueryEngine {
         case .varchar:
             return rs.bulk(String.self, column: col, rows: rows)
         case .uuid:
-            return rs.bulk(UUID.self, column: col, rows: rows).map { $0.map { $0.uuidString } }
+            // Lowercase, as the servers write a UUID (Foundation's is uppercase).
+            return rs.bulk(UUID.self, column: col, rows: rows).map { $0.map { $0.uuidString.lowercased() } }
         case .boolean:
             return rs.bulk(Bool.self, column: col, rows: rows).map { $0.map(String.init) }
         case .tinyint:
@@ -2279,11 +2405,14 @@ final class QueryEngine {
         case .uhugeint:
             return rs.bulk(UIntHuge.self, column: col, rows: rows).map { $0.map { String(describing: $0) } }
         case .float:
-            return rs.bulk(Float.self, column: col, rows: rows).map { $0.map { String($0) } }
+            return rs.bulk(Float.self, column: col, rows: rows).map { $0.map { $0.isFinite && $0 == $0.rounded() && abs($0) < 1e7 ? String(Int64($0)) : String($0) } }
         case .double:
-            return rs.bulk(Double.self, column: col, rows: rows).map { $0.map { String($0) } }
+            return rs.bulk(Double.self, column: col, rows: rows).map { $0.map { formatDouble($0) } }
         case .decimal:
-            return rs.bulk(Decimal.self, column: col, rows: rows).map { $0.map { String(describing: $0) } }
+            // With the digits the column keeps, as the server shows it: Decimal's own
+            // description drops trailing zeros (12345678.90 read 12345678.9).
+            let scale = rs.decimalScale(at: col) ?? 0
+            return rs.bulk(Decimal.self, column: col, rows: rows).map { $0.map { formatDecimal($0, scale: scale) } }
         case .date:
             // DuckDB's Date is its own type (days since epoch), not Foundation.Date
             return rs.bulk(DuckDB.Date.self, column: col, rows: rows).map { $0.map { formatDuckDBDate($0) } }
@@ -2321,12 +2450,33 @@ final class QueryEngine {
         year < 0 ? String(year) : zeroPadded(year, width: 4)
     }
 
+    /// A double as the servers show it: 2026, not 2026.0 (an EXTRACT, a whole AVG); others as they are.
+    nonisolated static func formatDouble(_ d: Double) -> String {
+        d.isFinite && d == d.rounded() && abs(d) < 1e15 ? String(Int64(d)) : String(d)
+    }
+
+    /// `value` with exactly `scale` digits after the point: "12345678.90", "0.00", "7".
+    nonisolated static func formatDecimal(_ value: Decimal, scale: Int) -> String {
+        let plain = String(describing: value)
+        guard scale > 0 else { return plain }
+        guard let dot = plain.firstIndex(of: ".") else { return plain + "." + String(repeating: "0", count: scale) }
+        let have = plain.distance(from: plain.index(after: dot), to: plain.endIndex)
+        return have >= scale ? plain : plain + String(repeating: "0", count: scale - have)
+    }
+
     nonisolated private static func formatDuckDBDate(_ date: DuckDB.Date) -> String {
+        // DuckDB's infinite dates (PostgreSQL's 'infinity'): its own conversion throws on
+        // them, an exception Swift can't catch, which aborted the app.
+        if date.days == .max { return "infinity" }
+        if date.days == -.max { return "-infinity" }
         let c = date.components
         return "\(isoYear(Int(c.year)))-\(zeroPadded(Int(c.month), width: 2))-\(zeroPadded(Int(c.day), width: 2))"
     }
 
     nonisolated static func formatTimestamp(_ ts: Timestamp) -> String {
+        // Infinite timestamps, as for dates above: converting one aborted the app.
+        if ts.microseconds == .max { return "infinity" }
+        if ts.microseconds == -.max { return "-infinity" }
         let c = ts.components
         let datePart = "\(isoYear(Int(c.date.year)))-\(zeroPadded(Int(c.date.month), width: 2))-\(zeroPadded(Int(c.date.day), width: 2))"
         let timePart = clock(hour: Int(c.time.hour), minute: Int(c.time.minute),
@@ -2401,6 +2551,7 @@ final class QueryEngine {
 /// vendored bulk readers; only the column type lookup is spelled differently.
 nonisolated protocol BulkColumnSource {
     func columnStorageType(at index: DBInt) -> DatabaseType
+    func decimalScale(at index: DBInt) -> Int?
     func bulk(_ type: String.Type,    column: DBInt, rows: Range<DBInt>) -> [String?]
     func bulk(_ type: Bool.Type,      column: DBInt, rows: Range<DBInt>) -> [Bool?]
     func bulk(_ type: Int8.Type,      column: DBInt, rows: Range<DBInt>) -> [Int8?]

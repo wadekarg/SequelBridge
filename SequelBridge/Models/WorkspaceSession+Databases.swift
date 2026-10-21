@@ -57,8 +57,9 @@ extension WorkspaceSession {
         let alias = conn.alias
         let current = selectedDatabase[alias]
         let outcome = QueryEffects.afterRun(sql, database: current)
-        // Databases are MySQL's to switch with USE; other engines only re-read their lists.
-        if conn.engine == .mysql, outcome.database != current {
+        // MySQL switches database with USE, PostgreSQL schema with SET search_path; other
+        // engines only re-read their lists.
+        if conn.engine == .mysql || conn.engine == .postgres, outcome.database != current {
             let dbs = availableDatabases[alias] ?? []
             if let db = outcome.database {
                 if !dbs.contains(db) { availableDatabases[alias] = (dbs + [db]).sorted() }   // so the picker can show it

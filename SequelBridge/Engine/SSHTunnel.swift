@@ -69,6 +69,22 @@ final class SSHTunnel {
         self.localPort = Self.findAvailablePort()
     }
 
+    /// Where a tunnel goes: the SSH server and login, and the database behind it. A
+    /// connection's database switch reuses its tunnel only when this is unchanged.
+    struct Route: Equatable {
+        let sshHost: String, sshPort: Int, sshUser: String, sshKey: String, host: String, port: Int
+        init(_ c: Connection) {
+            sshHost = c.sshHost; sshPort = c.sshPort; sshUser = c.sshUsername; sshKey = c.sshKeyPath
+            host = c.host; port = c.port
+        }
+    }
+
+    /// The route this tunnel was started for; nil before `start`.
+    private(set) var route: Route?
+
+    /// Whether ssh still runs (a dropped network or a restarted server ends it).
+    var isRunning: Bool { process?.isRunning ?? false }
+
     // MARK: - Lifecycle
 
     func start(conn: Connection) async throws {
@@ -125,6 +141,7 @@ final class SSHTunnel {
 
         try p.run()
         self.process = p
+        self.route = Route(conn)
         _ = Self.quitObserver
         Self.running[ObjectIdentifier(self)] = p
 

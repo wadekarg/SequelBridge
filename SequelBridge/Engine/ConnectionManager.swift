@@ -176,7 +176,8 @@ class ConnectionManager: ObservableObject {
               let password = password(for: current) else { return }
         var target = current
         target.database = database
-        try await queryEngine.detach(alias)
+        // Through the same SSH tunnel: no second login, no second one-time code.
+        try await queryEngine.detach(alias, keepingTunnel: true)
         do {
             try await queryEngine.attach(target, password: password)
         } catch {
