@@ -10,6 +10,12 @@ final class SSHTunnel {
     private(set) var localPort: Int
     private var process: Process?
     private var stderr: DrainedPipe?
+    /// Called on the main actor when ssh ends while the tunnel was meant to run: the Mac
+    /// slept, the network dropped, the server restarted. Not after `stop()`.
+    var onDrop: (() -> Void)?
+    private var stopping = false
+    /// ssh's process id while it runs (the tests end it to stand in for a dropped network).
+    var processIdentifier: Int32? { process?.isRunning == true ? process?.processIdentifier : nil }
     private var askpass: SSHAskpass?
 
     /// Answers what ssh asks while it logs in: a password, a key's passphrase, a one-time
@@ -150,7 +156,18 @@ final class SSHTunnel {
         var waited = 0
         while waited < 20 {
             try await Task.sleep(nanoseconds: 500_000_000) // 0.5 s
-            if isLocalPortListening(localPort) { endLogin(); return }
+            if isLocalPortListening(localPort) {
+                endLogin()
+                // From now on an end of ssh is a dropped tunnel, which the workspace reports.
+                p.terminationHandler = { [weak self] _ in
+                    Task { @MainActor in
+                        guard let self, !self.stopping else { return }
+                        Self.running.removeValue(forKey: ObjectIdentifier(self))
+                        self.onDrop?()
+                    }
+                }
+                return
+            }
             if !p.isRunning {
                 Self.running.removeValue(forKey: ObjectIdentifier(self))
                 endLogin()
@@ -182,9 +199,11 @@ final class SSHTunnel {
     /// and accept only ssh-rsa signatures. Appended, it is used only when the server
     /// offers nothing newer.
     static func arguments(for conn: Connection, localPort: Int, keyPath: String?, interactive: Bool = false) -> [String] {
+        // An IPv6 address is bracketed, or ssh reads its colons as the forward's own.
+        let target = conn.host.contains(":") && !conn.host.hasPrefix("[") ? "[\(conn.host)]" : conn.host
         var args: [String] = [
             "-N",                                               // no remote command
-            "-L", "\(localPort):\(conn.host):\(conn.port)",   // forward local→remote database
+            "-L", "\(localPort):\(target):\(conn.port)",       // forward local→remote database
             "-p", "\(conn.sshPort)",                           // SSH server port
             // A server not met before: the app asks whether to trust its key, as ssh does in
             // Terminal; with nothing to answer (a script, a test), it's trusted as before.
@@ -192,6 +211,11 @@ final class SSHTunnel {
             "-o", "ExitOnForwardFailure=yes",                  // die if tunnel can't bind
             "-o", "ServerAliveInterval=30",                    // keepalive
             "-o", "ConnectTimeout=10",                         // SSH connect timeout
+            // An ssh of its own, whatever ~/.ssh/config says: under a ControlMaster, a
+            // second tunnel through the same server lived in the first one's ssh, and went
+            // when that one was closed.
+            "-o", "ControlMaster=no",
+            "-o", "ControlPath=none",
             "-o", "HostKeyAlgorithms=+ssh-rsa",                // old servers' host keys
             "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa",         // old servers' key logins
         ]
@@ -215,6 +239,7 @@ final class SSHTunnel {
     }
 
     func stop() {
+        stopping = true
         endLogin()
         process?.terminate()
         process = nil

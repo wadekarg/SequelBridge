@@ -60,13 +60,15 @@ dialog shows its question; **Remember in Keychain** saves a password or passphra
 never a one-time code. A server met for the first time shows its key's fingerprint and
 asks to be trusted. If a server's key has changed, the connection stops before anything
 is sent and says so; **Forget the Old Key and Connect…** removes the old key once you
-have confirmed the new one. **Test Connection** on the form tries the connection,
+have confirmed the new one. When a tunnel closes on its own (the Mac slept, the network
+dropped), the workspace says so and offers **Reconnect**. **Test Connection** on the form tries the connection,
 tunnel included, before saving. Passwords go into your Keychain, never into the
 connection file. A failed connection says why, in the server's words: a wrong
 password, an unknown host, SSL required but not offered.
 
 **Use SSL** makes a MySQL or PostgreSQL connection require an encrypted session, and
-fail if the server doesn't offer one; the server's certificate isn't checked. Without
+fail if the server doesn't offer one; the server's certificate isn't checked. It is on
+the SSH form too, for an SSL-only server (Amazon RDS, Azure) behind an SSH server. Without
 it the connection is still encrypted when the server offers TLS, as MySQL 8 does by
 default. On ClickHouse it switches to HTTPS. The app's own MySQL client, which runs
 EXPLAIN, reads a table's `CREATE TABLE` and runs Table Maintenance, follows Use SSL the
@@ -138,7 +140,8 @@ the server refuses the value, the old one comes back and the server's message is
 with **Edit Again** to fix the value or **Discard**. **Set to NULL** is on the cell's
 right-click menu. A cell that can't be edited says why instead: the connection is
 read-only, the table has no primary key, or it is ClickHouse, where a row write is an
-asynchronous table mutation. Rows can also be inserted and deleted, on the same terms.
+asynchronous table mutation. Rows can also be inserted and deleted, on the same terms;
+deleting asks first, saying how many rows go.
 ⌘D duplicates the selected row: the copy opens in the row sheet without what the server
 fills in itself (an auto-increment key), and each empty field says what it will get (a
 default, NULL, the server's own number) or that it is required.
@@ -172,12 +175,15 @@ you had typed it into the server's own client. `SHOW CREATE TABLE`, `SHOW PROCES
 `SHOW GRANTS`, `HELP` and `CHECK TABLE`, which MySQL won't run through DuckDB, go to the
 app's own MySQL client, and PostgreSQL's `SHOW` and `EXPLAIN` to its own PostgreSQL client. On MySQL and PostgreSQL a statement that
 returns no rows (a write, DDL) is sent exactly as typed; on MySQL the result says how
-many rows it changed, while PostgreSQL gives no count this way, so the result says Done.
-`LOCK TABLES` and `SET autocommit` are refused, saying why: the app's statements don't
-share one server connection, so they'd stay on a connection the app reuses. A `BEGIN`
-typed in the Query tab holds the statements after it until its `COMMIT` or `ROLLBACK`. A statement that names no server runs
-on the one picked at the top of the left panel, in the database picked there. A SQLite
-file is read by DuckDB, so DuckDB SQL applies there.
+many rows it changed, on PostgreSQL it says Done or shows `RETURNING`'s rows. A script
+whose statements share what each sets (`SET @d = …; SELECT … WHERE d > @d`, a
+temporary table, `PREPARE` and `EXECUTE`, `LOCK TABLES … UNLOCK TABLES`) runs on one
+connection, as in Sequel Ace; on its own, a `SET` says it lasts for its run, and
+`LOCK TABLES` and `SET autocommit` are refused, saying why. A `BEGIN` typed in the Query
+tab holds the statements after it until its `COMMIT` or `ROLLBACK`. A statement that
+names no server runs on the one picked at the top of the left panel, in the database
+picked there. On a SQLite file, statements run in SQLite itself, in SQLite's own SQL:
+its functions, `PRAGMA`, `INSERT OR REPLACE`, `RETURNING` and triggers.
 
 As in Sequel Ace, `USE other_db` picks that database at the top of the left panel and
 the statements after it run there; CREATE, ALTER, DROP and RENAME refresh the table
@@ -260,8 +266,8 @@ writes the log as a `.sql` file; **Clear** empties it.
 ## Settings and shortcuts
 
 **Appearance** sets a light, dark or system theme. **Editor** sets the font size, tab
-width and whether the editor auto-completes. **Connections** lists the saved
-connections with Edit and Delete. **Shortcuts** lists every key the app binds:
+width and whether Tab completes a word (off, it indents). **Connections** lists the saved
+connections with Edit and Delete, which asks first, since the saved password goes too. **Shortcuts** lists every key the app binds:
 
 | Keys | Action |
 |---|---|
@@ -286,5 +292,5 @@ connections with Edit and Delete. **Shortcuts** lists every key the app binds:
 | ⌘J | Jump to a page, or set the rows a page shows (Content) |
 | ⌘D | Duplicate the selected row (Content) |
 | ⌘, | Settings |
-| Click a table | Insert its name at the cursor |
-| Double-click a table | SELECT * … LIMIT 200 in a new query tab |
+| Click a table | Open it |
+| Double-click a table | Copy its name |

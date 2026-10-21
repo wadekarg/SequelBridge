@@ -53,10 +53,13 @@ final class PostgresClient {
     func query(_ sql: String) async throws -> (columns: [String], rows: [[String?]]) {
         let link = try await open()
         defer { link.close() }
-        try await startup(link)
-        let result = try await simpleQuery(link, sql)
-        try? await link.send(Self.message("X", Data()))
-        return result
+        return try await link.cancellable {
+            try await startup(link)
+            link.allowSlowReplies()
+            let result = try await simpleQuery(link, sql)
+            try? await link.send(Self.message("X", Data()))
+            return result
+        }
     }
 
     /// Runs `statements` one after another on one connection, each as a query of its own
@@ -66,16 +69,19 @@ final class PostgresClient {
     func run(_ statements: [String]) async throws -> (columns: [String], rows: [[String?]]) {
         let link = try await open()
         defer { link.close() }
-        try await startup(link)
-        var last: (columns: [String], rows: [[String?]]) = ([], [])
-        for (n, sql) in statements.enumerated() {
-            do { last = try await simpleQuery(link, sql) }
-            catch where statements.count > 1 {
-                throw PostgresClientError.server("Statement \(n + 1) of \(statements.count): \(error.localizedDescription)")
+        return try await link.cancellable {
+            try await startup(link)
+            link.allowSlowReplies()
+            var last: (columns: [String], rows: [[String?]]) = ([], [])
+            for (n, sql) in statements.enumerated() {
+                do { last = try await simpleQuery(link, sql) }
+                catch where statements.count > 1 && !Task.isCancelled {
+                    throw PostgresClientError.server("Statement \(n + 1) of \(statements.count): \(error.localizedDescription)")
+                }
             }
+            try? await link.send(Self.message("X", Data()))
+            return last
         }
-        try? await link.send(Self.message("X", Data()))
-        return last
     }
 
     // MARK: - Connection

@@ -99,6 +99,27 @@ struct PostgresNativeTests {
         #expect(plan.rows.contains { $0.first?.contains("customers") == true }, "\(plan.rows)")
     }
 
+    /// The encrypted link waited 10 seconds for any reply, the connect timeout reused: a
+    /// statement that ran longer (EXPLAIN ANALYZE, an UPDATE of many rows) failed.
+    @Test("a statement that runs longer than the 10 seconds a connect may take still comes back")
+    func longStatement() async throws {
+        let e = try await engine("pn9")
+        let r = try await e.nativeQuery(alias: "pn9", sql: "SELECT 'slept' FROM pg_sleep(11)", database: nil)
+        #expect(r.rows == [["slept"]])
+    }
+
+    @Test("Cancel ends a statement on the app's own client at once")
+    func cancel() async throws {
+        let e = try await engine("pn10")
+        let started = Date()
+        let run = Task { try await e.nativeQuery(alias: "pn10", sql: "SELECT pg_sleep(30)", database: nil) }
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        run.cancel()
+        let outcome = await run.result
+        #expect(Date().timeIntervalSince(started) < 5, "it ran \(Date().timeIntervalSince(started)) s")
+        if case .success = outcome { Issue.record("a cancelled statement ran to the end") }
+    }
+
     @Test("a typed SHOW runs, in the schema picked")
     func show() async throws {
         let e = try await engine("pn2")

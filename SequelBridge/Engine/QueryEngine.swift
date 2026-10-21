@@ -588,9 +588,16 @@ final class QueryEngine {
     func startTunnel(for c: Connection) async throws -> Int {
         let tunnel = SSHTunnel()
         try await tunnel.start(conn: c)
+        tunnel.onDrop = { [weak self] in self?.onTunnelDrop?(c.alias) }
         sshTunnels[c.alias] = tunnel
         return tunnel.localPort
     }
+
+    /// Told the alias whose SSH tunnel ended on its own (ConnectionManager reports it).
+    var onTunnelDrop: ((String) -> Void)?
+
+    /// The alias's ssh process id while its tunnel runs; nil otherwise. For the tests.
+    func tunnelProcessID(_ alias: String) -> Int32? { sshTunnels[alias]?.processIdentifier }
 
     func stopTunnel(_ alias: String) {
         sshTunnels[alias]?.stop()

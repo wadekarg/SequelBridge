@@ -24,6 +24,10 @@ class ConnectionManager: ObservableObject {
     /// The changed SSH server key the last Test Connection stopped at, for "Forget the Old
     /// Key…"; nil once that is done or another test starts. (Connect throws it.)
     var hostKeyChange: SSHHostKeyChange? { willSet { objectWillChange.send() } }
+    /// Connections whose SSH tunnel closed on its own (the Mac slept, the network dropped):
+    /// the workspace says so and offers Reconnect. Every statement on them failed, naming
+    /// only an internal port, until the user went back Home.
+    var droppedTunnels: Set<String> = [] { willSet { objectWillChange.send() } }
 
     private let store: ConnectionStore
     /// True when launched with `-SBConnectionsFile`: the list comes from a read-only
@@ -42,6 +46,7 @@ class ConnectionManager: ObservableObject {
             isFixtureBacked = false
         }
         saved = (try? store.load()) ?? []
+        queryEngine.onTunnelDrop = { [weak self] alias in self?.droppedTunnels.insert(alias) }
     }
 
     /// The password to connect with: a fixture's inline password when there is one,
@@ -99,18 +104,54 @@ class ConnectionManager: ObservableObject {
         }
         directConns.removeAll()
         active = []
+        droppedTunnels.subtract(staleAliases)
 
-        for c in connections {
-            guard let password = password(for: c) else {
-                throw ConnectionError.missingPassword(c.name)
+        var attached: [String] = []
+        do {
+            for c in connections {
+                guard let password = password(for: c) else {
+                    throw ConnectionError.missingPassword(c.name)
+                }
+                try await queryEngine.attach(c, password: password)
+                attached.append(c.alias)
+                directConns[c.alias] = MySQLDirectConnection(c, password: password)
             }
-            try await queryEngine.attach(c, password: password)
-            directConns[c.alias] = MySQLDirectConnection(c, password: password)
+        } catch {
+            // Those attached before the failure go too: they stayed attached, their SSH
+            // tunnels running, until the app quit.
+            for alias in attached {
+                try? await queryEngine.detach(alias)
+                directConns.removeValue(forKey: alias)
+            }
+            throw error
         }
         active = connections
     }
 
+    /// Opens one more connection beside those open (a workspace's + button), as Connect
+    /// does: it joins `active`, so the next Connect from Home closes it too (attached on
+    /// its own, it stayed attached, its SSH tunnel running, until the app quit).
+    func add(_ conn: Connection) async throws {
+        guard !active.contains(where: { $0.alias == conn.alias }) else { return }
+        guard let password = password(for: conn) else { throw ConnectionError.missingPassword(conn.name) }
+        try await queryEngine.attach(conn, password: password)
+        directConns[conn.alias] = MySQLDirectConnection(conn, password: password)
+        active.append(conn)
+    }
+
+    /// Opens a connection whose SSH tunnel closed again: a new tunnel (ssh may ask its
+    /// questions again) and the same attachment, on the database it was on.
+    func reconnect(_ alias: String) async throws {
+        guard let conn = active.first(where: { $0.alias == alias }) else { return }
+        guard let password = password(for: conn) else { throw ConnectionError.missingPassword(conn.name) }
+        try? await queryEngine.detach(alias)
+        try await queryEngine.attach(conn, password: password)
+        directConns[alias] = MySQLDirectConnection(conn, password: password)
+        droppedTunnels.remove(alias)
+    }
+
     func disconnect(_ alias: String) {
+        droppedTunnels.remove(alias)
         directConns.removeValue(forKey: alias)
         active.removeAll { $0.alias == alias }
         // detach() is now serialized through the query actor, so it is async. UI

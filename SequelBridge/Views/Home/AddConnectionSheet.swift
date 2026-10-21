@@ -79,6 +79,10 @@ struct AddConnectionSheet: View {
     @State private var folder: String
     @State private var readOnly: Bool
     @State private var testStatus: TestStatus = .idle
+    /// The id of the connection being made, the same for Test Connection and Add to
+    /// Favorites: a password the test's SSH login kept in the Keychain belongs to the
+    /// connection saved after it (each made an id of its own, so it belonged to neither).
+    @State private var draftID = UUID()
     @State private var testError: String?
     @State private var saveError: String?
 
@@ -249,6 +253,10 @@ struct AddConnectionSheet: View {
                 Spacer()
 
                 Button("Cancel") {
+                    // A new connection not saved: what its test's login kept goes too.
+                    if editingConnection == nil {
+                        for kind in SSHLoginPrompt.keychainKinds { Keychain.delete(for: draftID, kind: kind) }
+                    }
                     isPresented = false
                 }
                 .keyboardShortcut(.cancelAction)
@@ -353,6 +361,9 @@ struct AddConnectionSheet: View {
             row("Username", field: TextField(engine == .postgres ? "postgres" : "root", text: $username))
             row("Password", field: SecureField("required", text: $password))
             row("Database", field: TextField("optional", text: $database))
+            // Through the tunnel too: an SSL-only server (RDS, Azure) behind a bastion.
+            row("SSL",      field: Toggle("", isOn: $useSSL).labelsHidden()
+                                    .help("Encrypt the database connection inside the tunnel too: AWS RDS, Azure and other cloud databases need it"))
         }
         HStack {
             Image(systemName: "info.circle").foregroundColor(.secondary)
@@ -369,6 +380,10 @@ struct AddConnectionSheet: View {
             // PostgreSQL takes the socket's directory (or the .s.PGSQL.<port> file itself).
             row(engine == .postgres ? "Socket Directory" : "Socket Path",
                 field: TextField(engine.defaultSocketPath, text: $socketPath))
+            // PostgreSQL names its socket file after the port: .s.PGSQL.5432.
+            if engine == .postgres {
+                row("Port", field: TextField(String(engine.defaultPort), text: $port).frame(width: 80))
+            }
             row("Username",    field: TextField("root", text: $username))
             row("Password",    field: SecureField("required", text: $password))
             row("Database",    field: TextField("optional", text: $database))
@@ -442,7 +457,7 @@ struct AddConnectionSheet: View {
     // MARK: - Actions
 
     private func buildConnection() -> Connection {
-        Connection(
+        var conn = Connection(
             name: name, alias: alias,
             connectionType: connectionType,
             color: color,
@@ -456,6 +471,8 @@ struct AddConnectionSheet: View {
             folder: folder.trimmingCharacters(in: .whitespacesAndNewlines),
             readOnly: readOnly
         )
+        conn.id = editingConnection?.id ?? draftID
+        return conn
     }
 
     private func runTest() async {

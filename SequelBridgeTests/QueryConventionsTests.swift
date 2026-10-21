@@ -28,11 +28,11 @@ struct QueryConventionsTests {
         #expect(!c.lines.joined().contains("prefix"))
     }
 
-    @Test("a SQLite file is DuckDB SQL, not SQLite's own")
+    @Test("a SQLite file takes SQLite's own SQL, run in SQLite")
     func singleSQLite() {
         let c = QueryConventions.make(for: [conn("lite", .sqlite)])
-        #expect(c.summary == "lite — DuckDB SQL over the SQLite file.")
-        #expect(c.lines[0].contains("DuckDB SQL") && c.lines[0].contains("EXPLAIN"))
+        #expect(c.summary == "lite — SQLite's own SQL, run in SQLite.")
+        #expect(c.lines[0].contains("SQLite's own SQL") && c.lines[0].contains("EXPLAIN QUERY PLAN"))
     }
 
     @Test("several servers: alias prefixes, streaming joins, and what runs on DuckDB")
@@ -62,7 +62,7 @@ struct QueryConventionsTests {
         #expect(c.summary.hasPrefix("Servers ch, lite, pg16"))
         #expect(text.contains("ClickHouse side is copied over") && text.contains("smaller side"))
         #expect(text.contains("ClickHouse × ClickHouse"))
-        #expect(text.contains("lite (SQLite via DuckDB)") && text.contains("pg16 (PostgreSQL)") && text.contains("ch (ClickHouse, HTTP)"))
+        #expect(text.contains("lite (SQLite)") && text.contains("pg16 (PostgreSQL)") && text.contains("ch (ClickHouse, HTTP)"))
     }
 
     @Test("no connections: nothing to say")

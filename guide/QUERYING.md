@@ -11,14 +11,23 @@ in the server's own client.
 
 | Engine | Where it runs | EXPLAIN |
 |---|---|---|
-| MySQL / MariaDB | On the server, through the passthrough; `SHOW`, `HELP`, `CHECK TABLE` and `CHECKSUM TABLE` on the built-in MySQL client, since the scanner can't prepare them | The Explain button, or a typed `EXPLAIN …`: the server's own plan (on the built-in MySQL client too) |
-| PostgreSQL | On the server, through the passthrough; `SHOW` on the built-in PostgreSQL client, since the scanner nests every statement in a subquery | The Explain button, or a typed `EXPLAIN …`: the server's own plan (on the built-in PostgreSQL client too) |
-| ClickHouse | On the server, over its HTTP interface | A typed `EXPLAIN …` runs on ClickHouse like any statement; the Explain button is for MySQL and PostgreSQL only |
-| SQLite file | Read by DuckDB, so write DuckDB SQL | A typed `EXPLAIN …` shows DuckDB's plan; the Explain button is for MySQL and PostgreSQL only |
+| MySQL / MariaDB | A read on the server, through the passthrough; anything else on the server as typed. `SHOW`, `HELP`, `CHECK TABLE`, `CHECKSUM TABLE` and `CALL` on the built-in MySQL client, since the scanner can't prepare them, and a read whose result has two columns of one name | The Explain button, or a typed `EXPLAIN …`: the server's own plan (on the built-in MySQL client too) |
+| PostgreSQL | A read on the server: through the passthrough in `public`, on the built-in PostgreSQL client in another schema (with `search_path` set to it). A write on the built-in client, as psql runs it, so `VACUUM`, `CREATE INDEX CONCURRENTLY` and `CREATE DATABASE` work and `RETURNING` shows its rows; inside a `BEGIN` typed in the Query tab, in that transaction. `SHOW` on the built-in client. `SET search_path TO x` picks the schema, as `USE` does on MySQL | The Explain button, or a typed `EXPLAIN …`: the server's own plan (on the built-in PostgreSQL client too) |
+| ClickHouse | On the server, over its HTTP interface; a statement with its own `FORMAT` shows that text | A typed `EXPLAIN …` runs on ClickHouse like any statement; the Explain button is for MySQL and PostgreSQL only |
+| SQLite file | In SQLite itself, in SQLite's own SQL: a read streams from the file, anything else runs in macOS's `sqlite3`; inside a `BEGIN` typed in the Query tab, in that transaction (DuckDB's) | A typed `EXPLAIN QUERY PLAN …` runs in SQLite; the Explain button is for MySQL and PostgreSQL only |
+
+A script runs one statement at a time, each where the table says, and stops at the first
+that fails, saying which. When one statement sets what a later one reads (a variable,
+`SET @d = …`; a temporary table; `PREPARE` and `EXECUTE`; a session setting; a
+transaction or a lock), the whole script runs on one connection of the server's own
+client, as in Sequel Ace or psql. What it sets lasts for that run: run a `SET` together
+with the statements it is for. On a SQLite file a script runs in one go, as in the
+`sqlite3` shell.
 
 A connection marked read-only refuses every write (INSERT, UPDATE, DELETE, DDL, an
-`EXPLAIN ANALYZE` of a write), and while one is open in the workspace a typed statement
-that writes is refused whichever server it names. The server's own session is
+`EXPLAIN ANALYZE` of a write). A typed statement that writes to it is refused, while one
+for a writable connection open beside it runs; a statement across servers that writes
+into it is refused by DuckDB, which attaches it read-only. The server's own session is
 read-only too, so a function a `SELECT` calls can't write either.
 
 ## Several servers: naming tables

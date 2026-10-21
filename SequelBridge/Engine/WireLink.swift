@@ -27,6 +27,26 @@ protocol WireLink: AnyObject {
     /// Exactly `n` bytes, or an error.
     func receive(_ n: Int) async throws -> Data
     func close()
+    /// Logged in: replies may take as long as a statement runs (an EXPLAIN ANALYZE, a big
+    /// UPDATE), not the few seconds a connect may.
+    func allowSlowReplies()
+}
+
+extension WireLink {
+    func allowSlowReplies() {}
+
+    /// Runs `body` on this link; cancelling the task closes the link, which ends a wait
+    /// for the server at once (Cancel in the Query tab), and reports the cancellation.
+    func cancellable<T>(_ body: () async throws -> T) async throws -> T {
+        // close() is safe from any thread: it cancels the connection under it.
+        nonisolated(unsafe) let link = self
+        do {
+            return try await withTaskCancellationHandler(operation: body, onCancel: { link.close() })
+        } catch {
+            if Task.isCancelled { throw CancellationError() }
+            throw error
+        }
+    }
 }
 
 /// Plain TCP or a Unix socket, through Network.framework.
@@ -117,7 +137,7 @@ final class NWWireLink: WireLink {
 final class TLSWireLink: NSObject, WireLink, URLSessionDelegate, URLSessionTaskDelegate, @unchecked Sendable {
     private let host: String
     private let port: Int
-    private let timeout: TimeInterval
+    private var timeout: TimeInterval
     private var session: URLSession?
     private var stream: URLSessionStreamTask?
 
@@ -168,6 +188,10 @@ final class TLSWireLink: NSObject, WireLink, URLSessionDelegate, URLSessionTaskD
 
     /// Switches to TLS once the writes and reads already queued are done.
     func startTLS() { live.startSecureConnection() }
+
+    /// After the login: a reply waited the connect timeout (10 seconds) at most, so a
+    /// statement that ran longer failed. A day now; Cancel closes the link sooner.
+    func allowSlowReplies() { timeout = 24 * 3600 }
 
     func close() {
         stream?.cancel()

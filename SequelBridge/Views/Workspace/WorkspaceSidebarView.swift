@@ -23,11 +23,16 @@ struct WorkspaceSidebarView: View {
     @State private var importProgress: ImportProgress?             // Import SQL file…, while it runs
     @State private var importTask: Task<Void, Never>?
     @State private var destructError: String? = nil
+    /// Why a server added with + didn't connect (it said nothing).
+    @State private var addServerError: String? = nil
     @State private var exportInfo: String? = nil               // neutral note after a SQL export
 
     var body: some View {
         VStack(spacing: 0) {
             connectionTabs
+            ForEach(session.connections.filter { manager.droppedTunnels.contains($0.alias) }) { conn in
+                droppedTunnelBanner(conn)
+            }
             if let conn = session.connections.first(where: { $0.alias == session.activeConnectionAlias })
                 ?? session.connections.first {
                 VStack(spacing: 0) {
@@ -120,6 +125,12 @@ struct WorkspaceSidebarView: View {
             Text(target.action == .drop
                  ? "This permanently deletes the table “\(target.table.name)” and all of its data. This cannot be undone."
                  : "This permanently deletes every row in “\(target.table.name)”. This cannot be undone.")
+        }
+        .alert("Couldn’t connect",
+               isPresented: Binding(get: { addServerError != nil }, set: { if !$0 { addServerError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(addServerError ?? "")
         }
         .alert("Couldn’t complete the operation",
                isPresented: Binding(get: { destructError != nil }, set: { if !$0 { destructError = nil } })) {
@@ -780,6 +791,33 @@ struct WorkspaceSidebarView: View {
         tableInfoLoading = false
     }
 
+    /// An SSH tunnel that closed on its own (the Mac slept, the network dropped): said
+    /// plainly, with Reconnect. Statements on it failed naming only an internal port.
+    private func droppedTunnelBanner(_ conn: Connection) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "bolt.horizontal.circle").foregroundColor(.orange)
+            Text("The SSH tunnel to \(conn.name) closed.")
+                .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button("Reconnect") {
+                Task {
+                    do {
+                        try await manager.reconnect(conn.alias)
+                        await loadDatabases(for: conn)
+                    } catch {
+                        addServerError = "\(conn.name): \(QueryEngine.extractReason(from: error))"
+                    }
+                }
+            }
+            .controlSize(.small)
+            .accessibilityIdentifier("sidebar.reconnect.\(conn.alias)")
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(Color.orange.opacity(0.12))
+        .accessibilityIdentifier("sidebar.tunnelDropped.\(conn.alias)")
+    }
+
     // MARK: - Data loading
 
     private func loadDatabases(for conn: Connection) async {
@@ -791,14 +829,15 @@ struct WorkspaceSidebarView: View {
     }
 
     private func connectOne(_ conn: Connection) async {
-        guard !session.connections.contains(where: { $0.id == conn.id }),
-              let password = manager.password(for: conn) else { return }
+        guard !session.connections.contains(where: { $0.id == conn.id }) else { return }
         do {
-            try await manager.queryEngine.attach(conn, password: password)
+            try await manager.add(conn)
             session.connections.append(conn)
             if session.activeConnectionAlias == nil { session.activeConnectionAlias = conn.alias }
             await loadDatabases(for: conn)
-        } catch {}
+        } catch {
+            addServerError = "\(conn.name): \(QueryEngine.extractReason(from: error))"
+        }
     }
 
     /// After New Connection… closes: opens the connection it saved, if it saved one. It

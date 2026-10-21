@@ -43,7 +43,7 @@ struct QueryConventions: Equatable {
 
     private static func singleSummary(_ c: Connection) -> String {
         switch c.engine {
-        case .sqlite: return "\(c.alias) — DuckDB SQL over the SQLite file."
+        case .sqlite: return "\(c.alias) — SQLite's own SQL, run in SQLite."
         default:      return "\(c.alias) — plain \(c.engine.displayName), runs on the server as is."
         }
     }
@@ -51,7 +51,7 @@ struct QueryConventions: Equatable {
     private static func singleLine(_ c: Connection) -> String {
         switch c.engine {
         case .sqlite:
-            return "DuckDB SQL (double-quoted identifiers, :: casts) over the SQLite file; EXPLAIN shows DuckDB's plan."
+            return "SQLite's own SQL, run in SQLite: its functions, PRAGMA, INSERT OR REPLACE, RETURNING; EXPLAIN QUERY PLAN shows its plan."
         default:
             return "Write \(c.engine.displayName) as in its own client — runs on \(c.alias) unchanged, EXPLAIN included."
         }
@@ -60,7 +60,7 @@ struct QueryConventions: Equatable {
     /// `alias (engine)` with where its statements run, for the several-servers note.
     private static func runsAs(_ c: Connection) -> String {
         switch c.engine {
-        case .sqlite:     return "\(c.alias) (SQLite via DuckDB)"
+        case .sqlite:     return "\(c.alias) (SQLite)"
         case .clickhouse: return "\(c.alias) (ClickHouse, HTTP)"
         default:          return "\(c.alias) (\(c.engine.displayName))"
         }

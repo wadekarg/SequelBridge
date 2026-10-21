@@ -14,6 +14,8 @@ struct SQLEditorView: NSViewRepresentable {
     @Binding var cursorLocation: Int   // the caret, in UTF-16 offsets: Run Current runs the statement there
     var fontSize: CGFloat = 13
     var tabWidth: Int = 4
+    /// Settings' Auto-complete: Tab completes the word, else indents (it always completed).
+    var autoComplete: Bool = true
     var onRun: () -> Void
     var completionItems: [String] = []
 
@@ -112,7 +114,11 @@ struct SQLEditorView: NSViewRepresentable {
         // Intercept Tab → trigger completion; let Cmd+Enter run query
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             if commandSelector == #selector(NSResponder.insertTab(_:)) {
-                textView.complete(nil)
+                if parent.autoComplete {
+                    textView.complete(nil)
+                } else {
+                    textView.insertText(String(repeating: " ", count: max(1, parent.tabWidth)), replacementRange: textView.selectedRange())
+                }
                 return true
             }
             return false

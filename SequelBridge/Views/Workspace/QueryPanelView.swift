@@ -44,6 +44,7 @@ struct QueryPanelView: View {
                         cursorLocation: $cursorLocation,
                         fontSize: appSettings.editorFontSize,
                         tabWidth: appSettings.tabWidth,
+                        autoComplete: appSettings.autoComplete,
                         onRun: { Task { await runQuery(tabIndex: idx) } },
                         completionItems: completionItems
                     )

@@ -107,6 +107,24 @@ struct SSHTunnelTests {
         #expect(SSHTunnel.arguments(for: conn, localPort: 13307, keyPath: nil).contains("UserKnownHostsFile=/tmp/sb_known_hosts"))
     }
 
+    @Test("each tunnel is an ssh of its own: never a ControlMaster's, whatever ~/.ssh/config says")
+    func noConnectionSharing() {
+        var conn = Connection(name: "t", alias: "t", connectionType: .ssh, host: "db.internal", port: 3306, username: "dbuser")
+        conn.sshHost = "bastion.example"
+        let args = SSHTunnel.arguments(for: conn, localPort: 13307, keyPath: nil)
+        #expect(args.contains("ControlMaster=no") && args.contains("ControlPath=none"), "\(args)")
+    }
+
+    @Test("an IPv6 database host is bracketed in the forward, as ssh needs")
+    func ipv6Forward() {
+        var conn = Connection(name: "t", alias: "t", connectionType: .ssh, host: "fd00::5", port: 5432, username: "u")
+        conn.sshHost = "bastion.example"
+        let args = SSHTunnel.arguments(for: conn, localPort: 13307, keyPath: nil)
+        #expect(args.contains("13307:[fd00::5]:5432"), "\(args)")
+        conn.host = "db.internal"
+        #expect(SSHTunnel.arguments(for: conn, localPort: 13307, keyPath: nil).contains("13307:db.internal:5432"))
+    }
+
     @Test("stop() is safe to call when no tunnel was ever started")
     func stopWithoutStart() {
         let t = SSHTunnel()
@@ -420,6 +438,35 @@ struct SSHTunnelTests {
         }
         #expect(asked.count == 1, "ssh logged in \(asked.count) times: \(asked.map(\.prompt))")
         try? await manager.queryEngine.detach("sshswitch")
+    }
+
+    /// A manager whose saved list is `conn` with its database password inline, as a
+    /// fixture file gives it (Connect finds the password there, not in the Keychain).
+    func manager(for conn: Connection) throws -> ConnectionManager {
+        var entry = try JSONSerialization.jsonObject(with: JSONEncoder().encode(conn)) as! [String: Any]
+        entry["password"] = SSHEnv.dbPass
+        let list = FileManager.default.temporaryDirectory.appendingPathComponent("sb-mgr-\(UUID().uuidString.prefix(8)).json")
+        try JSONSerialization.data(withJSONObject: [entry]).write(to: list)
+        return try ConnectionManager(arguments: ["app", "-SBConnectionsFile", list.path])
+    }
+
+    /// The Mac sleeping or the network dropping ends ssh: nothing noticed, and every
+    /// statement failed naming only the tunnel's local port until a new Connect from Home.
+    @Test("a tunnel that drops is reported, and Reconnect brings the connection back",
+          .enabled(if: SSHEnv.enabled && !SSHEnv.keyPath.isEmpty))
+    func droppedTunnelReconnects() async throws {
+        let conn = sshConnection(alias: "sshdrop")
+        let manager = try manager(for: conn)
+        try await manager.connect([conn])
+        let pid = try #require(manager.queryEngine.tunnelProcessID("sshdrop"), "no ssh running for the tunnel")
+        kill(pid, SIGKILL)                                     // the network went
+        for _ in 0..<50 where !manager.droppedTunnels.contains("sshdrop") { try await Task.sleep(nanoseconds: 100_000_000) }
+        #expect(manager.droppedTunnels.contains("sshdrop"), "the dropped tunnel wasn't noticed")
+        try await manager.reconnect("sshdrop")
+        #expect(manager.droppedTunnels.isEmpty)
+        let r = try await manager.queryEngine.query(#"SELECT COUNT(*) FROM "sshdrop"."sbtest"."customers""#)
+        #expect(r.rows.first?.first == "3")
+        try? await manager.queryEngine.detach("sshdrop")
     }
 
     /// A public key of the test server's own type (ED25519) that isn't the server's.

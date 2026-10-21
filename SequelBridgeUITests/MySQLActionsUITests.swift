@@ -202,6 +202,34 @@ class MySQLActionsUITests: XCTestCase {
         run("DROP TABLE ui_child, ui_parent")
     }
 
+    func testStructureAddsAColumnOnSaveAndRevertKeepsTheTable() throws {
+        pick(database: "sbwrite")
+        run("DROP TABLE IF EXISTS ui_struct; CREATE TABLE ui_struct (id INT PRIMARY KEY)")
+        XCTAssertTrue(table("ui_struct").waitForExistence(timeout: 30))
+        table("ui_struct").click()
+        app.typeKey("1", modifierFlags: .command)                      // Structure
+        element("structure.addColumn").click()
+        let name = element("structure.name.new_column")
+        XCTAssertTrue(name.waitForExistence(timeout: 10), "+ added no column to name")
+        name.click()
+        name.typeKey("a", modifierFlags: .command)
+        name.typeText("note")
+        element("structure.save").click()
+        expectValue("""
+            SELECT CONCAT('col=', COLUMN_TYPE) AS v FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = 'sbwrite' AND TABLE_NAME = 'ui_struct' AND COLUMN_NAME = 'note'
+            """, "col=varchar(255)", "Save Changes didn't add the column")
+
+        table("ui_struct").click()
+        app.typeKey("1", modifierFlags: .command)
+        element("structure.addColumn").click()
+        XCTAssertTrue(element("structure.name.new_column").waitForExistence(timeout: 10))
+        try XCTUnwrap(dialogButton("Revert"), "no Revert for an unsaved change").click()
+        expectValue("SELECT CONCAT('cols=', COUNT(*)) AS v FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'sbwrite' AND TABLE_NAME = 'ui_struct'",
+                    "cols=2", "Revert changed the table")
+        run("DROP TABLE ui_struct")
+    }
+
     func testCancelStopsALongQuery() {
         run("SELECT SLEEP(30)")
         let cancel = element("query.cancel")

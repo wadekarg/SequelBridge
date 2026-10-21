@@ -5,6 +5,55 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 ## 1.2.2 — 2026-10-19
 
 ### Fixed
+- PostgreSQL: once the left panel had picked the public schema (it always does), every
+  read in the Query tab ran in DuckDB, not on the server, so results could be wrong
+  without an error: 7 / 2 gave 3.5, a regular expression matched nothing, arrays showed
+  NULL, an enum its number, and PostgreSQL's own functions didn't exist. Reads run on the
+  server now, and in another schema on the app's own client, with search_path set.
+  Writes run as psql runs them, so VACUUM, CREATE INDEX CONCURRENTLY and CREATE DATABASE
+  work and RETURNING shows its rows (inside a BEGIN typed in the Query tab, they still
+  join that transaction). A function or DO body in $$ … $$ is no longer cut at its
+  semicolons, #>> is no longer taken for a comment, and SET search_path TO x picks
+  that schema, as USE does on MySQL.
+- SQLite: statements typed in the Query tab ran in DuckDB, so a table made there
+  numbered nothing (INTEGER PRIMARY KEY gave NULL ids, and a duplicate id went in), and
+  SQLite's functions (datetime, strftime), PRAGMA, INSERT OR REPLACE, upserts, RETURNING,
+  triggers and WITHOUT ROWID failed. They run in SQLite itself now; a script runs in
+  one go, as in the sqlite3 shell.
+- ClickHouse: every INSERT … VALUES typed in the Query tab failed ("Cannot parse
+  input"), as did DELETE and a query with its own FORMAT: the app added a FORMAT clause
+  to every statement. It asks for its format another way now.
+- MySQL: a CALL to a procedure that returns rows failed ("Commands out of sync"); a
+  SELECT with two columns of one name, such as SELECT * over a join, failed ("duplicate
+  column name"); a statement starting with a # comment failed. All three run.
+- A script's statements run on one connection when one sets what a later one reads:
+  SET @d = …; SELECT … WHERE placed > @d counted nothing, without an error, and a
+  temporary table, PREPARE/EXECUTE, LAST_INSERT_ID() or LOCK TABLES … UNLOCK TABLES
+  vanished between statements. A SET run on its own says it lasts for its run.
+- With two connections open, a write naming one of them ran in DuckDB rather than on
+  that server, and an open read-only connection refused every write, also to a writable
+  one. Only a write to the read-only connection is refused now.
+- A query returning 'infinity' as a timestamp or date (PostgreSQL allows it) closed the
+  app. A DECIMAL(10,2) showed 12345678.9 for 12345678.90; UUIDs were in capitals and
+  whole numbers read 2026.0; a PostgreSQL read ending in a -- comment failed.
+- Over SSH, picking another database on a MySQL connection logged in to SSH again:
+  a password or one-time code was asked at every pick, and once more right after
+  connecting when the connection had no database saved. The tunnel stays up now.
+- With two connections open, a statement could read a table of the same name on the
+  other connection: DuckDB's one default database was tracked per connection, and moved
+  by the other connection, Test Connection or adding a server.
+- The SSH login dialog's field didn't have the cursor: what was typed went nowhere, and
+  Log In sent an empty password or code ("That didn't work").
+- The app's own MySQL and PostgreSQL clients gave up on any statement over 10 seconds
+  on an encrypted connection (every PostgreSQL one over TCP/IP or SSH); Cancel didn't
+  stop them.
+- In a workspace, + then New Connection… then Cancel connected every saved favorite not
+  open yet, each SSH one asking to log in; a server added with + that failed to connect
+  said nothing, and one that connected stayed open, its SSH tunnel running, after the
+  next Connect from Home. A Connect that failed part-way left the connections before
+  the failure open the same way.
+- Test Connection used an id of its own, so a password saved during it in the Keychain
+  belonged to no connection, and a saved password wasn't used by the test.
 - The SSH login dialog had no field to type a one-time code in ("Enter PASSCODE:"):
   it shrank to nothing, and a password's or passphrase's to half the dialog. It is
   the dialog's width now, with the cursor in it.
@@ -153,6 +202,8 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   comments weren't marked, and a backticked name such as `from` showed as a keyword.
 
 ### Changed
+- Deleting rows in the Content tab, dropping a foreign key or a trigger, and removing a
+  favorite (with its saved password) ask first, as in Sequel Ace. Each went on one click.
 - Connecting to an SSH server for the first time asks whether to trust it and shows its
   key's fingerprint, as ssh in Terminal and Sequel Ace do; its key was trusted unasked.
   A server you don't trust is neither connected to nor remembered.
@@ -177,6 +228,9 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   Table Info, Query), and ⌘7–⌘9 open Routines, Server and Console.
 
 ### Added
+- When an SSH tunnel closes on its own (the Mac slept, the network dropped, the server
+  restarted), the workspace says so and offers Reconnect. Statements on it failed naming
+  only an internal port until the next Connect from Home.
 - Table Maintenance on a table's right-click menu, as in Sequel Ace (MySQL): Analyze,
   Check, Optimize, Repair, Flush and Checksum, each showing the server's answer. A
   read-only connection offers only Check and Checksum, which leave the table as it is.

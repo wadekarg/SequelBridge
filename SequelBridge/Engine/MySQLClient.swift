@@ -92,9 +92,12 @@ final class MySQLClient {
                                                           socketPath: config.socketPath, timeout: Self.connectTimeout))
         }
         defer { link.close() }
-        try await handshake(link)
-        if config.readOnly { _ = try await comQuery(link, "SET SESSION TRANSACTION READ ONLY") }
-        return try await comQuery(link, sql)
+        return try await link.cancellable {
+            try await handshake(link)
+            link.allowSlowReplies()
+            if config.readOnly { _ = try await comQuery(link, "SET SESSION TRANSACTION READ ONLY") }
+            return try await comQuery(link, sql)
+        }
     }
 
     /// Runs `statements` one after another on one connection, so a variable set, a
@@ -109,16 +112,19 @@ final class MySQLClient {
                                                           socketPath: config.socketPath, timeout: Self.connectTimeout))
         }
         defer { link.close() }
-        try await handshake(link)
-        if config.readOnly { _ = try await comQuery(link, "SET SESSION TRANSACTION READ ONLY") }
-        var last: (columns: [String], rows: [[String?]]) = ([], [])
-        for (n, sql) in statements.enumerated() {
-            do { last = try await comQuery(link, sql) }
-            catch where statements.count > 1 {
-                throw MySQLClientError.connection("Statement \(n + 1) of \(statements.count): \(error.localizedDescription)")
+        return try await link.cancellable {
+            try await handshake(link)
+            link.allowSlowReplies()
+            if config.readOnly { _ = try await comQuery(link, "SET SESSION TRANSACTION READ ONLY") }
+            var last: (columns: [String], rows: [[String?]]) = ([], [])
+            for (n, sql) in statements.enumerated() {
+                do { last = try await comQuery(link, sql) }
+                catch where statements.count > 1 && !Task.isCancelled {
+                    throw MySQLClientError.connection("Statement \(n + 1) of \(statements.count): \(error.localizedDescription)")
+                }
             }
+            return last
         }
-        return last
     }
 
     // MARK: - Connection
