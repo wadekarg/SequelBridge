@@ -195,6 +195,29 @@ final class MySQLWorkflowUITests: XCTestCase {
         XCTAssertFalse(text(containing: "second-current").exists)
     }
 
+    func testASavedQueryLoadsBackIntoATab() {
+        let sql = "SELECT CONCAT('saved-', 42) AS v"
+        run(sql)
+        XCTAssertTrue(text(containing: "saved-42").waitForExistence(timeout: 30))
+        element("query.savedQueries").click()
+        app.menuItems["Save Current Query…"].click()
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "Save Current Query… opened no sheet")
+        let name = sheet.textFields.firstMatch
+        name.click()
+        name.typeKey("a", modifierFlags: .command)
+        name.typeText("ui saved query")
+        sheet.buttons["Save"].click()
+        XCTAssertTrue(waitForGone(sheet), "Save left the sheet open")
+        element("query.newTab").click()
+        element("query.savedQueries").click()
+        app.menuItems["ui saved query"].click()
+        app.menuItems["Load into current tab"].click()
+        let editor = element("query.editor")
+        let loaded = expectation(for: NSPredicate(format: "value == %@", sql), evaluatedWith: editor)
+        XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 10), .completed, "the saved query didn't load into the tab")
+    }
+
     func testCommandSlashCommentsTheLine() {
         app.typeKey("6", modifierFlags: .command)
         let editor = element("query.editor")

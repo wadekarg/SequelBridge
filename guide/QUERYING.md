@@ -22,7 +22,10 @@ that fails, saying which. When one statement sets what a later one reads (a vari
 transaction or a lock), the whole script runs on one connection of the server's own
 client, as in Sequel Ace or psql. What it sets lasts for that run: run a `SET` together
 with the statements it is for. On a SQLite file a script runs in one go, as in the
-`sqlite3` shell.
+`sqlite3` shell. Inside a `BEGIN` typed in the Query tab, each statement joins that
+transaction, a `SET` too; a `CALL` is refused there (a procedure's rows would leave the
+transaction's connection out of step): `COMMIT` first, or run `BEGIN; CALL …; COMMIT` as
+one script.
 
 A procedure, function, trigger or event whose body is in `BEGIN … END` is one statement,
 with or without a `DELIMITER` line, as `SHOW CREATE PROCEDURE` gives it and as SQLite

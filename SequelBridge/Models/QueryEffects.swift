@@ -80,7 +80,7 @@ nonisolated enum QueryEffects {
     /// connection the app goes on to reuse, so they stay DuckDB's as before.
     static func runsAsTyped(_ sql: String, engine: DatabaseEngine = .mysql) -> Bool {
         guard engine == .mysql || engine == .postgres, let statement = statements(sql).first else { return false }
-        if SQLBuilder.isRowReturning(statement) || soleUse(statement) != nil { return false }
+        if (SQLBuilder.isRowReturning(statement) && !isDataModifyingWith(statement)) || soleUse(statement) != nil { return false }
         if engine == .postgres, matches(sessionSetting, statement) { return false }
         return !matches(transactionControl, statement)
     }
@@ -110,11 +110,18 @@ nonisolated enum QueryEffects {
     static func needsOneSession(_ statements: [String], engine: DatabaseEngine) -> Bool {
         guard statements.count > 1, engine == .mysql || engine == .postgres || engine == .sqlite else { return false }
         // A connection of its own closes after the script: a transaction it leaves open was
-        // rolled back there, the grid saying Done, and SET autocommit = 0 leaves one open.
-        var open = false
+        // rolled back there, the grid saying Done. SET autocommit = 0 opens one at the next
+        // statement (COMMIT ends it), SET autocommit = 1 ends it.
+        var open = false, autocommitOff = false
         for raw in statements {
-            if let begins = transactionChange(raw) { open = begins }
-            if let s = Self.statements(raw).first, matches(autocommit, s) { return false }
+            guard let s = Self.statements(raw).first else { continue }
+            if matches(autocommit, s) {
+                autocommitOff = matches(autocommitOffValue, s)
+                if !autocommitOff { open = false }
+                continue
+            }
+            if let begins = transactionChange(raw) { open = begins; continue }
+            if autocommitOff { open = true }
         }
         if open { return false }
         // A SQLite script runs in one go, as in the sqlite3 shell: a transaction, a temporary
@@ -140,8 +147,16 @@ nonisolated enum QueryEffects {
     /// PostgreSQL refuses inside the subquery the passthrough wraps every read in.
     static func isDataModifyingWith(_ sql: String) -> Bool {
         guard let statement = statements(sql).first, firstWord(statement) == "WITH" else { return false }
-        let bare = statement.replacingOccurrences(of: #"'(?:''|[^'])*'"#, with: "''", options: .regularExpression)
+        // Strings and quoted names taken out: action = "DELETE", `update` change nothing.
+        let bare = statement.replacingOccurrences(of: #"'(?:''|\\.|[^'])*'|"(?:""|\\.|[^"])*"|`(?:``|[^`])*`"#, with: "''",
+                                                  options: .regularExpression)
         return bare.range(of: #"(?i)\b(INSERT|UPDATE|DELETE|MERGE)\b"#, options: .regularExpression) != nil
+    }
+
+    /// A CALL of a stored procedure.
+    static func isCall(_ sql: String) -> Bool {
+        guard let statement = statements(sql).first else { return false }
+        return firstWord(statement) == "CALL"
     }
 
     /// BEGIN, START TRANSACTION, COMMIT, ROLLBACK or END.
@@ -150,6 +165,9 @@ nonisolated enum QueryEffects {
     /// Whether `sql` begins a transaction (true) or ends one (false); nil for any other.
     static func transactionChange(_ sql: String) -> Bool? {
         guard let statement = statements(sql).first, matches(transactionControl, statement) else { return nil }
+        // ROLLBACK TO a savepoint ends nothing; AND CHAIN begins the next at once.
+        if matches(rollbackToSavepoint, statement) { return nil }
+        if matches(andChain, statement) { return true }
         return ["BEGIN", "START"].contains(firstWord(statement))
     }
 
@@ -220,7 +238,9 @@ nonisolated enum QueryEffects {
     private static let dropDatabase = regex("^DROP\\s+(?:DATABASE|SCHEMA)\(gap)(?:IF\\s+EXISTS\(gap))?\(name)\\s*$")
     private static let databaseDDL = regex("^(?:CREATE|DROP)\\s+(?:DATABASE|SCHEMA)\\b")
     // Not MariaDB's BEGIN NOT ATOMIC: a block of statements, not a transaction.
-    private static let transactionControl = regex("^(?:BEGIN(?!\\s+NOT\\s+ATOMIC\\b)|START\\s+TRANSACTION|COMMIT|ROLLBACK|END)\\b")
+    private static let transactionControl = regex("^(?:BEGIN(?!\\s+NOT\\s+ATOMIC\\b)|START\\s+TRANSACTION|COMMIT|ROLLBACK|END|ABORT)\\b")
+    private static let rollbackToSavepoint = regex("^ROLLBACK(?:\\s+(?:WORK|TRANSACTION))?\\s+TO\\b")
+    private static let andChain = regex("\\bAND\\s+CHAIN\\b")
     private static let anonymousBlock = regex("^BEGIN\\s+NOT\\s+ATOMIC\\b")
     private static let sessionSetting = regex("^(?:SET|RESET)\\b")
     private static let lockTables = regex("^(?:UN)?LOCK\\s+TABLES?\\b")
@@ -228,6 +248,7 @@ nonisolated enum QueryEffects {
     private static let persistentSetting = regex("^SET\\s+(?:GLOBAL|PERSIST|PERSIST_ONLY|PASSWORD|DEFAULT\\s+ROLE)\\b|^SET\\s+@@(?:GLOBAL|PERSIST)")
     private static let temporaryTable = regex("^CREATE\\s+(?:GLOBAL\\s+|LOCAL\\s+)?TEMP(?:ORARY)?\\s+TABLE\\b")
     private static let autocommit = regex("^SET\\s+(?:(?:SESSION|LOCAL|GLOBAL)\\s+|@@(?:SESSION\\.|LOCAL\\.|GLOBAL\\.)?)?autocommit\\b")
+    private static let autocommitOffValue = regex("autocommit\\s*:?=\\s*(?:0|OFF|FALSE)\\b")
 
     private static func regex(_ pattern: String) -> NSRegularExpression {
         // The patterns are constants; a typo is a programming error caught by the tests.

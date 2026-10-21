@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 800 tests in 160 suites (about three minutes of tests after the build).
+at them, and runs all 814 tests in 162 suites (about three minutes of tests after the build).
 Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
 MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
@@ -62,7 +62,7 @@ Homebrew and seeds from `scripts/fixtures/mysql.sql`: pick a database, `USE`, se
 statements, Run Current, filter tables, edit a cell in place and set it to NULL, rename
 and duplicate a table, ⌘/, Table Info's `CREATE TABLE`, ⌘1–⌘6, the Console, MySQL's
 own syntax run as typed, ⌘R on the table on screen after another was opened, and the
-Content tab's ⌘J (page and rows per page), ⌘D (duplicate a row), its column-operator-value filter, and following a foreign key, Add Database with an encoding and Delete Database, Table Maintenance's answer, `SHOW CREATE TABLE` and `SHOW FULL PROCESSLIST` typed in the Query tab.
+Content tab's ⌘J (page and rows per page), ⌘D (duplicate a row), its column-operator-value filter, and following a foreign key, a saved query loaded back into a tab, Add Database with an encoding and Delete Database, Table Maintenance's answer, `SHOW CREATE TABLE` and `SHOW FULL PROCESSLIST` typed in the Query tab.
 `PostgresWorkflowUITests` (with `SB_UI_PG_PORT`) picks a schema, shows Content and
 Structure, Explain's plan and a typed `SHOW`, edits a cell in place, edits a result in
 another schema in its popup, and runs the statement under the caret past a `#>>`;
@@ -75,12 +75,14 @@ edited there, runs a query and finds it in the Server tab's insights, and
 into the login dialog, without clicking its field; `MySQLActionsUITests` deletes rows,
 adds a row, truncates and drops a table, drops a foreign key and a trigger (each asks
 first, Cancel keeps it), adds a column in Structure (Save, then Revert of an unsaved
-one), edits a result cell in its popup, makes a table with Create Table, stops a long
-query, and leaves the database picked when a script fails before its `USE`;
+one), adds an index, a foreign key and a trigger through their sheets, edits a result
+cell in its popup, makes a table with Create Table, stops a long query, and leaves the
+database picked when a script fails before its `USE`;
 `MySQLActionsOverSSHUITests` and `MySQLActionsOverSocketUITests` (`SB_UI_MYSQL_SOCKET`)
 do it all again through the SSH tunnel and a Unix socket; `WorkspaceServersUITests` adds a server with + and
 checks that New Connection… then Cancel opens none; `HomeFavoritesUITests` removes a
-favorite, asked first;
+favorite, asked first; `HomeConnectionSheetUITests` adds a connection with New
+Connection (Cancel adds none), edits one and connects from its sheet;
 `SSHHostKeyUITests` (with `SB_UI_SSH_KEY`, the test SSH server's key) connects through
 SSH to a server met for the first time (its fingerprint shown, Cancel, then Trust and
 Connect) and to one whose key changed (the plain message, Forget the Old Key refused
@@ -103,14 +105,14 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-800 tests across 118 files.
+814 tests across 119 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
 | Suite | Gate | Covers |
 |---|---|---|
 | `MySQLCorpusTests`, `PostgresCorpusTests`, `ClickHouseCorpusTests`, `SQLiteCorpusTests` | `SB_MYSQL_VERIFY` (on each MySQL-family server), `SB_PG_VERIFY`, `SB_CH_VERIFY`, always (SQLite) | the query corpus: some 200 statements per engine run the way the Query tab runs them (QueryRoute, then its engine call): reads and writes, DDL of every object, joins, subqueries, CTEs, window functions, transactions, variables and temporary tables in a script, SHOW/DESCRIBE/EXPLAIN, procedures, functions, triggers and events (with and without `DELIMITER`), each engine's own syntax and types (MySQL's mysqldump file, zero dates, `FOUND_ROWS()`, full-text and spatial, optimizer hints, MariaDB's `BEGIN NOT ATOMIC`; PostgreSQL arrays, jsonb, $$ and `BEGIN ATOMIC` bodies, `MERGE`, `COPY`, an extension, VACUUM; ClickHouse arrays, FINAL, mutations; SQLite functions, PRAGMA, upserts, RETURNING, FTS5, generated columns, STRICT, and syntax newer than DuckDB's SQLite), odd names and values, and the errors; MySQL and PostgreSQL over TCP/IP, SSH and the socket, ClickHouse over TCP/IP and SSH. With `SB_CORPUS_REPORT` set, every statement's outcome is written there |
-| `MySQLIntegrationTests` | `SB_MYSQL_VERIFY` | live MySQL/MariaDB attach, query, metadata, FK relations |
+| `MySQLIntegrationTests` | `SB_MYSQL_VERIFY` | live MySQL/MariaDB attach, query, metadata, FK relations; Import SQL file, a mysqldump file whole on one connection (a table that refers ahead, the settings put back) |
 | `DatabaseSwitchTests` | `SB_MYSQL_VERIFY` | the database picked at the top of the left panel: its tables are listed and queries run there; two picks close together end on the second; one that can't be opened says why and the connection stays on its database; `USE` in the Query tab moves the pick; CREATE/DROP of tables and databases refresh the lists, and dropping the picked database goes back to the connection's own |
 | `MySQLRelationsTests` | `SB_MYSQL_VERIFY` | the Relations tab's foreign-key lookup: the server's plan reads only that table's constraints (no "Scanned all databases"); a two-column key and a second key listed once each, columns in key order; the same names in another database stay out |
 | `MySQLAuthTests` | always | the app's own MySQL client's login pieces: both password scrambles against reference values, the RSA password exchange |
@@ -130,9 +132,9 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `ReadOnlyStatementTests`, `ReadOnlySQLiteTests` | always | `EXPLAIN ANALYZE` of a write counts as a write; on a read-only SQLite file a statement through DuckDB, a typed one, a Content edit and Structure are all refused, the file is unchanged, and reads still work |
 | `ReadOnlyPostgresTests`, `ReadOnlyMySQLTests`, `ReadOnlyClickHouseTests` | `SB_PG_VERIFY`, `SB_MYSQL_VERIFY`, `SB_CH_VERIFY` | read-only below the interface: a statement through DuckDB, `mysql_execute`, the native client, `EXPLAIN ANALYZE` of a `DELETE`, `nextval()` and a stored function that inserts called from a `SELECT`, Kill, a ClickHouse `INSERT` or `DROP`, all refused with the rows unchanged; an account ClickHouse already holds read-only still reads |
 | `NativeRoutingTests`, `PostgresLoginTests` | always | which typed statements go to the app's own client (MySQL's SHOW, HELP, CHECK; PostgreSQL's SHOW, EXPLAIN); the PostgreSQL client's MD5 and SCRAM-SHA-256 logins against reference values (RFC 7677's example), a server that can't prove the password, an error's message |
-| `PostgresNativeTests`, `PostgresNativeSSLTests` | `SB_PG_VERIFY`, `SB_PG_SSL_PORT` | PostgreSQL's own client on a real server: the Explain button's plan, a typed `SHOW` in the schema picked (the role's own `search_path` after it), a server error's message, a read-only session, a Unix socket, `COPY … TO STDOUT`'s rows and `COPY … FROM STDIN` refused at once; over SSL with Use SSL and without it (encrypted when the server offers it, as libpq does), and Use SSL refused against a server without SSL before any password is sent; a statement longer than the 10 s a connect may take still comes back, and Cancel ends one at once |
+| `PostgresNativeTests`, `PostgresNativeSSLTests` | `SB_PG_VERIFY`, `SB_PG_SSL_PORT` | PostgreSQL's own client on a real server: the Explain button's plan, a typed `SHOW` in the schema picked (the role's own `search_path` after it), a server error's message, a read-only session, a Unix socket, `COPY … TO STDOUT`'s rows and `COPY … FROM STDIN` refused at once, a schema picked by a role whose own `search_path` is empty; over SSL with Use SSL and without it (encrypted when the server offers it, as libpq does), and Use SSL refused against a server without SSL before any password is sent; a statement longer than the 10 s a connect may take still comes back, and Cancel ends one at once |
 | `MySQLNativeStatementTests` | `SB_MYSQL_VERIFY` | `SHOW CREATE TABLE`, `SHOW FULL PROCESSLIST`, `SHOW GRANTS`, `SHOW WARNINGS`, `CHECK TABLE`, `CHECKSUM TABLE` typed in the Query tab, on the app's own client, in the database picked (on all four MySQL-family servers) |
-| `PostgresWorkspaceTests` | `SB_PG_VERIFY` | what the guide promises for PostgreSQL, the way the panels run it: the picker's schemas and their tables (the connection stays on its database), Content's filter and sort, following a foreign key, Routines, the Server tab and Kill ending a running statement, export, CSV import, a row added with its serial key left to the server and deleted, triggers listed and dropped |
+| `PostgresWorkspaceTests` | `SB_PG_VERIFY` | what the guide promises for PostgreSQL, the way the panels run it: Import SQL file of a pg_dump file on one connection, the picker's schemas and their tables (the connection stays on its database), Content's filter and sort, following a foreign key, Routines, the Server tab and Kill ending a running statement, export, CSV import, a row added with its serial key left to the server and deleted, triggers listed and dropped |
 | `SQLitePromisesTests` | always | what the guide promises for a SQLite file, on one: Create Table (the types picked, an integer key that numbers rows), Structure's add, rename and drop of columns and indexes and its refusals, Content, following a foreign key, export, triggers added, fired, listed (timing and event from the header, not the body) and dropped, a busy file |
 | `DatabaseDumpTests` | `SB_MYSQL_VERIFY` | whole-database SQL dump (all tables, schema + data) |
 | `PostgresTests` | `SB_PG_VERIFY` | PostgreSQL attach, query, joins |
@@ -144,24 +146,27 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `MySQLRowWriteTests` | `SB_MYSQL_VERIFY` (`SB_MYSQL_BIG_DB` for the last) | those writes on the real servers, each type stored as meant, a row added with its key left to the server and deleted; an edit on a database of 3,275 tables (`sbbig`, MariaDB 10.0) done in under 2 s, where DuckDB took 16 |
 | `ExtensionCacheTests` | always | the scanner cache keeps one build per CPU, so an Apple Silicon Mac running the app natively and under Rosetta never loads the other CPU's build; a cached file from before is used only when its Mach-O header is this CPU's |
 | `ClickHouseContentTests` | `SB_CH_VERIFY` | ClickHouse's Content tab on the real server: pages sorted and paged, every filter operator on a number column with its value quoted, and a `%`, `_` or backslash matching as itself |
-| `QueryRouteTests` | always | which path a Query-tab statement takes (QueryRoute): refused on a read-only target only, Explain's path, USE and SET search_path (quoted, folded, not DEFAULT or a list), as typed, the app's own client, ClickHouse, the passthrough, SQLite itself, DuckDB's catalog; one server named among several; inside a Query-tab transaction nothing runs on a connection of its own; a script that leaves a transaction open isn't run on one that closes; MariaDB's `BEGIN NOT ATOMIC` opens no transaction |
+| `QueryRouteTests` | always | which path a Query-tab statement takes (QueryRoute): refused on a read-only target only, Explain's path, USE and SET search_path (quoted, folded, not DEFAULT or a list), as typed, the app's own client, ClickHouse, the passthrough, SQLite itself, DuckDB's catalog; one server named among several; inside a Query-tab transaction nothing runs on a connection of its own (a `SET` joins it, a `CALL` is refused there); a script that leaves a transaction open isn't run on one that closes; MariaDB's `BEGIN NOT ATOMIC` opens no transaction; MySQL 8's `WITH … DELETE` runs as typed, a `WITH` whose strings or names say DELETE reads |
 | `DefaultContextTests` | always | DuckDB's one default database follows the connection a statement is for, after another connection's statement or a detach |
-| `ConnectionLifecycleTests` | always | a Connect that fails part-way leaves none of its connections attached; a server added in the workspace closes with the next Connect from Home |
+| `ConnectionLifecycleTests` | always | a Connect that fails part-way leaves none of its connections attached; a server added in the workspace closes with the next Connect from Home; saving a SQLite connection writes nothing to the Keychain |
+| `ReadFallbackTests` | always | where a Query-tab read that failed through DuckDB runs again: two columns of one name and a value the MySQL driver can't convert on the app's own client, SQLite newer than DuckDB's in macOS's `sqlite3`; never a read the user stopped, nor one inside a Query-tab transaction |
+| `SQLiteToolScriptTests` | always | `sqlite3` reading a script on its standard input: a big script that fails early says which statement, and the app stays up |
+| `ContentPagingTests` | always | Content's pages, duplicating a row, and on MySQL its dates read as the server keeps them (invisible columns left out) and sorted on the table's own column |
 | `ConnectionTypeTests` | always (what each engine offers) / `SB_SSH_VERIFY`, `SB_SOCKET_VERIFY` | every engine × connection type: PostgreSQL and ClickHouse over SSH, MySQL and PostgreSQL over sockets, EXPLAIN on both, ClickHouse socket refused, Test Connection and quitting close their tunnels |
 | `ContentEditTests` | always (SQLite) / `SB_PG_VERIFY` (PostgreSQL) | a Content-tab cell edit and set-to-NULL reach the database, run the way the panel runs them (`executeWrite`) |
 | `CellEditorTests` | always | the Query tab popup's rules: Save needs Edit and a change, NULL is a change, a cell that can't be edited says why |
 | `InlineCellEditTests` | always | the Content tab's in-cell edit: what Return, Esc and no change do, and readable text on a selected row (it was white on white) |
-| `QueryEffectsTests` | always | what a Query-tab run changes in the left panel, Sequel Ace's rules ported with its cases: `USE` (comments, quoted names), `DROP DATABASE` of the picked one, scripts in order, which statements refresh the table and database lists; whether a script needs one connection (an `@` in a string or a quoted name is no variable) |
+| `QueryEffectsTests` | always | what a Query-tab run changes in the left panel, Sequel Ace's rules ported with its cases: `USE` (comments, quoted names), `DROP DATABASE` of the picked one, scripts in order, which statements refresh the table and database lists; whether a script needs one connection (an `@` in a string or a quoted name is no variable) and leaves a transaction open (`SET autocommit = 0` opens one, `ROLLBACK TO` a savepoint ends none, `AND CHAIN` opens the next) |
 | `SoleTargetTests` | always | which connection a statement runs on: the server it names, else the one picked at the top of the left panel; none for a cross-server query |
 | `WrappingHStackTests` | always | where the connection tabs wrap onto a new row, so none slides out of sight |
 | `ContentBrowseTests` | `SB_MYSQL_VERIFY` | the Content tab: pages in order, a typed filter and one the server can't read, Set to NULL stores NULL, zero dates and a zero month or day shown as the server keeps them |
 | `ServerToolsTests` | `SB_MYSQL_VERIFY` | Test Connection (the server's reason, never the password), Kill ending a running statement, views listed as views |
 | `TableListFilterTests`, `SQLCompletionTests`, `SQLHighlighterTests`, `RowCopyTests` | always | the table filter, the editor's completion and highlighting (strings, `--` `#` `/* */` comments, backticks), Copy Row's text |
-| `SQLScriptTests` | always | a script split into statements as written: quotes, comments, comment-only pieces, `DELIMITER`, `$$` bodies, `#` by engine, a `BEGIN … END` body (trigger, routine, `BEGIN ATOMIC`, `BEGIN NOT ATOMIC`) kept whole while a transaction's `BEGIN` still ends at its `;`, Run Current's statement by engine |
+| `SQLScriptTests` | always | a script split into statements as written: quotes, comments, comment-only pieces, `DELIMITER`, `$$` bodies, `#` and `--` by engine, `DELIMITER $$` against a name or an `END`, a `BEGIN … END` body (trigger, routine, `ALTER EVENT`, `BEGIN ATOMIC`, `BEGIN NOT ATOMIC`) kept whole while a transaction's `BEGIN` still ends at its `;`, not fooled by `@end`, a column or parameter called end/begin, or a `CASE … END`; Run Current's statement by engine |
 | `StatementTextTests` | always | a statement's text before it is sent: `--` comments made `/* */` for PostgreSQL's passthrough (nested comments and `E'…'` strings kept), ClickHouse's own `FORMAT` told from a column called format, `sqlite3`'s JSON reals as SQLite shows them |
 | `FeatureTabShortcutTests` | always | ⌘1–⌘6 as in Sequel Ace, ⌘7–⌘9 for the rest |
 | `EditorEditsTests`, `EditorCommandTests` | always | ⌘/ ⌘] ⌘[ on the caret and on selected lines, reaching the Query tab's text; the find bar |
-| `SQLFileTests`, `OpenSQLTabTests` | always | .sql files: UTF-8 or Latin-1, saving, where an opened file goes, an import skipping LOCK TABLES |
+| `SQLFileTests`, `OpenSQLTabTests` | always | .sql files: UTF-8 or Latin-1, saving, where an opened file goes, an import skipping LOCK TABLES and psql's `\restrict` and `\connect` lines |
 | `RenameDuplicateTableTests` | always | Rename and Duplicate Table on MySQL, PostgreSQL and SQLite |
 | `ResultEditingSourceTests`, `ResultEditTargetTests` | always | when a Query-tab result can be edited: one table's rows, each result column matched to a table column, the primary key in the result; the `UPDATE` keyed by the row |
 | `QueryResultEditTests` | always (SQLite) / `SB_PG_VERIFY`, `SB_MYSQL_VERIFY` | a Query-tab result edit end to end: the engine's check, the `UPDATE`, read back |

@@ -243,8 +243,10 @@ bar, line or pie chart: pick the label and value columns.
 **Export database as SQL…** in the sidebar menu writes a dump of every table, schema
 and data, for MySQL, PostgreSQL and SQLite; on MySQL a table's context menu exports it
 alone. **Import SQL file…** in the sidebar menu runs a `.sql` file's statements in
-order, with progress and **Stop**; the first that fails stops it and says which (MySQL
-and PostgreSQL). **Import CSV…** on a table's context menu loads a CSV into it (MySQL
+order, on one connection as mysql and psql do (so a mysqldump's `FOREIGN_KEY_CHECKS=0`
+and a pg_dump's settings hold for the whole file), with progress and **Stop**; the first
+that fails stops it and says which (MySQL and PostgreSQL). psql's own `\restrict` and
+`\connect` lines in a pg_dump file are left out. **Import CSV…** on a table's context menu loads a CSV into it (MySQL
 and PostgreSQL); on MySQL the sidebar menu also creates a new table from a CSV, with
 columns taken from the header.
 

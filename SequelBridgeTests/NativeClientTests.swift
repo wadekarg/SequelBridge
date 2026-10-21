@@ -135,6 +135,34 @@ struct PostgresNativeTests {
         try await e.executeDDL(alias: "pn11", sql: "DROP SCHEMA sbsp CASCADE")
     }
 
+    /// A role whose own search_path is empty (a hardened setup): the schema picked comes
+    /// first all the same (PostgreSQL writes the empty path as "", not as nothing), and a
+    /// table in it reads by its bare name.
+    @Test("a schema picked works for a role whose own search_path is empty")
+    func emptySearchPath() async throws {
+        let admin = try await engine("pn14")
+        try await admin.executeDDL(alias: "pn14", sql: "DROP ROLE IF EXISTS sb_nopath")
+        try await admin.executeDDL(alias: "pn14", sql: "CREATE ROLE sb_nopath LOGIN PASSWORD 'sbnopath123'")
+        try await admin.executeDDL(alias: "pn14", sql: "ALTER ROLE sb_nopath SET search_path = ''")
+        try await admin.executeDDL(alias: "pn14", sql: "CREATE SCHEMA IF NOT EXISTS sbnp")
+        try await admin.executeDDL(alias: "pn14", sql: "GRANT USAGE ON SCHEMA sbnp TO sb_nopath")
+        try await admin.executeDDL(alias: "pn14", sql: "CREATE TABLE sbnp.t (i int)")
+        try await admin.executeDDL(alias: "pn14", sql: "GRANT SELECT ON sbnp.t TO sb_nopath")
+        let e = try QueryEngine()
+        var c = Connection(name: "PG pn15", alias: "pn15", host: NativeEnv.value("SB_PG_HOST", "127.0.0.1"),
+                           port: Int(NativeEnv.value("SB_PG_PORT", "5433")) ?? 5433, username: "sb_nopath",
+                           database: NativeEnv.value("SB_PG_DB", "sbtest"))
+        c.engine = .postgres
+        try await e.attach(c, password: "sbnopath123")
+        let path = try await e.nativeQuery(alias: "pn15", sql: "SHOW search_path", database: "sbnp").rows.first?.first ?? ""
+        let first = path.split(separator: ",").first.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\" ")) }
+        #expect(first == "sbnp", "\(path)")
+        #expect(try await e.nativeQuery(alias: "pn15", sql: "SELECT count(*) FROM t", database: "sbnp").rows == [["0"]])
+        try? await e.detach("pn15")
+        try await admin.executeDDL(alias: "pn14", sql: "DROP SCHEMA sbnp CASCADE")
+        try await admin.executeDDL(alias: "pn14", sql: "DROP ROLE sb_nopath")
+    }
+
     @Test("an error names no statement number for a single statement")
     func singleStatementError() async throws {
         let e = try await engine("pn12")

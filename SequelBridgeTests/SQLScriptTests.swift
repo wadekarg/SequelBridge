@@ -113,6 +113,40 @@ struct SQLScriptTests {
         #expect(SQLScript.statements(ranges + "; SELECT 3", engine: .mysql) == [ranges, "SELECT 3"])
     }
 
+    /// Workbench's and phpMyAdmin's way: DELIMITER $$, then $$ right after a name or an END,
+    /// or after a space. The $ is part of a word, so the delimiter was read as one.
+    @Test("DELIMITER $$: a statement ends at $$ written against a name, an END, a quoted name, or after a space")
+    func dollarDelimiter() {
+        let script = "DELIMITER $$\nDROP PROCEDURE IF EXISTS p$$\nCREATE PROCEDURE p()\nBEGIN\n  SELECT 1;\nEND$$\n"
+            + "CREATE PROCEDURE `q`()\nBEGIN\n  SELECT 2;\nEND $$\nDROP PROCEDURE `r`$$\nDELIMITER ;\nCALL p();"
+        let expected = ["DROP PROCEDURE IF EXISTS p", "CREATE PROCEDURE p()\nBEGIN\n  SELECT 1;\nEND",
+                        "CREATE PROCEDURE `q`()\nBEGIN\n  SELECT 2;\nEND", "DROP PROCEDURE `r`", "CALL p()"]
+        #expect(SQLScript.statements(script, engine: .mysql) == expected)
+        #expect(SQLScript.statements(script) == expected)                  // as Import SQL file splits a file
+    }
+
+    /// Words that only look like a body's BEGIN or END: a variable (@end), a column called
+    /// end, a parameter called begin, END after a CASE however it goes on, and PostgreSQL's
+    /// --end comment (no space needed there).
+    @Test("a body's BEGIN and END aren't fooled by @end, a column or parameter called end/begin, CASE … END FOR, or --end")
+    func compoundBodyLookalikes() {
+        let proc = "CREATE PROCEDURE p() BEGIN SET @end = NOW(); SELECT 1; END"
+        #expect(SQLScript.statements(proc + "; SELECT 2", engine: .mysql) == [proc, "SELECT 2"])
+        let trigger = "CREATE TRIGGER t BEFORE INSERT ON r FOR EACH ROW SET NEW.a = @begin"
+        #expect(SQLScript.statements(trigger + "; INSERT INTO r VALUES (1); SELECT 1", engine: .mysql)
+                == [trigger, "INSERT INTO r VALUES (1)", "SELECT 1"])
+        let ranges = "CREATE PROCEDURE q() BEGIN SELECT start, end FROM ranges; END"
+        #expect(SQLScript.statements(ranges + "; SELECT 3", engine: .mysql) == [ranges, "SELECT 3"])
+        let param = "CREATE PROCEDURE b(IN begin INT) BEGIN SELECT begin; END"
+        #expect(SQLScript.statements(param + "; SELECT 4", engine: .mysql) == [param, "SELECT 4"])
+        let caseFor = "CREATE PROCEDURE c() BEGIN SELECT id FROM t ORDER BY CASE WHEN a THEN 1 END FOR UPDATE; END"
+        #expect(SQLScript.statements(caseFor + "; SELECT 5", engine: .mysql) == [caseFor, "SELECT 5"])
+        let pg = "CREATE FUNCTION f() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT 1; --end\nSELECT 2; END"
+        #expect(SQLScript.statements(pg + "; SELECT 6", engine: .postgres) == [pg, "SELECT 6"])
+        let event = "ALTER EVENT e ON SCHEDULE EVERY 1 DAY DO BEGIN DELETE FROM log WHERE 0; END"
+        #expect(SQLScript.statements(event + "; SELECT 7", engine: .mysql) == [event, "SELECT 7"])
+    }
+
     @Test("Run Current finds the statement under the cursor by the engine's comments: on PostgreSQL #>> isn't one")
     func statementAtByEngine() {
         let text = "SELECT meta #>> '{a}' FROM t;\nSELECT 2"

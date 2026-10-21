@@ -430,6 +430,8 @@ struct MySQLCorpusTests {
             CorpusCase(sql: "SELECT CAST(total AS CHAR), CONVERT('7', SIGNED), CAST(placed AS DATETIME) FROM {p}orders", expect: .rows(4)),
             CorpusCase(sql: "SELECT 1/0", expect: .ok),
             CorpusCase(sql: "SELECT SLEEP(0)", expect: .value("0")),
+            CorpusCase(sql: "SELECT CAST('100:00:00' AS TIME)", expect: .value("100:00:00")),                  // MySQL's TIME passes 24h
+            CorpusCase(sql: "SELECT TIMEDIFF('2026-10-21 12:00:00', '2026-10-17 00:00:00')", expect: .value("108:00:00")),
 
             // Every type back as the server keeps it.
             CorpusCase(sql: "SELECT big FROM {p}types WHERE id = 1", expect: .value("18446744073709551615")),
@@ -468,6 +470,11 @@ struct MySQLCorpusTests {
             CorpusCase(sql: "SELECT d, dt FROM {p}legacy WHERE id = 2", expect: .value("2026-00-15")),
             CorpusCase(sql: "SELECT dt FROM {p}legacy WHERE id = 2", expect: .value("2026-01-00 10:00:00")),
             CorpusCase(sql: "SELECT d FROM {p}legacy WHERE id = 3", expect: .value("2026-10-20")),
+            // Inside a transaction the read stays in it (another connection can't see its
+            // changes): what the scanner can't convert fails there, saying so.
+            CorpusCase(sql: "BEGIN", expect: .ok),
+            CorpusCase(sql: "SELECT d, dt FROM {p}legacy WHERE id = 2", expect: .error("Conversion Error")),
+            CorpusCase(sql: "ROLLBACK", expect: .ok),
             CorpusCase(sql: "DROP TABLE {p}legacy", expect: .ok),
 
             // Session state the next statement relies on, and transactions.
@@ -488,6 +495,15 @@ struct MySQLCorpusTests {
             CorpusCase(sql: "SELECT COUNT(*) FROM {p}log WHERE msg = 'rolled back'", expect: .value("0")),
             CorpusCase(sql: "START TRANSACTION; INSERT INTO {p}log (msg) VALUES ('kept'); COMMIT", expect: .ok),
             CorpusCase(sql: "SELECT COUNT(*) FROM {p}log WHERE msg = 'kept'", expect: .value("1")),
+            // Inside a transaction begun here a SET joins it (on a connection of its own the
+            // INSERT read NULL), and a CALL is refused, saying what to do instead.
+            CorpusCase(sql: "BEGIN", expect: .ok),
+            CorpusCase(sql: "SET @corpus_t = 'set in txn'", expect: .ok),
+            CorpusCase(sql: "INSERT INTO {p}log (msg) VALUES (@corpus_t)", expect: .ok),
+            CorpusCase(sql: "CALL {p}nothing()", expect: .error("COMMIT")),
+            CorpusCase(sql: "COMMIT", expect: .ok),
+            CorpusCase(sql: "SELECT COUNT(*) FROM {p}log WHERE msg = 'set in txn'", expect: .value("1")),
+            CorpusCase(sql: "DELETE FROM {p}log WHERE msg = 'set in txn'", expect: .ok),
 
             // Writes in MySQL's own syntax.
             CorpusCase(sql: "UPDATE {p}customers SET city = 'Cambridge' WHERE name = 'Alan Turing'", expect: .ok),
@@ -498,6 +514,8 @@ struct MySQLCorpusTests {
             CorpusCase(sql: "SELECT vip + 0 FROM {p}customers WHERE id = 5", expect: .value("1")),
             CorpusCase(sql: "DELETE FROM {p}items WHERE qty > 4", expect: .ok),
             CorpusCase(sql: "SELECT COUNT(*) FROM {p}items", expect: .value("3")),
+            CorpusCase(sql: "WITH big AS (SELECT order_id FROM {p}items WHERE qty > 100) DELETE FROM {p}orders WHERE id IN (SELECT order_id FROM big)",
+                       expect: .ok, when: { $0.atLeast(mariadb: nil, mysql: [8, 0]) }),
             CorpusCase(sql: "INSERT INTO {p}items VALUES (1, 'A-1', 9, 3.5) ON DUPLICATE KEY UPDATE qty = qty + VALUES(qty)", expect: .ok),
             CorpusCase(sql: "SELECT qty FROM {p}items WHERE order_id = 1 AND sku = 'A-1'", expect: .value("11")),
             CorpusCase(sql: "INSERT IGNORE INTO {p}items VALUES (1, 'A-1', 1, 1)", expect: .ok),

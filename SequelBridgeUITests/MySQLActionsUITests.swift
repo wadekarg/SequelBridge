@@ -275,6 +275,89 @@ class MySQLActionsUITests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 15, "Cancel took as long as the query")
     }
 
+    /// A sheet's text field, by the placeholder it shows.
+    func sheetField(_ placeholder: String) -> XCUIElement {
+        app.sheets.firstMatch.textFields.matching(NSPredicate(format: "placeholderValue == %@", placeholder)).firstMatch
+    }
+
+    func testAddIndexInStructureMakesTheIndex() throws {
+        pick(database: "sbwrite")
+        run("DROP TABLE IF EXISTS ui_idx; CREATE TABLE ui_idx (id INT PRIMARY KEY, email VARCHAR(80))")
+        XCTAssertTrue(table("ui_idx").waitForExistence(timeout: 30), "the new table didn't appear in the left panel")
+        table("ui_idx").click()
+        app.typeKey("1", modifierFlags: .command)                      // Structure
+        element("structure.addIndex").click()
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "+ under Indexes opened no sheet")
+        sheetField("e.g. idx_column").click()
+        sheetField("e.g. idx_column").typeText("ui_idx_email")
+        sheet.buttons.matching(NSPredicate(format: "label CONTAINS %@", "email")).firstMatch.click()
+        sheet.buttons["Add Index"].click()
+        XCTAssertTrue(waitForGone(sheet), "Add Index left the sheet open")
+        element("structure.save").click()
+        expectValue("""
+            SELECT CONCAT('idx=', COUNT(*)) AS v FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = 'sbwrite' AND TABLE_NAME = 'ui_idx' AND INDEX_NAME = 'ui_idx_email' AND COLUMN_NAME = 'email'
+            """, "idx=1", "Add Index, then Save Changes, made no index")
+        run("DROP TABLE ui_idx")
+    }
+
+    func testAddForeignKeyInRelationsMakesTheKey() throws {
+        pick(database: "sbwrite")
+        run("""
+            DROP TABLE IF EXISTS ui_fkc, ui_fkp; CREATE TABLE ui_fkp (id INT PRIMARY KEY) ENGINE=InnoDB;
+            CREATE TABLE ui_fkc (id INT PRIMARY KEY, pid INT, KEY (pid)) ENGINE=InnoDB
+            """)
+        XCTAssertTrue(table("ui_fkc").waitForExistence(timeout: 30), "the new table didn't appear in the left panel")
+        table("ui_fkc").click()
+        app.typeKey("3", modifierFlags: .command)                      // Relations
+        element("relations.add").click()
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "+ in Relations opened no sheet")
+        // Local Column and References Table are menus of what the table and database hold.
+        sheet.popUpButtons.element(boundBy: 0).click()
+        app.menuItems["pid"].click()
+        sheet.popUpButtons.element(boundBy: 1).click()
+        app.menuItems["ui_fkp"].click()
+        let column = sheetField("column_name")
+        column.click()
+        column.typeKey("a", modifierFlags: .command)
+        column.typeText("id")
+        sheetField("auto-generated if empty").click()
+        sheetField("auto-generated if empty").typeText("ui_fk_made")
+        sheet.buttons["Add Foreign Key"].click()
+        XCTAssertTrue(waitForGone(sheet), "Add Foreign Key left the sheet open")
+        XCTAssertTrue(app.staticTexts["ui_fk_made"].waitForExistence(timeout: 30), "Relations doesn't list the new key")
+        expectValue("""
+            SELECT CONCAT('fk=', REFERENCED_TABLE_NAME, '.', REFERENCED_COLUMN_NAME) AS v FROM information_schema.KEY_COLUMN_USAGE
+            WHERE TABLE_SCHEMA = 'sbwrite' AND TABLE_NAME = 'ui_fkc' AND CONSTRAINT_NAME = 'ui_fk_made'
+            """, "fk=ui_fkp.id", "the foreign key wasn't made on the server")
+        run("DROP TABLE ui_fkc, ui_fkp")
+    }
+
+    func testCreateTriggerMakesATriggerThatRuns() throws {
+        pick(database: "sbwrite")
+        run("DROP TABLE IF EXISTS ui_trgt; CREATE TABLE ui_trgt (id INT PRIMARY KEY, note VARCHAR(20))")
+        XCTAssertTrue(table("ui_trgt").waitForExistence(timeout: 30), "the new table didn't appear in the left panel")
+        table("ui_trgt").click()
+        app.typeKey("4", modifierFlags: .command)                      // Triggers
+        element("triggers.add").click()
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "+ in Triggers opened no sheet")
+        sheetField("e.g. before_insert_check").click()
+        sheetField("e.g. before_insert_check").typeText("ui_trg_upper")
+        let body = sheet.textViews.firstMatch
+        body.click()
+        body.typeKey("a", modifierFlags: .command)
+        body.typeText("BEGIN\n  SET NEW.note = UPPER(NEW.note);\nEND")          // as the sheet's own template has it
+        sheet.buttons["Create Trigger"].click()
+        XCTAssertTrue(waitForGone(sheet), "Create Trigger left the sheet open")
+        XCTAssertTrue(app.staticTexts["ui_trg_upper"].waitForExistence(timeout: 30), "Triggers doesn't list the new trigger")
+        run("INSERT INTO ui_trgt VALUES (1, 'quiet')")
+        expectValue("SELECT CONCAT('note=', note) AS v FROM ui_trgt", "note=QUIET", "the new trigger didn't run")
+        run("DROP TABLE ui_trgt")
+    }
+
     /// A script on one connection that failed before its USE still moved the left panel to
     /// the database it named, which it never reached.
     func testAScriptThatFailsBeforeItsUSELeavesTheDatabasePicked() {

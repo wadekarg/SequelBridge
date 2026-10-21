@@ -206,4 +206,33 @@ struct PostgresWorkspaceTests {
         try await e.executeDDL(alias: conn.alias, sql: "DROP TABLE sbro.trg_t")
         try await e.executeDDL(alias: conn.alias, sql: "DROP FUNCTION sbro.touch()")
     }
+
+    /// pg_dump's file sets things the statements after it rely on: check_function_bodies
+    /// off lets a SQL function name a table made later in the file. Each statement on a
+    /// connection of its own lost the setting, and the function failed to be made.
+    @Test("Import SQL file runs a pg_dump file as one session: its settings hold for what follows")
+    func importPgDump() async throws {
+        let (manager, conn, _) = try await connect("pgimp")
+        let e = manager.queryEngine
+        try await e.executeDDL(alias: conn.alias, sql: "DROP SCHEMA IF EXISTS sbimp CASCADE")
+        let dump = """
+            SET statement_timeout = 0;
+            SET client_encoding = 'UTF8';
+            SET standard_conforming_strings = on;
+            SELECT pg_catalog.set_config('search_path', '', false);
+            SET check_function_bodies = false;
+            CREATE SCHEMA sbimp;
+            CREATE FUNCTION sbimp.later_count() RETURNS bigint LANGUAGE sql AS $$ SELECT count(*) FROM sbimp.later $$;
+            CREATE TABLE sbimp.later (id integer NOT NULL);
+            INSERT INTO sbimp.later VALUES (1);
+            INSERT INTO sbimp.later VALUES (2);
+            """
+        let statements = SQLFile.importStatements(dump)
+        var done: [Int] = []
+        try await e.runScript(alias: conn.alias, statements: statements) { done.append($0) }
+        #expect(done.last == statements.count)
+        let r = try await e.query(#"SELECT * FROM postgres_query('\#(conn.alias)', 'SELECT sbimp.later_count()')"#)
+        #expect(r.rows.first?.first == "2")
+        try await e.executeDDL(alias: conn.alias, sql: "DROP SCHEMA sbimp CASCADE")
+    }
 }

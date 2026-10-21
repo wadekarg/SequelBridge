@@ -69,14 +69,15 @@ class ConnectionManager: ObservableObject {
 
     func addSaved(_ conn: Connection, password: String) throws {
         saved.append(conn)
-        Keychain.save(password, for: conn.id)
+        // A SQLite file has no password: nothing goes to the Keychain for it.
+        if !conn.engine.isFileBased { Keychain.save(password, for: conn.id) }
         try store.save(saved)
     }
 
     func updateSaved(_ conn: Connection, password: String?) throws {
         guard let idx = saved.firstIndex(where: { $0.id == conn.id }) else { return }
         saved[idx] = conn
-        if let pw = password {
+        if let pw = password, !conn.engine.isFileBased {
             Keychain.save(pw, for: conn.id)
         }
         try store.save(saved)

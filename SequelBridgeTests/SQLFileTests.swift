@@ -47,6 +47,20 @@ struct SQLFileTests {
         let dump = "LOCK TABLES `t` WRITE;\nINSERT INTO `t` VALUES (1);\nUNLOCK TABLES;\nunlock tables;"
         #expect(SQLFile.importStatements(dump) == ["INSERT INTO `t` VALUES (1)"])
     }
+
+    /// pg_dump since PostgreSQL 17.6 and 16.10 opens the file with \restrict and ends it with
+    /// \unrestrict, psql's own commands: the server took them for SQL, and the first failed.
+    @Test("an import leaves out psql's backslash commands (\\restrict, \\connect), keeping the statements around them")
+    func psqlCommands() {
+        let dump = "--\n-- PostgreSQL database dump\n--\n\n\\restrict k3yK3y\n\n-- Dumped from database version 16.10\n\n"
+            + "SET statement_timeout = 0;\n\\connect sbtest\nCREATE TABLE public.t (id integer, note text);\n"
+            + "INSERT INTO public.t VALUES (1, 'a\n\\b');\n\n\\unrestrict k3yK3y\n"
+        #expect(SQLFile.importStatements(dump) == [
+            "--\n-- PostgreSQL database dump\n--\n\n\n-- Dumped from database version 16.10\n\nSET statement_timeout = 0",
+            "CREATE TABLE public.t (id integer, note text)",
+            "INSERT INTO public.t VALUES (1, 'a\n\\b')",       // a line of a string that starts with \ stays
+        ])
+    }
 }
 
 @MainActor

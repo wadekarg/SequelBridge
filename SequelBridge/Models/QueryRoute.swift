@@ -72,6 +72,12 @@ enum QueryRoute: Equatable {
         if let target, target.engine == .mysql, let reason = QueryEffects.refusal(sql) {
             return .refused(reason)
         }
+        // A procedure's rows would leave the transaction's connection out of step; on a
+        // connection of its own a ROLLBACK couldn't undo it.
+        if let target, target.engine == .mysql, facts(target.alias).inTransaction, QueryEffects.isCall(sql) {
+            return .refused("CALL isn't run inside a transaction begun in the Query tab: a procedure's rows would leave "
+                + "the transaction's connection out of step. COMMIT or ROLLBACK first, or run BEGIN; CALL …; COMMIT together.")
+        }
 
         func native(_ conn: Connection) -> QueryRoute? {
             guard QueryEffects.runsOnNativeClient(sql, engine: conn.engine) else { return nil }
@@ -87,7 +93,7 @@ enum QueryRoute: Equatable {
         func passthrough(_ conn: Connection) -> QueryRoute? {
             let f = facts(conn.alias)
             guard f.hasServerPassthrough, !f.attachedDatabase.isEmpty, SQLBuilder.isRowReturning(sql),
-                  !(conn.engine == .postgres && QueryEffects.isDataModifyingWith(sql)) else { return nil }
+                  !QueryEffects.isDataModifyingWith(sql) else { return nil }
             let serverSQL = SQLBuilder.stripAliasPrefix(sql, alias: conn.alias)
             if conn.engine == .postgres {
                 // The picker lists schemas, and postgres_query reads with the server's own
@@ -132,8 +138,10 @@ enum QueryRoute: Equatable {
             if let route = sqlite(conn) ?? native(conn) ?? passthrough(conn) ?? postgresWrite(conn) { return route }
             // A lone SET: on the server, where it means something, and saying it lasts for
             // its run only (DuckDB refused PostgreSQL's own settings).
+            // Inside a transaction begun in the Query tab, it joins that (as typed): on a
+            // connection of its own the next statement read the variable as NULL.
             if conn.engine == .mysql || conn.engine == .postgres, QueryEffects.isSessionSetting(sql),
-               !(conn.engine == .mysql && QueryEffects.isPersistentSetting(sql)) {
+               !facts(conn.alias).inTransaction, !(conn.engine == .mysql && QueryEffects.isPersistentSetting(sql)) {
                 return .native(alias: conn.alias, serverSQL: SQLBuilder.stripAliasPrefix(sql, alias: conn.alias),
                                database: catalogDatabase(conn.alias, connections: connections, facts: facts))
             }

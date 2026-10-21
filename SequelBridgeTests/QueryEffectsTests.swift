@@ -151,4 +151,25 @@ struct AsTypedRoutingTests {
         #expect(!QueryEffects.needsOneSession(["SELECT @@version", "SELECT 2"], engine: .mysql))   // a server variable
         #expect(!QueryEffects.needsOneSession(["SET @x = 1"], engine: .mysql))                      // one statement
     }
+
+    /// mysqldump --no-autocommit writes SET autocommit = 0 … COMMIT: refused at its first
+    /// statement once any autocommit kept a script off one connection. ROLLBACK TO a
+    /// savepoint was taken for the transaction's end, so a script leaving it open ran on a
+    /// connection that closed, rolling it back, the grid saying Done.
+    @Test("a script's transaction: autocommit = 0 opens one that COMMIT ends; ROLLBACK TO and RELEASE end none; AND CHAIN opens the next")
+    func transactionShape() {
+        #expect(QueryEffects.needsOneSession(["SET autocommit = 0", "INSERT INTO t VALUES (1)", "COMMIT"], engine: .mysql))
+        #expect(!QueryEffects.needsOneSession(["SET autocommit = 0", "INSERT INTO t VALUES (1)"], engine: .mysql))
+        #expect(!QueryEffects.needsOneSession(["SET autocommit = 0", "INSERT INTO t VALUES (1)", "COMMIT", "INSERT INTO t VALUES (2)"], engine: .mysql))
+        #expect(!QueryEffects.needsOneSession(["BEGIN", "UPDATE t SET a = 1", "SAVEPOINT s", "DELETE FROM t", "ROLLBACK TO SAVEPOINT s"], engine: .mysql))
+        #expect(QueryEffects.needsOneSession(["BEGIN", "SAVEPOINT s", "ROLLBACK TO s", "COMMIT"], engine: .postgres))
+        #expect(!QueryEffects.needsOneSession(["BEGIN", "UPDATE t SET a = 1", "COMMIT AND CHAIN"], engine: .mysql))
+        #expect(QueryEffects.transactionChange("ROLLBACK TO SAVEPOINT s") == nil)
+        #expect(QueryEffects.transactionChange("rollback work to s") == nil)
+        #expect(QueryEffects.transactionChange("RELEASE SAVEPOINT s") == nil)
+        #expect(QueryEffects.transactionChange("COMMIT AND CHAIN") == true)
+        #expect(QueryEffects.transactionChange("COMMIT AND NO CHAIN") == false)
+        #expect(QueryEffects.transactionChange("ABORT") == false)                                   // PostgreSQL's ROLLBACK
+        #expect(QueryEffects.transactionChange("ROLLBACK") == false)
+    }
 }

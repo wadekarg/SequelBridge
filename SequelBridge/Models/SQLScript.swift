@@ -47,20 +47,28 @@ nonisolated enum SQLScript {
         var delimiter: [unichar] = [59]   // ;
         // "#" starts a comment on MySQL and ClickHouse; on PostgreSQL it is an operator (#>>).
         let hashComments = engine != .postgres && engine != .sqlite
+        // "--" starts a comment on MySQL only before a space; elsewhere anywhere (--end).
+        let dashNeedsSpace = engine == nil || engine == .mysql
         var start = 0
         var i = 0
         var atLineStart = true
         // The statement's first words; whether it has a body (CREATE TRIGGER, PROCEDURE,
-        // FUNCTION or EVENT, or BEGIN NOT ATOMIC), once its first words say; and how deep
-        // in BEGIN … END and CASE … END that body is at the moment.
+        // FUNCTION or EVENT, ALTER EVENT, or BEGIN NOT ATOMIC), once its first words say;
+        // the blocks open in that body (true: BEGIN … END, false: CASE … END); and how
+        // deep in brackets it is (a parameter called begin is no block).
         var words: [String] = []
         var decided = false, body = false
-        var depth = 0
+        var blocks: [Bool] = []
+        var brackets = 0
         let bodyKinds: Set<String> = ["TRIGGER", "PROCEDURE", "FUNCTION", "EVENT"]
         let otherKinds: Set<String> = ["TABLE", "VIEW", "INDEX", "UNIQUE", "FULLTEXT", "SPATIAL", "DATABASE", "SCHEMA",
                                        "SEQUENCE", "USER", "ROLE", "TYPE", "DOMAIN", "EXTENSION", "MATERIALIZED",
                                        "TABLESPACE", "SERVER", "POLICY", "RULE", "PUBLICATION", "SUBSCRIPTION",
                                        "STATISTICS", "COLLATION", "CAST", "OPERATOR", "DICTIONARY", "PACKAGE"]
+        // After "begin" these make it a name in an expression (begin FROM t), not a block.
+        let afterName: Set<String> = ["FROM", "AS", "IS", "AND", "OR", "IN", "LIKE", "BETWEEN", "ON", "USING", "INTO",
+                                      "THEN", "WHEN", "ELSE", "ORDER", "GROUP", "WHERE", "LIMIT", "DESC", "ASC",
+                                      "HAVING", "UNION", "END"]
 
         func at(_ k: Int) -> unichar { s.character(at: k) }
         func isSpace(_ c: unichar) -> Bool { c == 32 || c == 9 || c == 10 || c == 13 }
@@ -68,8 +76,64 @@ nonisolated enum SQLScript {
             (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95 || c == 36 || c > 127
         }
         func isWordStart(_ c: unichar) -> Bool { (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95 || c > 127 }
-        func wordEnd(_ k: Int) -> Int { var j = k; while j < n && isWordChar(at(j)) { j += 1 }; return j }
         func endOfLine(_ k: Int) -> Int { var j = k; while j < n && at(j) != 10 { j += 1 }; return j }
+        func custom() -> Bool { delimiter != [59] }
+        func delimiterAt(_ k: Int) -> Bool {
+            guard k + delimiter.count <= n else { return false }
+            for (m, d) in delimiter.enumerated() where at(k + m) != d { return false }
+            return true
+        }
+        /// A # or -- comment starting at `k`.
+        func lineComment(_ k: Int) -> Bool {
+            let c = at(k)
+            if c == 35 { return hashComments }
+            guard c == 45, k + 1 < n, at(k + 1) == 45 else { return false }
+            return !dashNeedsSpace || k + 2 == n || isSpace(at(k + 2))
+        }
+        /// Past the spaces and comments from `k`.
+        func skipBlank(_ k: Int) -> Int {
+            var j = k
+            while j < n {
+                if isSpace(at(j)) { j += 1 }
+                else if lineComment(j) { j = endOfLine(j) }
+                else if at(j) == 47, j + 1 < n, at(j + 1) == 42 {
+                    var e = j + 2
+                    while e + 1 < n && !(at(e) == 42 && at(e + 1) == 47) { e += 1 }
+                    j = min(e + 2, n)
+                } else { break }
+            }
+            return j
+        }
+        /// The end of the word at `k`; a DELIMITER's delimiter written against it ends it.
+        func wordEnd(_ k: Int) -> Int {
+            var j = k
+            while j < n && isWordChar(at(j)) && !(custom() && delimiterAt(j)) { j += 1 }
+            return j
+        }
+        func word(_ k: Int, _ e: Int) -> String { s.substring(with: NSRange(location: k, length: e - k)).uppercased() }
+        /// Whether a BEGIN ending at `e` opens a block: a statement follows, not the rest of
+        /// an expression (a column called begin).
+        func opensBlock(after e: Int) -> Bool {
+            let k = skipBlank(e)
+            guard k < n, isWordStart(at(k)) else { return false }
+            let next = word(k, wordEnd(k))
+            if next == "NOT" {
+                let k2 = skipBlank(wordEnd(k))
+                return k2 < n && isWordStart(at(k2)) && word(k2, wordEnd(k2)) == "ATOMIC"
+            }
+            return !afterName.contains(next)
+        }
+        /// Whether an END ending at `e` closes a BEGIN block: the statement ends after it, or
+        /// after its label. Not END IF, END LOOP …, nor a column called end.
+        func closesBlock(after e: Int) -> Bool {
+            let k = skipBlank(e)
+            if k >= n || delimiterAt(k) { return true }
+            guard isWordStart(at(k)) else { return false }
+            let kEnd = wordEnd(k)
+            if ["IF", "LOOP", "WHILE", "REPEAT", "FOR", "CASE"].contains(word(k, kEnd)) { return false }
+            let after = skipBlank(kEnd)
+            return after >= n || delimiterAt(after)                  // END label;
+        }
         func flush(end: Int, next: Int) {
             let raw = s.substring(with: NSRange(location: start, length: end - start))
             let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -79,12 +143,7 @@ nonisolated enum SQLScript {
                 out.append(Piece(text: text, range: NSRange(location: first, length: next - first)))
             }
             start = next
-            words = []; decided = false; body = false; depth = 0
-        }
-        func delimiterAt(_ k: Int) -> Bool {
-            guard k + delimiter.count <= n else { return false }
-            for (m, d) in delimiter.enumerated() where at(k + m) != d { return false }
-            return true
+            words = []; decided = false; body = false; blocks = []; brackets = 0
         }
 
         while i < n {
@@ -117,19 +176,7 @@ nonisolated enum SQLScript {
                 i = min(j + 1, n)
                 continue
             }
-            // $tag$ … $tag$ (PostgreSQL's dollar quoting): a function or DO body keeps its
-            // semicolons. Not $1 (a parameter) nor the $ inside a name such as a$b.
-            if c == 36, i == 0 || !isWordChar(at(i - 1)) {
-                var j = i + 1
-                while j < n, isWordChar(at(j)), at(j) != 36 { j += 1 }
-                if j < n, at(j) == 36, j == i + 1 || !(at(i + 1) >= 48 && at(i + 1) <= 57) {
-                    let tag = s.substring(with: NSRange(location: i, length: j - i + 1))
-                    let close = s.range(of: tag, options: [], range: NSRange(location: j + 1, length: n - j - 1))
-                    i = close.location == NSNotFound ? n : NSMaxRange(close)
-                    continue
-                }
-            }
-            if (c == 35 && hashComments) || (c == 45 && i + 1 < n && at(i + 1) == 45 && (i + 2 == n || isSpace(at(i + 2)))) {
+            if lineComment(i) {
                 i = endOfLine(i)                                       // # or -- to the end of the line
                 continue
             }
@@ -139,42 +186,68 @@ nonisolated enum SQLScript {
                 i = min(j + 2, n)
                 continue
             }
+            // A DELIMITER's delimiter, before a $ in it could open a dollar quote or end a
+            // word: DELIMITER $$ … END$$, p$$, `q`$$ and END $$ all end there.
+            if custom(), delimiterAt(i) {
+                flush(end: i, next: i + delimiter.count)
+                i += delimiter.count
+                continue
+            }
+            // $tag$ … $tag$ (PostgreSQL's dollar quoting): a function or DO body keeps its
+            // semicolons. Not $1 (a parameter) nor the $ inside a name such as a$b.
+            if !custom(), c == 36, i == 0 || !isWordChar(at(i - 1)) {
+                var j = i + 1
+                while j < n, isWordChar(at(j)), at(j) != 36 { j += 1 }
+                if j < n, at(j) == 36, j == i + 1 || !(at(i + 1) >= 48 && at(i + 1) <= 57) {
+                    let tag = s.substring(with: NSRange(location: i, length: j - i + 1))
+                    let close = s.range(of: tag, options: [], range: NSRange(location: j + 1, length: n - j - 1))
+                    i = close.location == NSNotFound ? n : NSMaxRange(close)
+                    continue
+                }
+            }
+            if c == 40 { brackets += 1 } else if c == 41 { brackets = max(0, brackets - 1) }
             if isWordStart(c), i == 0 || !isWordChar(at(i - 1)) {
                 var j = wordEnd(i)
-                if !decided || body {
-                    let word = s.substring(with: NSRange(location: i, length: j - i)).uppercased()
+                // @end, x.end and end.x are names, not keywords.
+                let prev = i > 0 ? at(i - 1) : 0
+                let name = prev == 64 || prev == 46 || (j < n && at(j) == 46)
+                if !name && (!decided || body) {
+                    let w = word(i, j)
                     if !decided {
-                        words.append(word)
-                        if words[0] == "CREATE" {
+                        words.append(w)
+                        if words[0] == "CREATE" || words[0] == "ALTER" {
                             // The first kind of thing named decides: CREATE TABLE t (function …) has no body.
-                            if bodyKinds.contains(word) { body = true; decided = true }
-                            else if otherKinds.contains(word) || words.count >= 12 { decided = true }
+                            let kinds: Set<String> = words[0] == "CREATE" ? bodyKinds : ["EVENT"]
+                            if words.count > 1, kinds.contains(w) { body = true; decided = true }
+                            else if otherKinds.contains(w) || bodyKinds.contains(w) || words.count >= 12 { decided = true }
                         } else if words[0] == "BEGIN" {
-                            if words.count == 3 { decided = true; body = words[1] == "NOT" && words[2] == "ATOMIC"; depth = body ? 1 : 0 }
+                            if words.count == 3 {
+                                decided = true
+                                body = words[1] == "NOT" && words[2] == "ATOMIC"
+                                if body { blocks = [true] }
+                            }
                         } else {
                             decided = true
                         }
-                    } else if (i > 0 && at(i - 1) == 46) || (j < n && at(j) == 46) {
-                        // NEW.end, t.begin: a column, not a block.
-                    } else if word == "BEGIN" || word == "CASE" {
-                        depth += 1
-                    } else if word == "END" {
-                        // END IF, END LOOP, END WHILE, END REPEAT and END FOR close blocks not
-                        // counted here; END CASE closes a CASE, a plain END a BEGIN or a CASE.
-                        var k = j
-                        while k < n && isSpace(at(k)) { k += 1 }
-                        let m = wordEnd(k)
-                        let next = s.substring(with: NSRange(location: k, length: m - k)).uppercased()
-                        if !["IF", "LOOP", "WHILE", "REPEAT", "FOR"].contains(next) {
-                            depth = max(0, depth - 1)
-                            if next == "CASE" { j = m }
+                    } else if w == "CASE" {
+                        blocks.append(false)
+                    } else if w == "BEGIN" {
+                        if brackets == 0, opensBlock(after: j) { blocks.append(true) }
+                    } else if w == "END", let top = blocks.last {
+                        if !top {
+                            // A CASE's END, however the statement goes on; END CASE's CASE opens nothing.
+                            blocks.removeLast()
+                            let k = skipBlank(j)
+                            if k < n, isWordStart(at(k)), word(k, wordEnd(k)) == "CASE" { j = wordEnd(k) }
+                        } else if brackets == 0, closesBlock(after: j) {
+                            blocks.removeLast()
                         }
                     }
                 }
                 i = j
                 continue
             }
-            if delimiterAt(i), !(depth > 0 && delimiter == [59]) {
+            if !custom(), delimiterAt(i), blocks.isEmpty {
                 flush(end: i, next: i + delimiter.count)
                 i += delimiter.count
                 continue

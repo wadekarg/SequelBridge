@@ -23,10 +23,22 @@ nonisolated enum SQLFile {
     /// They only speed a dump up, and the statements between them may reach the server on
     /// another of the driver's connections, which would wait on that lock for good.
     static func importStatements(_ sql: String) -> [String] {
-        SQLScript.statements(sql).filter { statement in
-            let words = (QueryEffects.statements(statement).first ?? "").uppercased()
-                .split(whereSeparator: \.isWhitespace).prefix(2).joined(separator: " ")
-            return words != "LOCK TABLES" && words != "UNLOCK TABLES"
+        SQLScript.statements(sql).compactMap { piece -> String? in
+            // psql's own commands (\restrict, \connect: pg_dump writes them) stand on lines of
+            // their own between statements, so they come before the code of the piece after
+            // them, among its comments. A line inside the statement (a string's) stays.
+            var lines = piece.components(separatedBy: "\n")
+            var i = 0
+            while i < lines.count {
+                let t = lines[i].trimmingCharacters(in: .whitespaces)
+                if t.hasPrefix("\\") { lines.remove(at: i); continue }
+                if t.isEmpty || t.hasPrefix("--") { i += 1; continue }
+                break
+            }
+            let statement = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let code = QueryEffects.statements(statement).first else { return nil }
+            let words = code.uppercased().split(whereSeparator: \.isWhitespace).prefix(2).joined(separator: " ")
+            return words == "LOCK TABLES" || words == "UNLOCK TABLES" ? nil : statement
         }
     }
 

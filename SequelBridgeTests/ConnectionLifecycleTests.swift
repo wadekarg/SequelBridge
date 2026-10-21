@@ -35,6 +35,23 @@ struct ConnectionLifecycleTests {
         #expect(manager.active.isEmpty)
     }
 
+    /// A SQLite file has no password, yet saving one put an empty item in the login
+    /// Keychain, left behind for every file ever added.
+    @Test("saving a SQLite connection writes nothing to the Keychain")
+    func sqliteSavesNoKeychainItem() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-life-kc-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let manager = try ConnectionManager(arguments: ["app", "-SBSupportDir", dir.path])
+        let conn = Connection(name: "Lite K", alias: "litek", database: dir.appendingPathComponent("k.sqlite").path, engine: .sqlite)
+        defer { try? manager.deleteSaved(id: conn.id); Keychain.delete(for: conn.id) }
+        try manager.addSaved(conn, password: "")
+        #expect(Keychain.load(for: conn.id) == nil, "adding it saved a Keychain item")
+        try manager.updateSaved(conn, password: "")
+        #expect(Keychain.load(for: conn.id) == nil, "saving it again saved a Keychain item")
+        #expect(manager.password(for: conn) == "")
+        #expect(manager.saved.contains { $0.id == conn.id })
+    }
+
     /// A server added with a workspace's + was attached on its own, outside the manager's
     /// list: the next Connect from Home left it attached, its SSH tunnel running.
     @Test("a server added in the workspace is closed by the next Connect from Home")

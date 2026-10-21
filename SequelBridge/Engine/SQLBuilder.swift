@@ -101,7 +101,7 @@ nonisolated enum SQLBuilder {
     private static func containsWriteVerb(_ s: String) -> Bool {
         // Blank out 'string literals' first, so a write verb inside a literal
         // (e.g. WITH x AS (SELECT 'please update me') …) isn't mistaken for a write.
-        let stripped = s.replacingOccurrences(of: "'[^']*'", with: "''", options: .regularExpression)
+        let stripped = s.replacingOccurrences(of: #"'[^']*'|"[^"]*"|`[^`]*`"#, with: "''", options: .regularExpression)
         let u = " " + stripped.uppercased() + " "
         for v in ["INSERT", "UPDATE", "DELETE", "MERGE", "REPLACE"] where u.range(of: "\\b\(v)\\b", options: .regularExpression) != nil {
             return true

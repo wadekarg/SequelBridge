@@ -67,10 +67,14 @@ nonisolated enum SQLiteTool {
         // Written, read and drained at once: a big script or result would fill a pipe and stall the tool.
         let group = DispatchGroup()
         var out = Data(), err = Data()
+        // sqlite3 stops reading at a failure (-bail): the rest of a big script then can't be
+        // written, and that write fails here instead of ending the app (SIGPIPE).
+        let writer = stdin.fileHandleForWriting
+        _ = fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1)
         group.enter()
         DispatchQueue.global().async {
-            stdin.fileHandleForWriting.write(Data(input.utf8))
-            try? stdin.fileHandleForWriting.close()
+            try? writer.write(contentsOf: Data(input.utf8))
+            try? writer.close()
             group.leave()
         }
         group.enter()

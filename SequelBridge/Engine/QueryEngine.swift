@@ -1249,12 +1249,8 @@ final class QueryEngine {
                            limit: Int, offset: Int, columns: [ColumnInfo] = []) async throws -> QueryResult {
         let e = engine(for: alias)
         func page(_ selected: String) async throws -> QueryResult {
-            var sql = "SELECT \(selected) FROM \(serverTableRef(alias: alias, database: database, table: table))"
-            if !filter.isEmpty { sql += " WHERE \(filter)" }
-            if let col = sortColumn, !col.isEmpty {
-                sql += " ORDER BY \(SQLBuilder.serverIdent(e, col)) \(sortAscending ? "ASC" : "DESC")"
-            }
-            sql += " LIMIT \(limit) OFFSET \(offset)"
+            let sql = Self.contentPageSQL(e, database: database, table: table, selected: selected, filter: filter,
+                                          sortColumn: sortColumn, sortAscending: sortAscending, limit: limit, offset: offset)
             return try await serverPassthroughQuery(alias: alias, serverSQL: sql, lane: .content)
         }
         let selected = Self.contentColumns(e, columns)
@@ -1265,21 +1261,45 @@ final class QueryEngine {
             return try await page("*")                     // the table changed since its columns were read
         }
         // The dates came back as the server's text; their types still say what they are.
-        for (i, c) in columns.enumerated() where i < result.columnTypes.count && Self.isMySQLDate(c.dataType) {
+        for (i, c) in Self.contentListed(columns).enumerated() where i < result.columnTypes.count && Self.isMySQLDate(c.dataType) {
             result.columnTypes[i] = c.dataType.lowercased() == "date" ? "DATE" : "DATETIME"
         }
         return result
+    }
+
+    /// A Content page's statement on the server: the `selected` columns (contentColumns),
+    /// the filter, the sort and the page.
+    nonisolated static func contentPageSQL(_ engine: DatabaseEngine, database: String, table: String, selected: String,
+                                           filter: String, sortColumn: String?, sortAscending: Bool,
+                                           limit: Int, offset: Int) -> String {
+        var sql = "SELECT \(selected) FROM \(SQLBuilder.serverTable(engine, database: database, table: table))"
+        if !filter.isEmpty { sql += " WHERE \(filter)" }
+        if let col = sortColumn, !col.isEmpty {
+            // With the columns named, a bare name would meet the select list's alias first (a
+            // date's CAST text: no index, a full scan): the table's own column, by its table.
+            let key = selected == "*" ? SQLBuilder.serverIdent(engine, col)
+                : SQLBuilder.serverTable(engine, database: database, table: table) + "." + SQLBuilder.serverIdent(engine, col)
+            sql += " ORDER BY \(key) \(sortAscending ? "ASC" : "DESC")"
+        }
+        sql += " LIMIT \(limit) OFFSET \(offset)"
+        return sql
     }
 
     /// What a Content page selects: every column, and on MySQL its dates as the server
     /// writes them (CAST … AS CHAR). DuckDB's MySQL driver reads a zero date (0000-00-00)
     /// as NULL, and fails the whole page on one with a zero month or day (2026-00-15).
     nonisolated static func contentColumns(_ engine: DatabaseEngine, _ columns: [ColumnInfo]) -> String {
-        guard engine == .mysql, columns.contains(where: { isMySQLDate($0.dataType) }) else { return "*" }
-        return columns.map { c in
+        let listed = contentListed(columns)
+        guard engine == .mysql, listed.contains(where: { isMySQLDate($0.dataType) }) else { return "*" }
+        return listed.map { c in
             let name = SQLBuilder.serverIdent(.mysql, c.name)
             return isMySQLDate(c.dataType) ? "CAST(\(name) AS CHAR) AS \(name)" : name
         }.joined(separator: ", ")
+    }
+
+    /// The columns SELECT * shows: not MySQL 8's invisible ones (a generated my_row_id key).
+    nonisolated static func contentListed(_ columns: [ColumnInfo]) -> [ColumnInfo] {
+        columns.filter { !$0.extra.uppercased().contains("INVISIBLE") }
     }
 
     /// DATE, DATETIME or TIMESTAMP, as information_schema writes a MySQL column's type.
@@ -1875,6 +1895,14 @@ final class QueryEngine {
     /// app can pick that database the way the Query tab does.
     func runScript(alias: String, statements: [String], use: ((String) async throws -> Void)? = nil,
                    onProgress: (Int) -> Void) async throws {
+        // Refused before anything runs, not half way: COPY … FROM stdin's rows can't be sent.
+        if let i = statements.firstIndex(where: { SQLFile.unsupported($0) != nil }), let reason = SQLFile.unsupported(statements[i]) {
+            throw SQLScriptFailure(index: i + 1, total: statements.count, reason: reason)
+        }
+        if engine(for: alias) == .mysql || engine(for: alias) == .postgres {
+            try await runScriptInOneSession(alias: alias, statements: statements, use: use, onProgress: onProgress)
+            return
+        }
         for (i, statement) in statements.enumerated() {
             try Task.checkCancellation()
             if let reason = SQLFile.unsupported(statement) {
@@ -1891,6 +1919,42 @@ final class QueryEngine {
             }
             onProgress(i + 1)
         }
+    }
+
+    /// A dump's statements on one connection of the server's own client, as mysql and psql
+    /// run a file: what it sets first (FOREIGN_KEY_CHECKS=0, check_function_bodies = off,
+    /// @OLD_… variables put back at the end) holds for the rest. Through DuckDB each
+    /// statement could land on another of its connections, and those settings were lost.
+    private func runScriptInOneSession(alias: String, statements: [String], use: ((String) async throws -> Void)?,
+                                       onProgress: (Int) -> Void) async throws {
+        try ensureWritable(alias)
+        let start = Date()
+        var done = 0
+        func finished(_ n: Int) async throws {
+            done = n
+            logStatement(statements[n - 1], nil, nil, Date().timeIntervalSince(start))
+            if let db = QueryEffects.soleUse(statements[n - 1]) { try await use?(db) }   // the left panel follows a USE
+            onProgress(n)
+            try Task.checkCancellation()
+        }
+        do {
+            if engine(for: alias) == .mysql {
+                guard let cfg = mysqlConfigs[alias] else { throw SequelBridgeError.attachFailed("No MySQL connection named '\(alias)'.") }
+                _ = try await MySQLClient(cfg).run(statements, onEach: finished)
+            } else {
+                guard let cfg = postgresConfigs[alias] else { throw SequelBridgeError.attachFailed("No PostgreSQL connection named '\(alias)'.") }
+                _ = try await PostgresClient(cfg).run(statements, onEach: finished)
+            }
+        } catch {
+            await clearScannerCache(alias)
+            if Task.isCancelled || error is CancellationError { throw CancellationError() }
+            let reason = Self.extractReason(from: error)
+                .replacingOccurrences(of: #"^Statement \d+ of \d+: "#, with: "", options: .regularExpression)
+            let failed = min(done + 1, statements.count)
+            logStatement(statements[failed - 1], nil, reason, Date().timeIntervalSince(start))
+            throw SQLScriptFailure(index: failed, total: statements.count, reason: reason)
+        }
+        await clearScannerCache(alias)
     }
 
     /// A table's CREATE TABLE statement, as Table Info shows it: the server's own on MySQL
@@ -2027,23 +2091,42 @@ final class QueryEngine {
                 return try await openStreamingQuery(wrapped, firstChunk: firstChunk, logSQL: serverSQL)
             }
             return try await openServerStreamingQuery(alias: alias, serverSQL: serverSQL, firstChunk: firstChunk)
-        } catch let error where Self.extractReason(from: error).localizedCaseInsensitiveContains("duplicate column name")
-                    && (mysqlConfigs[alias] != nil || postgresConfigs[alias] != nil || sqlitePaths[alias] != nil) {
-            let whole = try await nativeQuery(alias: alias, sql: serverSQL, database: database)
-            return (whole, QueryStream(id: -1, lane: .user, hasMore: false))
-        } catch let error where mysqlConfigs[alias] != nil && Self.extractReason(from: error).contains("Conversion Error")
-                    && SQLBuilder.isReadOnly(serverSQL) {
-            // A value DuckDB's MySQL driver can't convert (a date with a zero month or day,
-            // 2026-00-15) failed the whole read: the app's own client reads it as kept.
-            let whole = try await nativeQuery(alias: alias, sql: serverSQL, database: database)
-            return (whole, QueryStream(id: -1, lane: .user, hasMore: false))
-        } catch let error where sqlitePaths[alias] != nil && !Self.isCancellation(error) && SQLBuilder.isReadOnly(serverSQL) {
-            // DuckDB's SQLite (3.38) lacks what macOS's has: FTS5 and other modules, RIGHT
-            // JOIN (3.39), concat and string_agg (3.44). The read runs again in the file's
-            // own SQLite, opened read-only; if it fails there too, SQLite's message is shown.
-            let whole = try await sqliteQuery(alias: alias, sql: serverSQL, readOnly: true)
-            return (whole, QueryStream(id: -1, lane: .user, hasMore: false))
+        } catch {
+            switch Self.readFallback(engine: engine(for: alias), error: error, sql: serverSQL,
+                                     cancelled: Task.isCancelled, inTransaction: queryTabTransaction) {
+            case .none:
+                throw error
+            case .nativeClient:
+                let whole = try await nativeQuery(alias: alias, sql: serverSQL, database: database)
+                return (whole, QueryStream(id: -1, lane: .user, hasMore: false))
+            case .sqliteTool:
+                let whole = try await sqliteQuery(alias: alias, sql: serverSQL, readOnly: true)
+                return (whole, QueryStream(id: -1, lane: .user, hasMore: false))
+            }
         }
+    }
+
+    /// Where a Query-tab read that failed through DuckDB runs again, if anywhere.
+    enum ReadFallback: Equatable { case none, nativeClient, sqliteTool }
+
+    static func readFallback(engine: DatabaseEngine, error: Error, sql: String,
+                                         cancelled: Bool, inTransaction: Bool) -> ReadFallback {
+        let reason = extractReason(from: error)
+        // A read the user stopped (Cancel interrupts DuckDB: "Interrupted") isn't run again.
+        if cancelled || isCancellation(error) || reason.localizedCaseInsensitiveContains("interrupted") { return .none }
+        // Inside a transaction begun in the Query tab a read stays in it: another connection
+        // can't see its changes, and a FOR UPDATE there would wait on its locks.
+        if inTransaction { return .none }
+        // DuckDB's mysql_query and postgres_query refuse two result columns of one name.
+        if reason.localizedCaseInsensitiveContains("duplicate column name"), engine != .clickhouse { return .nativeClient }
+        // A value DuckDB's MySQL driver can't convert (a date with a zero month or day,
+        // 2026-00-15) failed the whole read: the app's own client reads it as kept.
+        if engine == .mysql, reason.contains("Conversion Error"), SQLBuilder.isReadOnly(sql) { return .nativeClient }
+        // DuckDB's SQLite (3.38) lacks what macOS's has: FTS5 and other modules, RIGHT
+        // JOIN (3.39), concat and string_agg (3.44). The read runs again in the file's
+        // own SQLite, opened read-only; if it fails there too, SQLite's message is shown.
+        if engine == .sqlite, !isCancellation(error), SQLBuilder.isReadOnly(sql) { return .sqliteTool }
+        return .none
     }
 
     /// The schema picked put first on the connection's search_path, in a message of its own

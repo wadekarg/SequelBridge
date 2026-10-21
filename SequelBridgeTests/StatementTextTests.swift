@@ -41,3 +41,31 @@ struct StatementTextTests {
         #expect(r.last?.rows == [["0.1", "42", "x", nil, "1.5e+300"]])
     }
 }
+
+/// SQLite's own tool reading a script on its standard input.
+@MainActor
+@Suite("SQLite's own tool: a script on stdin")
+struct SQLiteToolScriptTests {
+    /// A script bigger than the pipe it goes through, failing early: sqlite3 stopped reading
+    /// (-bail), the rest couldn't be written, and the write killed the app (SIGPIPE).
+    @Test("a big script that fails early says which statement, and the app stays up", .timeLimit(.minutes(1)))
+    func bigScriptFailingEarly() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-sqlite-pipe-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("big.sqlite").path
+        let note = String(repeating: "x", count: 60)
+        let rows = (1...5000).map { "INSERT INTO t VALUES (\($0), '\(note)')" }
+        let statements = ["CREATE TABLE t (id INTEGER PRIMARY KEY, note TEXT)", "CREATE TABLE t (id INTEGER)"] + rows
+        do {
+            _ = try await SQLiteTool.script(statements, file: file, busyTimeout: 5)
+            Issue.record("a script whose second statement fails ran")
+        } catch {
+            let reason = QueryEngine.extractReason(from: error)
+            #expect(reason.contains("Statement 2 of 5002") && reason.contains("already exists"), "\(reason)")
+        }
+        // And a big script that runs whole still does.
+        let rest = try await SQLiteTool.script(rows.map { $0.replacingOccurrences(of: "INSERT INTO t", with: "INSERT OR REPLACE INTO t") }
+                                               + ["SELECT count(*) FROM t"], file: file, busyTimeout: 5)
+        #expect(rest.rows == [["5000"]])
+    }
+}

@@ -522,6 +522,7 @@ struct StructurePanel: View {
                     Image(systemName: "plus").frame(width: 20, height: 20)
                 }
                 .buttonStyle(.borderedProminent).controlSize(.mini)
+                .accessibilityIdentifier("structure.addIndex")
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(Color(NSColor.controlBackgroundColor))

@@ -127,8 +127,13 @@ struct QueryRouteTests {
 
     @Test("inside a transaction begun in the Query tab, nothing runs on a connection of its own: ROLLBACK must undo it")
     func transactionStaysTogether() {
-        // A CALL on MySQL joins the transaction (as typed), not the app's own client.
-        #expect(route("CALL archive()", [my], inTransaction: true) == .asTyped(alias: "shop", serverSQL: "CALL archive()"))
+        // A CALL can't join it (its rows leave the transaction's connection out of step), nor
+        // run beside it where ROLLBACK can't undo it: it is refused, saying what to do.
+        if case .refused(let why) = route("CALL archive()", [my], inTransaction: true) {
+            #expect(why.contains("COMMIT"), "\(why)")
+        } else { Issue.record("a CALL inside a transaction wasn't refused") }
+        // A SET joins it: on a connection of its own, the next statement read the variable as NULL.
+        #expect(route("SET @s = 'archived'", [my], inTransaction: true) == .asTyped(alias: "shop", serverSQL: "SET @s = 'archived'"))
         // A script that would share one connection runs statement by statement in it instead.
         #expect(QueryRoute.sessionScript(["SET @id = 5", "DELETE FROM t WHERE id = @id"], connections: [my], active: "shop",
                                          facts: facts(inTransaction: true)) == nil)
@@ -163,6 +168,19 @@ struct QueryRouteTests {
         #expect(QueryEffects.transactionChange(block) == nil)
         #expect(QueryEffects.transactionChange("BEGIN") == true)
         #expect(QueryEffects.transactionChange("BEGIN WORK") == true)
+    }
+
+    /// MySQL 8's WITH … DELETE went to the passthrough, which can't run a statement that
+    /// returns no rows; a WITH whose string or name says DELETE was refused as a write.
+    @Test("MySQL 8's WITH … DELETE runs as typed; a WITH whose strings or names say DELETE reads, read-only too")
+    func dataModifyingWith() {
+        let w = "WITH x AS (SELECT id FROM t WHERE old) DELETE FROM t WHERE id IN (SELECT id FROM x)"
+        #expect(route(w, [my]) == .asTyped(alias: "shop", serverSQL: w))
+        let r = #"WITH x AS (SELECT * FROM t WHERE action = "DELETE" OR `update` = 1) SELECT * FROM x"#
+        #expect(route(r, [my], readOnly: ["shop"]) == .passthrough(alias: "shop", serverSQL: r))
+        #expect(SQLBuilder.isReadOnly(r))
+        #expect(!QueryEffects.isDataModifyingWith(r))
+        #expect(QueryEffects.isDataModifyingWith(w))
     }
 
     @Test("MySQL: a WITH whose string says DELETE is still a read; SET GLOBAL runs as typed, not with the one-run note")

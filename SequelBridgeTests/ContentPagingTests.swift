@@ -94,5 +94,23 @@ struct ContentPagingTests {
         #expect(QueryEngine.contentColumns(.postgres, cols) == "*")
         #expect(QueryEngine.contentColumns(.mysql, [cols[0], cols[4]]) == "*")
         #expect(QueryEngine.contentColumns(.mysql, []) == "*")
+        // MySQL 8's invisible columns (a generated my_row_id key) aren't in SELECT *: nor here.
+        var hidden = ColumnInfo(id: "h", name: "my_row_id", dataType: "bigint unsigned", nullable: false, isPrimaryKey: true)
+        hidden.extra = "auto_increment INVISIBLE"
+        #expect(QueryEngine.contentColumns(.mysql, [hidden, cols[1]]) == "CAST(`d` AS CHAR) AS `d`")
+    }
+
+    /// ORDER BY a name meets the select list's alias first, the CAST's text: a sort on an
+    /// indexed date column became a full scan and a filesort.
+    @Test("a MySQL page with its dates as text still sorts on the table's own column")
+    func exactDatesSortOnTheColumn() {
+        let cols = [ColumnInfo(id: "id", name: "id", dataType: "int", nullable: false, isPrimaryKey: true),
+                    ColumnInfo(id: "c", name: "created_at", dataType: "datetime", nullable: false, isPrimaryKey: false)]
+        let sql = QueryEngine.contentPageSQL(.mysql, database: "db", table: "t", selected: QueryEngine.contentColumns(.mysql, cols),
+                                             filter: "", sortColumn: "created_at", sortAscending: false, limit: 200, offset: 0)
+        #expect(sql.contains("ORDER BY `db`.`t`.`created_at` DESC"), "\(sql)")
+        let star = QueryEngine.contentPageSQL(.postgres, database: "public", table: "t", selected: "*", filter: "",
+                                              sortColumn: "id", sortAscending: true, limit: 10, offset: 20)
+        #expect(star == #"SELECT * FROM "public"."t" ORDER BY "id" ASC LIMIT 10 OFFSET 20"#)
     }
 }

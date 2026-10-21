@@ -202,6 +202,43 @@ struct MySQLIntegrationTests {
         #expect(r.rows.map { $0[0] } == ["a", "b;c"])
     }
 
+    /// mysqldump writes a table before the one it refers to, with FOREIGN_KEY_CHECKS=0 set
+    /// first, and puts the settings back at the end from @OLD_… variables. On a connection
+    /// per statement the check stayed on, and the variables were NULL there.
+    @Test("Import SQL file runs a mysqldump file as one session: a table that refers ahead, the settings put back")
+    func importMysqldump() async throws {
+        let engine = try await makeEngine()
+        let dump = """
+        /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+        /*!40101 SET NAMES utf8mb4 */;
+        /*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+        /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+        /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+        DROP TABLE IF EXISTS `sbwrite`.`imp_child`;
+        CREATE TABLE `sbwrite`.`imp_child` (`id` int NOT NULL, `parent_id` int DEFAULT NULL, PRIMARY KEY (`id`),
+          KEY `imp_child_fk` (`parent_id`),
+          CONSTRAINT `imp_child_fk` FOREIGN KEY (`parent_id`) REFERENCES `sbwrite`.`imp_parent` (`id`)) ENGINE=InnoDB;
+        LOCK TABLES `sbwrite`.`imp_child` WRITE;
+        INSERT INTO `sbwrite`.`imp_child` VALUES (1,1),(2,2);
+        UNLOCK TABLES;
+        DROP TABLE IF EXISTS `sbwrite`.`imp_parent`;
+        CREATE TABLE `sbwrite`.`imp_parent` (`id` int NOT NULL, PRIMARY KEY (`id`)) ENGINE=InnoDB;
+        INSERT INTO `sbwrite`.`imp_parent` VALUES (1),(2);
+        /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+        /*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+        /*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+        /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+        """
+        let statements = SQLFile.importStatements(dump)
+        var done: [Int] = []
+        try await engine.runScript(alias: Self.alias, statements: statements) { done.append($0) }
+        #expect(done.last == statements.count)
+        let r = try await engine.serverPassthroughQuery(alias: Self.alias, serverSQL:
+            "SELECT COUNT(*) FROM `sbwrite`.`imp_child` c JOIN `sbwrite`.`imp_parent` p ON p.id = c.parent_id")
+        #expect(r.rows.first?.first == "2")
+        try await engine.mysqlExecute(alias: Self.alias, sql: "DROP TABLE `sbwrite`.`imp_child`, `sbwrite`.`imp_parent`")
+    }
+
     @Test("Import SQL file stops at the first statement that fails, and says which")
     func importStops() async throws {
         let engine = try await makeEngine()

@@ -28,6 +28,13 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 - MySQL: a CALL to a procedure that returns rows failed ("Commands out of sync"); a
   SELECT with two columns of one name, such as SELECT * over a join, failed ("duplicate
   column name"); a statement starting with a # comment failed. All three run.
+- Import SQL file ran each statement on a connection of its own, so what a dump sets
+  first was lost: a mysqldump file's FOREIGN_KEY_CHECKS=0 (a table that refers to one
+  later in the file failed) and the settings it puts back at the end, a pg_dump file's
+  check_function_bodies = off. A file runs on one connection now, as mysql and psql run
+  it; pg_dump's own \restrict and \connect lines are left out.
+- MySQL 8's WITH … UPDATE / DELETE runs on the server as typed.
+- Saving a SQLite connection left an empty item in the login Keychain.
 - MySQL and MariaDB: legacy dates broke Content. A zero date (0000-00-00) showed as
   NULL, and a date with a zero month or day (2026-00-15) failed the whole page. Content
   now shows them as the server keeps them. In the Query tab such a read runs on the

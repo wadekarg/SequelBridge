@@ -152,6 +152,7 @@ struct QueryPanelView: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Saved queries")
+        .accessibilityIdentifier("query.savedQueries")
     }
 
     @ViewBuilder

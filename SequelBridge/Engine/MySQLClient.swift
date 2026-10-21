@@ -103,7 +103,8 @@ final class MySQLClient {
     /// Runs `statements` one after another on one connection, so a variable set, a
     /// temporary table made or a transaction begun by one is there for the next; returns
     /// the last one's result. A failure stops there and says which statement it was.
-    func run(_ statements: [String]) async throws -> (columns: [String], rows: [[String?]]) {
+    func run(_ statements: [String], onEach: (Int) async throws -> Void = { _ in }) async throws
+        -> (columns: [String], rows: [[String?]]) {
         let link: WireLink
         if config.useTLS && config.socketPath == nil {
             link = TLSWireLink(host: config.host, port: config.port, timeout: Self.connectTimeout)
@@ -122,6 +123,7 @@ final class MySQLClient {
                 catch where statements.count > 1 && !Task.isCancelled {
                     throw MySQLClientError.connection("Statement \(n + 1) of \(statements.count): \(error.localizedDescription)")
                 }
+                try await onEach(n + 1)
             }
             return last
         }

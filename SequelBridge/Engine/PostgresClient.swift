@@ -67,7 +67,8 @@ final class PostgresClient {
     /// (one message with several runs them as one transaction, where VACUUM, CREATE INDEX
     /// CONCURRENTLY and CREATE DATABASE can't run), and returns the last one's result. A
     /// failure stops there and says which statement it was when there are several.
-    func run(_ statements: [String], setup: [String] = []) async throws -> (columns: [String], rows: [[String?]]) {
+    func run(_ statements: [String], setup: [String] = [], onEach: (Int) async throws -> Void = { _ in }) async throws
+        -> (columns: [String], rows: [[String?]]) {
         let link = try await open()
         defer { link.close() }
         return try await link.cancellable {
@@ -81,6 +82,7 @@ final class PostgresClient {
                 catch where statements.count > 1 && !Task.isCancelled {
                     throw PostgresClientError.server("Statement \(n + 1) of \(statements.count): \(error.localizedDescription)")
                 }
+                try await onEach(n + 1)
             }
             try? await link.send(Self.message("X", Data()))
             return last
