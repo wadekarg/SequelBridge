@@ -23,7 +23,7 @@ nonisolated enum QueryEffects {
         for statement in statements(sql) {
             if tableDDLVerbs.contains(firstWord(statement)) { outcome.reloadTables = true }
             if matches(databaseDDL, statement) { outcome.reloadDatabases = true }
-            if let picked = identifier(useStatement, in: statement) ?? identifier(setSearchPath, in: statement) {
+            if let picked = identifier(useStatement, in: statement) ?? searchPathSchema(statement) {
                 if picked != outcome.database { outcome.database = picked; outcome.reloadDatabases = true }
             } else if let dropped = identifier(dropDatabase, in: statement), let current = outcome.database,
                       dropped == current || (!caseSensitive && dropped.caseInsensitiveCompare(current) == .orderedSame) {
@@ -38,7 +38,26 @@ nonisolated enum QueryEffects {
     static func soleUse(_ sql: String) -> String? {
         let all = statements(sql)
         guard all.count == 1 else { return nil }
-        return identifier(useStatement, in: all[0]) ?? identifier(setSearchPath, in: all[0])
+        return identifier(useStatement, in: all[0]) ?? searchPathSchema(all[0])
+    }
+
+    /// The one schema `SET search_path TO x` (or `= x`) names, as PostgreSQL reads it: a
+    /// quoted name as written, an unquoted one in lower case, 'app' as app. Not DEFAULT,
+    /// nor a list of schemas.
+    static func searchPathSchema(_ statement: String) -> String? {
+        guard let m = setSearchPath.firstMatch(in: statement, range: NSRange(statement.startIndex..., in: statement)),
+              let r = Range(m.range(at: 1), in: statement) else { return nil }
+        let name = String(statement[r])
+        if name.hasPrefix("'") { return String(name.dropFirst().dropLast()).replacingOccurrences(of: "''", with: "'") }
+        if name.hasPrefix("\"") { return String(name.dropFirst().dropLast()).replacingOccurrences(of: "\"\"", with: "\"") }
+        return name.uppercased() == "DEFAULT" ? nil : name.lowercased()
+    }
+
+    /// A MySQL SET that outlives its connection (GLOBAL, PERSIST, a password, a default
+    /// role): it runs as typed, without the note that a setting lasts for its run.
+    static func isPersistentSetting(_ sql: String) -> Bool {
+        guard let statement = statements(sql).first else { return false }
+        return matches(persistentSetting, statement)
     }
 
     /// A lone SET or RESET: it changes only the connection that runs it, which here is
@@ -75,8 +94,10 @@ nonisolated enum QueryEffects {
         guard let statement = statements(sql).first else { return false }
         switch engine {
         // CALL too: run as typed, a procedure's rows left the scanner's connection out of
-        // step ("Commands out of sync"), so it failed.
+        // step ("Commands out of sync"), so it failed. MariaDB's BEGIN NOT ATOMIC block
+        // likewise returns the rows of what it runs.
         case .mysql:               return ["SHOW", "HELP", "CHECK", "CHECKSUM", "CALL"].contains(firstWord(statement))
+                                       || matches(anonymousBlock, statement)
         case .postgres:            return ["SHOW", "EXPLAIN"].contains(firstWord(statement))
         case .sqlite, .clickhouse: return false
         }
@@ -87,10 +108,18 @@ nonisolated enum QueryEffects {
     /// transaction, a lock, a cursor). One connection per statement lost it: SET @d =
     /// '2026-01-01'; SELECT … WHERE placed > @d counted nothing, without an error.
     static func needsOneSession(_ statements: [String], engine: DatabaseEngine) -> Bool {
+        guard statements.count > 1, engine == .mysql || engine == .postgres || engine == .sqlite else { return false }
+        // A connection of its own closes after the script: a transaction it leaves open was
+        // rolled back there, the grid saying Done, and SET autocommit = 0 leaves one open.
+        var open = false
+        for raw in statements {
+            if let begins = transactionChange(raw) { open = begins }
+            if let s = Self.statements(raw).first, matches(autocommit, s) { return false }
+        }
+        if open { return false }
         // A SQLite script runs in one go, as in the sqlite3 shell: a transaction, a temporary
         // table or a PRAGMA carries to the statements after it.
-        if engine == .sqlite { return statements.count > 1 }
-        guard statements.count > 1, engine == .mysql || engine == .postgres else { return false }
+        if engine == .sqlite { return true }
         let sessionWords: Set<String> = ["SET", "RESET", "PREPARE", "EXECUTE", "DEALLOCATE", "BEGIN", "START", "COMMIT",
                                          "ROLLBACK", "END", "SAVEPOINT", "RELEASE", "LOCK", "UNLOCK", "LISTEN", "UNLISTEN",
                                          "DECLARE", "FETCH", "MOVE", "CLOSE", "DISCARD"]
@@ -98,7 +127,9 @@ nonisolated enum QueryEffects {
             guard let s = Self.statements(raw).first else { return false }
             if sessionWords.contains(firstWord(s)) || matches(temporaryTable, s) { return true }
             guard engine == .mysql else { return false }
-            let bare = s.replacingOccurrences(of: #"'(?:''|\\.|[^'])*'"#, with: "''", options: .regularExpression)
+            // Strings ('…', "…") and quoted names (`…`) taken out: an @ there is no variable.
+            let bare = s.replacingOccurrences(of: #"'(?:''|\\.|[^'])*'|"(?:""|\\.|[^"])*"|`(?:``|[^`])*`"#, with: "''",
+                                              options: .regularExpression)
             return bare.range(of: #"(?<![@\w])@[A-Za-z_]"#, options: .regularExpression) != nil            // @var, not @@var
                 || bare.range(of: #"(?i)\b(LAST_INSERT_ID|FOUND_ROWS|ROW_COUNT)\s*\("#, options: .regularExpression) != nil
         }
@@ -188,10 +219,13 @@ nonisolated enum QueryEffects {
     private static let useStatement = regex("^USE\(gap)\(name)\\s*$")
     private static let dropDatabase = regex("^DROP\\s+(?:DATABASE|SCHEMA)\(gap)(?:IF\\s+EXISTS\(gap))?\(name)\\s*$")
     private static let databaseDDL = regex("^(?:CREATE|DROP)\\s+(?:DATABASE|SCHEMA)\\b")
-    private static let transactionControl = regex("^(?:BEGIN|START\\s+TRANSACTION|COMMIT|ROLLBACK|END)\\b")
+    // Not MariaDB's BEGIN NOT ATOMIC: a block of statements, not a transaction.
+    private static let transactionControl = regex("^(?:BEGIN(?!\\s+NOT\\s+ATOMIC\\b)|START\\s+TRANSACTION|COMMIT|ROLLBACK|END)\\b")
+    private static let anonymousBlock = regex("^BEGIN\\s+NOT\\s+ATOMIC\\b")
     private static let sessionSetting = regex("^(?:SET|RESET)\\b")
     private static let lockTables = regex("^(?:UN)?LOCK\\s+TABLES?\\b")
-    private static let setSearchPath = regex("^SET\\s+(?:SESSION\\s+)?search_path\\s*(?:TO|=)\\s*\(name)\\s*$")
+    private static let setSearchPath = regex(#"^SET\s+(?:SESSION\s+)?search_path\s*(?:TO|=)\s*('(?:''|[^'])*'|"(?:""|[^"])*"|[A-Za-z_][A-Za-z0-9_$]*)\s*$"#)
+    private static let persistentSetting = regex("^SET\\s+(?:GLOBAL|PERSIST|PERSIST_ONLY|PASSWORD|DEFAULT\\s+ROLE)\\b|^SET\\s+@@(?:GLOBAL|PERSIST)")
     private static let temporaryTable = regex("^CREATE\\s+(?:GLOBAL\\s+|LOCAL\\s+)?TEMP(?:ORARY)?\\s+TABLE\\b")
     private static let autocommit = regex("^SET\\s+(?:(?:SESSION|LOCAL|GLOBAL)\\s+|@@(?:SESSION\\.|LOCAL\\.|GLOBAL\\.)?)?autocommit\\b")
 

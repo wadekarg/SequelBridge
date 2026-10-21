@@ -60,6 +60,29 @@ struct ContentBrowseTests {
         #expect(reason.contains("no_such_column"), "got: \(reason)")
     }
 
+    /// Legacy dates, as an old server or a lax sql_mode keeps them: DuckDB's MySQL driver
+    /// read a zero date (0000-00-00) as NULL, and a zero month or day failed the whole page.
+    @Test("a page shows zero dates as the server keeps them, and a zero month or day doesn't fail it")
+    func zeroDates() async throws {
+        let e = try QueryEngine()
+        try await e.attach(Connection(name: "cb9", alias: "cb9", host: CEnv.host, port: CEnv.port,
+                                      username: CEnv.user, database: CEnv.writeDB), password: CEnv.pass)
+        _ = try await e.nativeScript(alias: "cb9", statements: [
+            "SET SESSION sql_mode = ''", "DROP TABLE IF EXISTS cb_legacy",
+            "CREATE TABLE cb_legacy (id INT PRIMARY KEY, d DATE NOT NULL, dt DATETIME NULL, ts TIMESTAMP NULL DEFAULT NULL, note VARCHAR(10))",
+            "INSERT INTO cb_legacy VALUES (1, '0000-00-00', '2026-00-15 10:00:00', '0000-00-00 00:00:00', 'a'), (2, '2026-10-20', NULL, NULL, 'b')",
+        ], database: CEnv.writeDB)
+        let columns = try await e.fetchColumns(alias: "cb9", database: CEnv.writeDB, table: "cb_legacy")
+        let page = try await e.serverContentPage(alias: "cb9", database: CEnv.writeDB, table: "cb_legacy", filter: "",
+                                                 sortColumn: "d", sortAscending: true, limit: 10, offset: 0, columns: columns)
+        #expect(page.columns == ["id", "d", "dt", "ts", "note"])
+        #expect(page.rows == [["1", "0000-00-00", "2026-00-15 10:00:00", "0000-00-00 00:00:00", "a"],
+                              ["2", "2026-10-20", "NULL", "NULL", "b"]])
+        #expect(page.isNull(1, 2) && !page.isNull(0, 1))
+        #expect(Array(page.columnTypes.prefix(4)) == ["INT", "DATE", "DATETIME", "DATETIME"])
+        try await e.mysqlExecute(alias: "cb9", sql: "DROP TABLE cb_legacy")
+    }
+
     @Test("a column-operator-value filter finds awkward values as themselves on the server")
     func filterRules() async throws {
         let e = try QueryEngine()

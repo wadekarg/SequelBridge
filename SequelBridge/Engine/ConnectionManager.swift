@@ -227,6 +227,7 @@ class ConnectionManager: ObservableObject {
         }
         active[idx] = target
         directConns[alias] = MySQLDirectConnection(target, password: password)
+        droppedTunnels.remove(alias)          // attached again, through a tunnel that runs
     }
 
     private var switchTickets: [String: Int] = [:]

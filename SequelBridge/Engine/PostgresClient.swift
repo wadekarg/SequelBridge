@@ -43,6 +43,7 @@ final class PostgresClient {
     }
 
     static let connectTimeout: TimeInterval = 10
+    static let copyInRefusal = "COPY … FROM STDIN needs data sent along with it, which the Query tab doesn't do: use Import CSV in the table's menu."
     static let sslMissing = "The server doesn't offer SSL, and this connection has Use SSL ticked, so it wasn't asked anything."
 
     private let config: Config
@@ -66,12 +67,14 @@ final class PostgresClient {
     /// (one message with several runs them as one transaction, where VACUUM, CREATE INDEX
     /// CONCURRENTLY and CREATE DATABASE can't run), and returns the last one's result. A
     /// failure stops there and says which statement it was when there are several.
-    func run(_ statements: [String]) async throws -> (columns: [String], rows: [[String?]]) {
+    func run(_ statements: [String], setup: [String] = []) async throws -> (columns: [String], rows: [[String?]]) {
         let link = try await open()
         defer { link.close() }
         return try await link.cancellable {
             try await startup(link)
             link.allowSlowReplies()
+            // The app's own statements first (the schema picked), outside the numbering.
+            for sql in setup { _ = try await simpleQuery(link, sql) }
             var last: (columns: [String], rows: [[String?]]) = ([], [])
             for (n, sql) in statements.enumerated() {
                 do { last = try await simpleQuery(link, sql) }
@@ -175,6 +178,17 @@ final class PostgresClient {
                 rows = []
             case UInt8(ascii: "D"):
                 rows.append(Self.dataRow(payload))
+            case UInt8(ascii: "G"):
+                // COPY … FROM STDIN waits for data the app has none of: refused, so the
+                // statement ends at once (it hung until Cancel).
+                try await link.send(Self.message("f", Self.cstring(Self.copyInRefusal)))
+            case UInt8(ascii: "H"):
+                columns = ["COPY"]                                  // COPY … TO STDOUT: its lines
+                rows = []
+            case UInt8(ascii: "d"):
+                var line = String(decoding: payload, as: UTF8.self)
+                if line.hasSuffix("\n") { line.removeLast() }
+                rows.append([line])
             case UInt8(ascii: "E"):
                 failure = PostgresClientError.server(Self.errorMessage(payload))
             case UInt8(ascii: "Z"):

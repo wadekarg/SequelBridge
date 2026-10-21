@@ -779,6 +779,12 @@ struct QueryPanelView: View {
                     let result = try await manager.queryEngine.nativeQuery(alias: nat.alias, sql: nat.serverSQL,
                                                                            database: nat.database)
                     setTab { $0.result = runClock.stamped(result); $0.isRunning = false }
+                    // A read in another PostgreSQL schema comes back this way: editable like any
+                    // other one table's rows (a SHOW or a CALL's result isn't, and says so).
+                    if SQLBuilder.isRowReturning(baseSQL) {
+                        resolveResultEditing(tabID: tabID, runID: runID, sql: baseSQL,
+                                             columns: result.columns, databases: runDatabases, active: runActive)
+                    }
                 } else if let chAlias = clickhouseAlias {
                     // ClickHouse runs on its own native client — no DuckDB streaming.
                     let result = try await manager.queryEngine.clickhouseQuery(alias: chAlias, sql: sql)
@@ -1035,7 +1041,8 @@ struct QueryPanelView: View {
             await runQuery(tabIndex: tabIndex)
             return
         }
-        guard let statement = SQLScript.statement(at: cursorLocation, in: session.tabs[tabIndex].sql) else { return }
+        let engine = session.connections.first(where: { $0.alias == session.activeConnectionAlias })?.engine
+        guard let statement = SQLScript.statement(at: cursorLocation, in: session.tabs[tabIndex].sql, engine: engine) else { return }
         await runQuery(tabIndex: tabIndex, statement: statement)
     }
 
@@ -1056,9 +1063,11 @@ struct QueryPanelView: View {
         }
         startElapsedTimer()
         let task = Task {
+            var ran = false
             do {
                 let result = try await manager.queryEngine.nativeScript(alias: alias, statements: statements, database: database)
                 setTab { $0.result = runClock.stamped(result) }
+                ran = true
             } catch is CancellationError {
                 setTab { $0.error = "Cancelled" }
             } catch {
@@ -1066,7 +1075,9 @@ struct QueryPanelView: View {
             }
             setTab { $0.isRunning = false }
             stopElapsedTimer()
-            if let conn = session.connections.first(where: { $0.alias == alias }) {
+            // The left panel follows a script that ran: one that failed before its USE or
+            // DROP DATABASE moved it anyway.
+            if ran, let conn = session.connections.first(where: { $0.alias == alias }) {
                 await session.followRun(sql, on: conn, manager: manager)
             }
         }

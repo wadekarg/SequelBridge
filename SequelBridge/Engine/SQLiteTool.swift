@@ -19,68 +19,82 @@ nonisolated enum SQLiteTool {
     /// another connection holds. Throws SQLite's own message, or a plain one when the
     /// file stays busy.
     static func run(_ sql: String, file: String, busyTimeout: TimeInterval) async throws {
-        try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
-            DispatchQueue.global(qos: .userInitiated).async {
-                done.resume(with: Result { try runWaiting(sql, file: file, busyTimeout: busyTimeout) })
-            }
-        }
+        _ = try await script([sql], file: file, busyTimeout: busyTimeout)
     }
 
-    private static func runWaiting(_ sql: String, file: String, busyTimeout: TimeInterval) throws {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: executable)
-        // -init /dev/null: a ~/.sqliterc of the user's own doesn't run first. The statement
-        // goes as an argument, so nothing is written to a pipe the tool may have closed.
-        p.arguments = ["-batch", "-bail", "-init", "/dev/null",
-                       "-cmd", ".timeout \(Int(busyTimeout * 1000))", file, sql]
-        let errors = Pipe()
-        p.standardInput = FileHandle.nullDevice
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = errors
-        do {
-            try p.run()
-        } catch {
-            throw SequelBridgeError.attachFailed("macOS's sqlite3 tool, which changes a SQLite file's tables, couldn't run: \(error.localizedDescription)")
-        }
-        let text = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        p.waitUntilExit()
-        guard p.terminationStatus != 0 || !text.isEmpty else { return }
-        throw SequelBridgeError.attachFailed(reason(text))
-    }
-
-    /// Runs `sql` (one statement or a script, in SQLite's own SQL) on the file and returns
-    /// the last result's columns and rows (NULL → nil); none for a statement that returns
-    /// no rows. `readOnly` opens the file read-only, so nothing can change it.
+    /// Runs `sql` (one statement, in SQLite's own SQL) on the file and returns its columns
+    /// and rows (NULL → nil); none for a statement that returns no rows. `readOnly` opens
+    /// the file read-only, so nothing can change it.
     static func query(_ sql: String, file: String, busyTimeout: TimeInterval, readOnly: Bool = false) async throws
+        -> (columns: [String], rows: [[String?]]) {
+        try await script([sql], file: file, busyTimeout: busyTimeout, readOnly: readOnly)
+    }
+
+    /// Runs `statements` one after another in one run of the tool, as the sqlite3 shell
+    /// would, and returns the last one's result (none when it returns no rows). A failure
+    /// stops there and says which statement it was when there are several.
+    static func script(_ statements: [String], file: String, busyTimeout: TimeInterval, readOnly: Bool = false) async throws
         -> (columns: [String], rows: [[String?]]) {
         try await withCheckedThrowingContinuation { (done: CheckedContinuation<(columns: [String], rows: [[String?]]), Error>) in
             DispatchQueue.global(qos: .userInitiated).async {
-                done.resume(with: Result {
-                    let p = Process()
-                    p.executableURL = URL(fileURLWithPath: executable)
-                    p.arguments = ["-batch", "-bail", "-init", "/dev/null", "-json"] + (readOnly ? ["-readonly"] : [])
-                        + ["-cmd", ".timeout \(Int(busyTimeout * 1000))", file, sql]
-                    let output = Pipe(), errors = Pipe()
-                    p.standardInput = FileHandle.nullDevice
-                    p.standardOutput = output
-                    p.standardError = errors
-                    do { try p.run() } catch {
-                        throw SequelBridgeError.attachFailed("macOS's sqlite3 tool couldn't run: \(error.localizedDescription)")
-                    }
-                    // Both pipes drained together: a big result would fill one and stall the tool.
-                    var out = Data()
-                    let reader = DispatchQueue(label: "sqlite3.out")
-                    let group = DispatchGroup()
-                    group.enter()
-                    reader.async { out = output.fileHandleForReading.readDataToEndOfFile(); group.leave() }
-                    let text = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                    group.wait()
-                    p.waitUntilExit()
-                    if p.terminationStatus != 0 || !text.isEmpty { throw SequelBridgeError.attachFailed(reason(text)) }
-                    return parseJSON(String(decoding: out, as: UTF8.self)).last ?? ([], [])
-                })
+                done.resume(with: Result { try scriptWaiting(statements, file: file, busyTimeout: busyTimeout, readOnly: readOnly) })
             }
         }
+    }
+
+    /// Printed after each statement, so each result is known to be whose. A line of its own.
+    private static let marker = "@@sequelbridge-end-of-statement@@"
+
+    private static func scriptWaiting(_ statements: [String], file: String, busyTimeout: TimeInterval, readOnly: Bool) throws
+        -> (columns: [String], rows: [[String?]]) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: executable)
+        // The SQL goes in on stdin: as an argument, one starting with "-- a comment" was
+        // read as an option, and a long one was too big for the command line.
+        p.arguments = ["-batch", "-bail", "-init", "/dev/null", "-json"] + (readOnly ? ["-readonly"] : [])
+            + ["-cmd", ".timeout \(Int(busyTimeout * 1000))", file]
+        // Each statement ends on a line of its own (a trailing -- comment can't take its
+        // semicolon), then the marker.
+        var input = ""
+        for statement in statements { input += statement + "\n;\n.print " + marker + "\n" }
+        let stdin = Pipe(), output = Pipe(), errors = Pipe()
+        p.standardInput = stdin
+        p.standardOutput = output
+        p.standardError = errors
+        do { try p.run() } catch {
+            throw SequelBridgeError.attachFailed("macOS's sqlite3 tool couldn't run: \(error.localizedDescription)")
+        }
+        // Written, read and drained at once: a big script or result would fill a pipe and stall the tool.
+        let group = DispatchGroup()
+        var out = Data(), err = Data()
+        group.enter()
+        DispatchQueue.global().async {
+            stdin.fileHandleForWriting.write(Data(input.utf8))
+            try? stdin.fileHandleForWriting.close()
+            group.leave()
+        }
+        group.enter()
+        DispatchQueue.global().async { out = output.fileHandleForReading.readDataToEndOfFile(); group.leave() }
+        group.enter()
+        DispatchQueue.global().async { err = errors.fileHandleForReading.readDataToEndOfFile(); group.leave() }
+        group.wait()
+        p.waitUntilExit()
+
+        // The output of each statement, in order: what came before each marker.
+        let text = String(decoding: out, as: UTF8.self)
+        var segments: [String] = [], current = ""
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line == marker { segments.append(current); current = "" } else { current += line + "\n" }
+        }
+        let message = String(decoding: err, as: UTF8.self)
+        if p.terminationStatus != 0 || !message.isEmpty {
+            let reasonText = reason(message)
+            let failed = segments.count                     // the statements before it all finished
+            throw SequelBridgeError.attachFailed(statements.count > 1 && failed < statements.count
+                ? "Statement \(failed + 1) of \(statements.count): \(reasonText)" : reasonText)
+        }
+        guard let last = segments.last else { return ([], []) }
+        return parseJSON(last).last ?? ([], [])
     }
 
     /// The tool's -json output: an array of objects per statement that returned rows,
@@ -125,7 +139,10 @@ nonisolated enum SQLiteTool {
             var s = String.UnicodeScalarView()
             while i < c.count, c[i] != ",", c[i] != "}", c[i] != " ", c[i] != "\n" { s.append(c[i]); i += 1 }
             let word = String(s)
-            return word == "null" ? nil : word
+            if word == "null" { return nil }
+            // A real as SQLite shows it: the tool writes 20 digits (0.1 as 0.10000000000000000555).
+            if word.contains(where: { $0 == "." || $0 == "e" || $0 == "E" }), let d = Double(word) { return String(d) }
+            return word
         }
         while i < c.count {
             skipSpace()

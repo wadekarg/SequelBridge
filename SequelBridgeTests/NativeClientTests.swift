@@ -120,10 +120,57 @@ struct PostgresNativeTests {
         if case .success = outcome { Issue.record("a cancelled statement ran to the end") }
     }
 
+    /// The schema picked was set as the whole search_path, so a function or extension in
+    /// public (or Supabase's extensions schema) stopped resolving there.
+    @Test("in a schema picked, the role's own search_path still applies after it")
+    func searchPathKeepsTheRest() async throws {
+        let e = try await engine("pn11")
+        try await e.executeDDL(alias: "pn11", sql: "CREATE SCHEMA IF NOT EXISTS sbsp")
+        try await e.executeDDL(alias: "pn11", sql: "CREATE OR REPLACE FUNCTION public.sb_pubfn() RETURNS int LANGUAGE sql AS 'SELECT 7'")
+        #expect(try await e.nativeQuery(alias: "pn11", sql: "SELECT sb_pubfn()", database: "sbsp").rows == [["7"]])
+        // "sbsp", "$user", public: the schema picked first (quoted, as a name is), then the rest.
+        let path = try await e.nativeQuery(alias: "pn11", sql: "SHOW search_path", database: "sbsp").rows.first?.first ?? ""
+        let first = path.split(separator: ",").first.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\" ")) }
+        #expect(first == "sbsp" && path.contains("public"), "\(path)")
+        try await e.executeDDL(alias: "pn11", sql: "DROP SCHEMA sbsp CASCADE")
+    }
+
+    @Test("an error names no statement number for a single statement")
+    func singleStatementError() async throws {
+        let e = try await engine("pn12")
+        do {
+            _ = try await e.nativeQuery(alias: "pn12", sql: "SELEC 1", database: "public")
+            Issue.record("a syntax error ran")
+        } catch {
+            let reason = QueryEngine.extractReason(from: error)
+            #expect(reason.contains("syntax") && !reason.contains("Statement"), "\(reason)")
+        }
+    }
+
+    /// COPY … FROM STDIN waited for data the app never sends: the statement hung until
+    /// Cancel. COPY … TO STDOUT said Done and showed nothing.
+    @Test("COPY TO STDOUT shows its rows; COPY FROM STDIN fails at once, saying what to use")
+    func copy() async throws {
+        let e = try await engine("pn13")
+        let out = try await e.nativeQuery(alias: "pn13", sql: "COPY (SELECT 1 AS a UNION ALL SELECT 2) TO STDOUT", database: nil)
+        #expect(out.rows == [["1"], ["2"]])
+        let started = Date()
+        let run = Task { try await e.nativeQuery(alias: "pn13", sql: "COPY customers FROM STDIN", database: nil) }
+        var finished = false
+        Task { _ = await run.result; finished = true }
+        for _ in 0..<50 where !finished { try await Task.sleep(nanoseconds: 100_000_000) }
+        run.cancel()
+        let outcome = await run.result
+        #expect(Date().timeIntervalSince(started) < 5, "COPY FROM STDIN hung")
+        if case .failure(let error) = outcome {
+            #expect(QueryEngine.extractReason(from: error).contains("Import CSV"), "\(QueryEngine.extractReason(from: error))")
+        } else { Issue.record("COPY FROM STDIN ran") }
+    }
+
     @Test("a typed SHOW runs, in the schema picked")
     func show() async throws {
         let e = try await engine("pn2")
-        #expect(try await e.nativeQuery(alias: "pn2", sql: "SHOW search_path", database: "public").rows == [["public"]])
+        #expect(try await e.nativeQuery(alias: "pn2", sql: "SHOW search_path", database: "public").rows.first?.first?.contains("public") == true)
         #expect(try await e.nativeQuery(alias: "pn2", sql: "SHOW server_version", database: nil).rows.count == 1)
     }
 

@@ -79,4 +79,20 @@ struct ContentPagingTests {
         #expect(owner.object(forKey: key) as? Int != 4321, "the owner's settings changed")
         #expect(AppSettings(defaults: AppSettings.store(arguments: apart)).contentPageSize == 200, "the next launch didn't start fresh")
     }
+
+    /// DuckDB's MySQL driver read a zero date as NULL and failed a page on a zero month or
+    /// day: a MySQL page reads its dates as the server writes them.
+    @Test("a MySQL page names its columns, its dates as the server writes them; elsewhere, or with no dates, *")
+    func exactDates() {
+        let cols = [ColumnInfo(id: "id", name: "id", dataType: "int(11)", nullable: false, isPrimaryKey: true),
+                    ColumnInfo(id: "d", name: "d", dataType: "date", nullable: false, isPrimaryKey: false),
+                    ColumnInfo(id: "t", name: "odd `t`", dataType: "datetime(6)", nullable: true, isPrimaryKey: false),
+                    ColumnInfo(id: "s", name: "s", dataType: "timestamp", nullable: true, isPrimaryKey: false),
+                    ColumnInfo(id: "n", name: "dated", dataType: "varchar(10)", nullable: true, isPrimaryKey: false)]
+        #expect(QueryEngine.contentColumns(.mysql, cols)
+                == "`id`, CAST(`d` AS CHAR) AS `d`, CAST(`odd ``t``` AS CHAR) AS `odd ``t```, CAST(`s` AS CHAR) AS `s`, `dated`")
+        #expect(QueryEngine.contentColumns(.postgres, cols) == "*")
+        #expect(QueryEngine.contentColumns(.mysql, [cols[0], cols[4]]) == "*")
+        #expect(QueryEngine.contentColumns(.mysql, []) == "*")
+    }
 }

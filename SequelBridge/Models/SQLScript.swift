@@ -25,8 +25,8 @@ nonisolated enum SQLScript {
 
     /// The statement the editor's caret is in, else the one just before it, else the
     /// first one after it.
-    static func statement(at location: Int, in sql: String) -> String? {
-        let all = pieces(sql)
+    static func statement(at location: Int, in sql: String, engine: DatabaseEngine? = nil) -> String? {
+        let all = pieces(sql, engine: engine)
         if let inside = all.first(where: { location >= $0.range.location && location <= NSMaxRange($0.range) }) {
             return inside.text
         }
@@ -36,8 +36,10 @@ nonisolated enum SQLScript {
 
     /// Splits on `;` outside quotes and comments. A `DELIMITER x` line, as in the mysql
     /// client and Sequel Ace, makes `x` the separator until the next DELIMITER line, so
-    /// a procedure body keeps its semicolons. A piece that is only whitespace and
-    /// comments is dropped.
+    /// a procedure body keeps its semicolons. Without one, a trigger's or a routine's body
+    /// in BEGIN … END keeps them too (SQLite's triggers are always written so, and SHOW
+    /// CREATE PROCEDURE gives no DELIMITER), as does MariaDB's BEGIN NOT ATOMIC block. A
+    /// piece that is only whitespace and comments is dropped.
     static func pieces(_ sql: String, engine: DatabaseEngine? = nil) -> [Piece] {
         let s = sql as NSString
         let n = s.length
@@ -48,12 +50,25 @@ nonisolated enum SQLScript {
         var start = 0
         var i = 0
         var atLineStart = true
+        // The statement's first words; whether it has a body (CREATE TRIGGER, PROCEDURE,
+        // FUNCTION or EVENT, or BEGIN NOT ATOMIC), once its first words say; and how deep
+        // in BEGIN … END and CASE … END that body is at the moment.
+        var words: [String] = []
+        var decided = false, body = false
+        var depth = 0
+        let bodyKinds: Set<String> = ["TRIGGER", "PROCEDURE", "FUNCTION", "EVENT"]
+        let otherKinds: Set<String> = ["TABLE", "VIEW", "INDEX", "UNIQUE", "FULLTEXT", "SPATIAL", "DATABASE", "SCHEMA",
+                                       "SEQUENCE", "USER", "ROLE", "TYPE", "DOMAIN", "EXTENSION", "MATERIALIZED",
+                                       "TABLESPACE", "SERVER", "POLICY", "RULE", "PUBLICATION", "SUBSCRIPTION",
+                                       "STATISTICS", "COLLATION", "CAST", "OPERATOR", "DICTIONARY", "PACKAGE"]
 
         func at(_ k: Int) -> unichar { s.character(at: k) }
         func isSpace(_ c: unichar) -> Bool { c == 32 || c == 9 || c == 10 || c == 13 }
         func isWordChar(_ c: unichar) -> Bool {
             (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95 || c == 36 || c > 127
         }
+        func isWordStart(_ c: unichar) -> Bool { (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95 || c > 127 }
+        func wordEnd(_ k: Int) -> Int { var j = k; while j < n && isWordChar(at(j)) { j += 1 }; return j }
         func endOfLine(_ k: Int) -> Int { var j = k; while j < n && at(j) != 10 { j += 1 }; return j }
         func flush(end: Int, next: Int) {
             let raw = s.substring(with: NSRange(location: start, length: end - start))
@@ -64,6 +79,7 @@ nonisolated enum SQLScript {
                 out.append(Piece(text: text, range: NSRange(location: first, length: next - first)))
             }
             start = next
+            words = []; decided = false; body = false; depth = 0
         }
         func delimiterAt(_ k: Int) -> Bool {
             guard k + delimiter.count <= n else { return false }
@@ -123,7 +139,42 @@ nonisolated enum SQLScript {
                 i = min(j + 2, n)
                 continue
             }
-            if delimiterAt(i) {
+            if isWordStart(c), i == 0 || !isWordChar(at(i - 1)) {
+                var j = wordEnd(i)
+                if !decided || body {
+                    let word = s.substring(with: NSRange(location: i, length: j - i)).uppercased()
+                    if !decided {
+                        words.append(word)
+                        if words[0] == "CREATE" {
+                            // The first kind of thing named decides: CREATE TABLE t (function …) has no body.
+                            if bodyKinds.contains(word) { body = true; decided = true }
+                            else if otherKinds.contains(word) || words.count >= 12 { decided = true }
+                        } else if words[0] == "BEGIN" {
+                            if words.count == 3 { decided = true; body = words[1] == "NOT" && words[2] == "ATOMIC"; depth = body ? 1 : 0 }
+                        } else {
+                            decided = true
+                        }
+                    } else if (i > 0 && at(i - 1) == 46) || (j < n && at(j) == 46) {
+                        // NEW.end, t.begin: a column, not a block.
+                    } else if word == "BEGIN" || word == "CASE" {
+                        depth += 1
+                    } else if word == "END" {
+                        // END IF, END LOOP, END WHILE, END REPEAT and END FOR close blocks not
+                        // counted here; END CASE closes a CASE, a plain END a BEGIN or a CASE.
+                        var k = j
+                        while k < n && isSpace(at(k)) { k += 1 }
+                        let m = wordEnd(k)
+                        let next = s.substring(with: NSRange(location: k, length: m - k)).uppercased()
+                        if !["IF", "LOOP", "WHILE", "REPEAT", "FOR"].contains(next) {
+                            depth = max(0, depth - 1)
+                            if next == "CASE" { j = m }
+                        }
+                    }
+                }
+                i = j
+                continue
+            }
+            if delimiterAt(i), !(depth > 0 && delimiter == [59]) {
                 flush(end: i, next: i + delimiter.count)
                 i += delimiter.count
                 continue

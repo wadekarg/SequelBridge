@@ -122,4 +122,54 @@ struct QueryRouteTests {
         // (ReadOnlyEnforcementTests).
         #expect(route("INSERT INTO crm.contacts SELECT * FROM shop.orders", [my, pg], readOnly: ["shop"]) == .acrossServers)
     }
+
+    // MARK: - From the review of the night's changes
+
+    @Test("inside a transaction begun in the Query tab, nothing runs on a connection of its own: ROLLBACK must undo it")
+    func transactionStaysTogether() {
+        // A CALL on MySQL joins the transaction (as typed), not the app's own client.
+        #expect(route("CALL archive()", [my], inTransaction: true) == .asTyped(alias: "shop", serverSQL: "CALL archive()"))
+        // A script that would share one connection runs statement by statement in it instead.
+        #expect(QueryRoute.sessionScript(["SET @id = 5", "DELETE FROM t WHERE id = @id"], connections: [my], active: "shop",
+                                         facts: facts(inTransaction: true)) == nil)
+        #expect(QueryRoute.sessionScript(["PREPARE q AS SELECT 1", "EXECUTE q"], connections: [pg], active: "crm",
+                                         facts: facts(inTransaction: true)) == nil)
+    }
+
+    @Test("a script that leaves a transaction open, or turns autocommit off, isn't run on a connection that then closes")
+    func openTransactionScript() {
+        // On a connection of its own, its work was rolled back when it closed, the grid saying Done.
+        #expect(QueryRoute.sessionScript(["BEGIN", "UPDATE t SET a = 1"], connections: [my], active: "shop", facts: facts()) == nil)
+        #expect(QueryRoute.sessionScript(["SET autocommit = 0", "UPDATE t SET a = 1"], connections: [my], active: "shop", facts: facts()) == nil)
+        #expect(QueryRoute.sessionScript(["BEGIN", "UPDATE t SET a = 1", "COMMIT"], connections: [my], active: "shop", facts: facts()) != nil)
+    }
+
+    @Test("SET search_path picks the schema as PostgreSQL reads it: quoted or not, folded; DEFAULT and lists aren't picks; read-only allowed")
+    func searchPathForms() {
+        #expect(route("SET search_path TO 'app'", [pg]) == .use(alias: "crm", database: "app"))
+        #expect(route("SET search_path = MySchema", [pg]) == .use(alias: "crm", database: "myschema"))
+        #expect(route("SET search_path TO \"MySchema\"", [pg]) == .use(alias: "crm", database: "MySchema"))
+        if case .use = route("SET search_path TO DEFAULT", [pg]) { Issue.record("DEFAULT taken for a schema") }
+        if case .use = route("SET search_path TO a, b", [pg]) { Issue.record("a list taken for one schema") }
+        #expect(route("SET search_path TO app", [pg], readOnly: ["crm"]) == .use(alias: "crm", database: "app"))
+    }
+
+    /// MariaDB's BEGIN NOT ATOMIC … END runs as one block: its rows come back (the app's own
+    /// client, as for CALL), and it begins no transaction the Query tab would then wait on.
+    @Test("MariaDB's BEGIN NOT ATOMIC block runs on the app's own client and opens no transaction")
+    func anonymousBlock() {
+        let block = "BEGIN NOT ATOMIC DECLARE x INT DEFAULT 41; SELECT x + 1; END"
+        #expect(route(block, [my]) == .native(alias: "shop", serverSQL: block, database: "shopdemo"))
+        #expect(QueryEffects.transactionChange(block) == nil)
+        #expect(QueryEffects.transactionChange("BEGIN") == true)
+        #expect(QueryEffects.transactionChange("BEGIN WORK") == true)
+    }
+
+    @Test("MySQL: a WITH whose string says DELETE is still a read; SET GLOBAL runs as typed, not with the one-run note")
+    func mysqlEdges() {
+        #expect(route(#"WITH x AS (SELECT * FROM t WHERE action = "DELETE") SELECT * FROM x"#, [my])
+                == .passthrough(alias: "shop", serverSQL: #"WITH x AS (SELECT * FROM t WHERE action = "DELETE") SELECT * FROM x"#))
+        #expect(route("SET GLOBAL max_connections = 200", [my]) == .asTyped(alias: "shop", serverSQL: "SET GLOBAL max_connections = 200"))
+        #expect(route("SET PERSIST max_connections = 200", [my]) == .asTyped(alias: "shop", serverSQL: "SET PERSIST max_connections = 200"))
+    }
 }

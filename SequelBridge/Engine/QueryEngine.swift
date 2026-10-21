@@ -1215,7 +1215,6 @@ final class QueryEngine {
             // the closing bracket with it: as /* comments */ they end where they're meant to.
             let sql = SQLBuilder.lineCommentsAsBlocks(serverSQL)
             return "SELECT * FROM postgres_query(\(SQLBuilder.literal(alias)), \(SQLBuilder.literal(sql)))"
-        case .sqlite:   return "SELECT * FROM sqlite_query(\(SQLBuilder.literal(alias)), \(SQLBuilder.literal(serverSQL)))"
         default:        return nil
         }
     }
@@ -1247,14 +1246,46 @@ final class QueryEngine {
     /// the Content lane so browsing never blocks (or is blocked by) a Query-tab query.
     func serverContentPage(alias: String, database: String, table: String,
                            filter: String, sortColumn: String?, sortAscending: Bool,
-                           limit: Int, offset: Int) async throws -> QueryResult {
-        var sql = "SELECT * FROM \(serverTableRef(alias: alias, database: database, table: table))"
-        if !filter.isEmpty { sql += " WHERE \(filter)" }
-        if let col = sortColumn, !col.isEmpty {
-            sql += " ORDER BY \(SQLBuilder.serverIdent(engine(for: alias), col)) \(sortAscending ? "ASC" : "DESC")"
+                           limit: Int, offset: Int, columns: [ColumnInfo] = []) async throws -> QueryResult {
+        let e = engine(for: alias)
+        func page(_ selected: String) async throws -> QueryResult {
+            var sql = "SELECT \(selected) FROM \(serverTableRef(alias: alias, database: database, table: table))"
+            if !filter.isEmpty { sql += " WHERE \(filter)" }
+            if let col = sortColumn, !col.isEmpty {
+                sql += " ORDER BY \(SQLBuilder.serverIdent(e, col)) \(sortAscending ? "ASC" : "DESC")"
+            }
+            sql += " LIMIT \(limit) OFFSET \(offset)"
+            return try await serverPassthroughQuery(alias: alias, serverSQL: sql, lane: .content)
         }
-        sql += " LIMIT \(limit) OFFSET \(offset)"
-        return try await serverPassthroughQuery(alias: alias, serverSQL: sql, lane: .content)
+        let selected = Self.contentColumns(e, columns)
+        guard selected != "*" else { return try await page("*") }
+        var result: QueryResult
+        do { result = try await page(selected) }
+        catch let error where Self.extractReason(from: error).localizedCaseInsensitiveContains("Unknown column") {
+            return try await page("*")                     // the table changed since its columns were read
+        }
+        // The dates came back as the server's text; their types still say what they are.
+        for (i, c) in columns.enumerated() where i < result.columnTypes.count && Self.isMySQLDate(c.dataType) {
+            result.columnTypes[i] = c.dataType.lowercased() == "date" ? "DATE" : "DATETIME"
+        }
+        return result
+    }
+
+    /// What a Content page selects: every column, and on MySQL its dates as the server
+    /// writes them (CAST … AS CHAR). DuckDB's MySQL driver reads a zero date (0000-00-00)
+    /// as NULL, and fails the whole page on one with a zero month or day (2026-00-15).
+    nonisolated static func contentColumns(_ engine: DatabaseEngine, _ columns: [ColumnInfo]) -> String {
+        guard engine == .mysql, columns.contains(where: { isMySQLDate($0.dataType) }) else { return "*" }
+        return columns.map { c in
+            let name = SQLBuilder.serverIdent(.mysql, c.name)
+            return isMySQLDate(c.dataType) ? "CAST(\(name) AS CHAR) AS \(name)" : name
+        }.joined(separator: ", ")
+    }
+
+    /// DATE, DATETIME or TIMESTAMP, as information_schema writes a MySQL column's type.
+    nonisolated static func isMySQLDate(_ type: String) -> Bool {
+        let t = type.lowercased()
+        return t == "date" || t.hasPrefix("datetime") || t.hasPrefix("timestamp")
     }
 
     /// Exact row count for a (possibly filtered) table, computed on the server.
@@ -1959,13 +1990,12 @@ final class QueryEngine {
                 (cols, rows) = try await MySQLClient(cfg).run(statements)
             case .postgres:
                 guard let cfg = postgresConfigs[alias] else { throw SequelBridgeError.attachFailed("No PostgreSQL connection named '\(alias)'.") }
-                let path = database.map { ["SET search_path TO \(SQLBuilder.duckIdent($0))"] } ?? []
-                (cols, rows) = try await PostgresClient(cfg).run(path + statements)
+                (cols, rows) = try await PostgresClient(cfg).run(statements, setup: Self.searchPathSetup(database))
             case .sqlite:
                 // One run of SQLite's own tool: the statements share it, as in the sqlite3 shell.
                 guard let file = sqlitePaths[alias] else { throw SequelBridgeError.attachFailed("No SQLite file is open as \(alias).") }
-                (cols, rows) = try await SQLiteTool.query(statements.joined(separator: ";\n"), file: file,
-                                                          busyTimeout: sqliteBusyTimeout, readOnly: readOnlyAliases.contains(alias))
+                (cols, rows) = try await SQLiteTool.script(statements, file: file, busyTimeout: sqliteBusyTimeout,
+                                                           readOnly: readOnlyAliases.contains(alias))
             case .clickhouse:
                 throw SequelBridgeError.attachFailed("This connection has no client of the app's own.")
             }
@@ -1990,24 +2020,52 @@ final class QueryEngine {
     func openServerRead(alias: String, serverSQL: String, database: String, firstChunk: Int) async throws
         -> (result: QueryResult, stream: QueryStream) {
         do {
+            if engine(for: alias) == .sqlite {
+                // In SQLite itself (DuckDB's sqlite_query): only the Query tab reads this way;
+                // the joins across servers keep scanning a SQLite side as before.
+                let wrapped = "SELECT * FROM sqlite_query(\(SQLBuilder.literal(alias)), \(SQLBuilder.literal(serverSQL)))"
+                return try await openStreamingQuery(wrapped, firstChunk: firstChunk, logSQL: serverSQL)
+            }
             return try await openServerStreamingQuery(alias: alias, serverSQL: serverSQL, firstChunk: firstChunk)
         } catch let error where Self.extractReason(from: error).localizedCaseInsensitiveContains("duplicate column name")
                     && (mysqlConfigs[alias] != nil || postgresConfigs[alias] != nil || sqlitePaths[alias] != nil) {
             let whole = try await nativeQuery(alias: alias, sql: serverSQL, database: database)
             return (whole, QueryStream(id: -1, lane: .user, hasMore: false))
+        } catch let error where mysqlConfigs[alias] != nil && Self.extractReason(from: error).contains("Conversion Error")
+                    && SQLBuilder.isReadOnly(serverSQL) {
+            // A value DuckDB's MySQL driver can't convert (a date with a zero month or day,
+            // 2026-00-15) failed the whole read: the app's own client reads it as kept.
+            let whole = try await nativeQuery(alias: alias, sql: serverSQL, database: database)
+            return (whole, QueryStream(id: -1, lane: .user, hasMore: false))
+        } catch let error where sqlitePaths[alias] != nil && !Self.isCancellation(error) && SQLBuilder.isReadOnly(serverSQL) {
+            // DuckDB's SQLite (3.38) lacks what macOS's has: FTS5 and other modules, RIGHT
+            // JOIN (3.39), concat and string_agg (3.44). The read runs again in the file's
+            // own SQLite, opened read-only; if it fails there too, SQLite's message is shown.
+            let whole = try await sqliteQuery(alias: alias, sql: serverSQL, readOnly: true)
+            return (whole, QueryStream(id: -1, lane: .user, hasMore: false))
         }
+    }
+
+    /// The schema picked put first on the connection's search_path, in a message of its own
+    /// (sent with the statement, the two ran as one transaction, where VACUUM can't). Put
+    /// first, not instead: the role's own path (public, an extensions schema) still applies.
+    /// public is on the server's own path already.
+    nonisolated static func searchPathSetup(_ schema: String?) -> [String] {
+        guard let schema, !schema.isEmpty, schema != "public" else { return [] }
+        let first = SQLBuilder.literal(SQLBuilder.duckIdent(schema) + ", ")
+        return ["SELECT set_config('search_path', \(first) || current_setting('search_path'), false)"]
     }
 
     /// Runs `sql` in SQLite itself, in SQLite's own SQL (see SQLiteTool): its functions,
     /// PRAGMA, INSERT OR REPLACE, RETURNING, triggers. Through DuckDB they failed, and a
     /// CREATE TABLE's INTEGER PRIMARY KEY no longer numbered rows.
-    func sqliteQuery(alias: String, sql: String) async throws -> QueryResult {
+    func sqliteQuery(alias: String, sql: String, readOnly: Bool = false) async throws -> QueryResult {
         try ensureReads(sql, alias: alias)
         guard let file = sqlitePaths[alias] else { throw SequelBridgeError.attachFailed("No SQLite file is open as \(alias).") }
         let start = Date()
         do {
             let (cols, rows) = try await SQLiteTool.query(sql, file: file, busyTimeout: sqliteBusyTimeout,
-                                                          readOnly: readOnlyAliases.contains(alias))
+                                                          readOnly: readOnly || readOnlyAliases.contains(alias))
             var result = QueryResult(columns: cols, rows: rows.map { $0.map { $0 ?? "NULL" } },
                                      executionTime: Date().timeIntervalSince(start))
             result.nullMask = rows.map { $0.map { $0 == nil } }
@@ -2026,12 +2084,9 @@ final class QueryEngine {
         guard let cfg = postgresConfigs[alias] else {
             throw SequelBridgeError.attachFailed("No PostgreSQL connection named '\(alias)'.")
         }
-        // search_path in a message of its own: sent with the statement, the two ran as one
-        // transaction, where VACUUM and CREATE INDEX CONCURRENTLY can't.
-        let sent = (schema.map { ["SET search_path TO \(SQLBuilder.duckIdent($0))"] } ?? []) + [sql]
         let start = Date()
         do {
-            let (cols, rows) = try await PostgresClient(cfg).run(sent)
+            let (cols, rows) = try await PostgresClient(cfg).run([sql], setup: Self.searchPathSetup(schema))
             var result = QueryResult(columns: cols,
                                      rows: rows.map { $0.map { $0 ?? "NULL" } },
                                      executionTime: Date().timeIntervalSince(start))

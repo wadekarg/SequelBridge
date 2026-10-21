@@ -62,10 +62,17 @@ final class ClickHouseClient {
         return result
     }
 
-    /// Whether `sql` ends with a FORMAT clause of its own ("… FORMAT JSON").
+    /// Whether `sql` ends with a FORMAT clause of its own ("… FORMAT JSON"): one naming a
+    /// format ClickHouse writes, not a column called format ("ORDER BY format DESC").
     static func hasOwnFormat(_ sql: String) -> Bool {
         let body = QueryEffects.statements(sql).last ?? sql
-        return body.range(of: #"(?i)\bFORMAT\s+[A-Za-z0-9_]+\s*;?\s*$"#, options: .regularExpression) != nil
+        guard let r = body.range(of: #"(?i)\bFORMAT\s+([A-Za-z0-9_]+)\s*;?\s*$"#, options: .regularExpression) else { return false }
+        let name = body[r].split(whereSeparator: { $0.isWhitespace || $0 == ";" }).dropFirst().first.map(String.init) ?? ""
+        let formats = ["TabSeparated", "TSV", "CSV", "JSON", "Pretty", "Values", "Vertical", "XML", "Markdown", "Parquet",
+                       "Arrow", "Native", "RowBinary", "Null", "Template", "CustomSeparated", "ORC", "Avro", "Protobuf",
+                       "CapnProto", "MsgPack", "SQLInsert", "LineAsString", "RawBLOB", "Prometheus", "Regexp", "BSON",
+                       "Npy", "Form", "Raw", "PrettyCompact", "Buffers"]
+        return formats.contains { name.lowercased().hasPrefix($0.lowercased()) }
     }
 
     /// DDL and anything else whose result body is irrelevant.

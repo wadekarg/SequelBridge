@@ -85,4 +85,38 @@ struct SQLScriptTests {
         #expect(SQLScript.statements("SELECT 1 # a note; still the note\n; SELECT 2", engine: .mysql)
                 == ["SELECT 1 # a note; still the note", "SELECT 2"])
     }
+
+    /// A trigger's or a routine's BEGIN … END body keeps its semicolons without a DELIMITER
+    /// line: SQLite's triggers are always written so, and SHOW CREATE PROCEDURE gives none.
+    @Test("a trigger or routine body in BEGIN … END is one statement; a transaction's BEGIN still ends at its ;")
+    func compoundBodies() {
+        #expect(SQLScript.statements("CREATE TRIGGER t AFTER INSERT ON c BEGIN INSERT INTO log VALUES (NEW.id); UPDATE n SET k = k + 1; END; SELECT 1",
+                                     engine: .sqlite)
+                == ["CREATE TRIGGER t AFTER INSERT ON c BEGIN INSERT INTO log VALUES (NEW.id); UPDATE n SET k = k + 1; END", "SELECT 1"])
+        let proc = "CREATE DEFINER=`root`@`%` PROCEDURE p(IN x INT)\nBEGIN\n  DECLARE n INT DEFAULT 0;\n  lbl: LOOP\n    SET n = n + 1;\n    IF n > x THEN LEAVE lbl; END IF;\n  END LOOP lbl;\n  SELECT CASE WHEN n > 1 THEN 'many' ELSE 'one' END AS v;\nEND"
+        #expect(SQLScript.statements(proc + ";\nCALL p(2)", engine: .mysql) == [proc, "CALL p(2)"])
+        let trigger = "CREATE TRIGGER t BEFORE INSERT ON log FOR EACH ROW BEGIN IF NEW.msg IS NULL THEN SET NEW.msg = 'none'; END IF; END"
+        #expect(SQLScript.statements(trigger + "; INSERT INTO log VALUES (NULL)", engine: .mysql) == [trigger, "INSERT INTO log VALUES (NULL)"])
+        let atomic = "CREATE FUNCTION f() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT 1; SELECT 2; END"
+        #expect(SQLScript.statements(atomic + "; SELECT f()", engine: .postgres) == [atomic, "SELECT f()"])
+        let anonymous = "BEGIN NOT ATOMIC DECLARE x INT DEFAULT 1; SELECT x + 1; END"
+        #expect(SQLScript.statements(anonymous + "; SELECT 3", engine: .mysql) == [anonymous, "SELECT 3"])
+        // Not a body: a transaction, a one-line trigger, a CASE in a plain SELECT.
+        #expect(SQLScript.statements("BEGIN; INSERT INTO t VALUES (1); END; SELECT 1", engine: .postgres)
+                == ["BEGIN", "INSERT INTO t VALUES (1)", "END", "SELECT 1"])
+        #expect(SQLScript.statements("CREATE TRIGGER t BEFORE INSERT ON log FOR EACH ROW SET NEW.msg = UPPER(NEW.msg); SELECT 2", engine: .mysql)
+                == ["CREATE TRIGGER t BEFORE INSERT ON log FOR EACH ROW SET NEW.msg = UPPER(NEW.msg)", "SELECT 2"])
+        #expect(SQLScript.statements("SELECT CASE WHEN a THEN 1 END FROM t; SELECT 2", engine: .mysql)
+                == ["SELECT CASE WHEN a THEN 1 END FROM t", "SELECT 2"])
+        // A column called end, written with its table, is no END.
+        let ranges = "CREATE TRIGGER r BEFORE INSERT ON ranges FOR EACH ROW BEGIN SET NEW.end = NEW.start + 1; SET NEW.begin = 0; END"
+        #expect(SQLScript.statements(ranges + "; SELECT 3", engine: .mysql) == [ranges, "SELECT 3"])
+    }
+
+    @Test("Run Current finds the statement under the cursor by the engine's comments: on PostgreSQL #>> isn't one")
+    func statementAtByEngine() {
+        let text = "SELECT meta #>> '{a}' FROM t;\nSELECT 2"
+        #expect(SQLScript.statement(at: text.utf16.count - 2, in: text, engine: .postgres) == "SELECT 2")
+        #expect(SQLScript.statement(at: 3, in: text, engine: .postgres) == "SELECT meta #>> '{a}' FROM t")
+    }
 }

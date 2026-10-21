@@ -49,6 +49,11 @@ enum QueryRoute: Equatable {
     static func plan(_ sql: String, connections: [Connection], active: String?,
                      facts: (String) -> Facts) -> QueryRoute {
         let target = SQLBuilder.soleTarget(of: sql, connections: connections, active: active)
+        // USE on MySQL, SET search_path TO x on PostgreSQL: the same as picking it in the left
+        // panel. Before the read-only check: they move the session, they write nothing.
+        if let db = QueryEffects.soleUse(sql), let target, target.engine == .mysql || target.engine == .postgres {
+            return .use(alias: target.alias, database: db)
+        }
         // Safe mode: a write to a read-only connection is refused before any path runs it
         // (EXPLAIN ANALYZE of a write runs the write). Only that one: a read-only server open
         // beside a writable one refused every write to the writable one too. A statement
@@ -62,10 +67,6 @@ enum QueryRoute: Equatable {
            target.engine == .mysql || target.engine == .postgres {
             return .explain(inner)
         }
-        // USE on MySQL, SET search_path TO x on PostgreSQL: the same as picking it in the left panel.
-        if let db = QueryEffects.soleUse(sql), let target, target.engine == .mysql || target.engine == .postgres {
-            return .use(alias: target.alias, database: db)
-        }
         // LOCK TABLES and SET autocommit would outlive the statement on a server connection
         // the app reuses.
         if let target, target.engine == .mysql, let reason = QueryEffects.refusal(sql) {
@@ -74,6 +75,9 @@ enum QueryRoute: Equatable {
 
         func native(_ conn: Connection) -> QueryRoute? {
             guard QueryEffects.runsOnNativeClient(sql, engine: conn.engine) else { return nil }
+            // Inside a transaction begun in the Query tab a CALL joins it (as typed): on a
+            // connection of its own a ROLLBACK couldn't undo it.
+            if facts(conn.alias).inTransaction, !SQLBuilder.isReadOnly(sql) { return nil }
             return .native(alias: conn.alias, serverSQL: SQLBuilder.stripAliasPrefix(sql, alias: conn.alias),
                            database: catalogDatabase(conn.alias, connections: connections, facts: facts))
         }
@@ -83,7 +87,7 @@ enum QueryRoute: Equatable {
         func passthrough(_ conn: Connection) -> QueryRoute? {
             let f = facts(conn.alias)
             guard f.hasServerPassthrough, !f.attachedDatabase.isEmpty, SQLBuilder.isRowReturning(sql),
-                  !QueryEffects.isDataModifyingWith(sql) else { return nil }
+                  !(conn.engine == .postgres && QueryEffects.isDataModifyingWith(sql)) else { return nil }
             let serverSQL = SQLBuilder.stripAliasPrefix(sql, alias: conn.alias)
             if conn.engine == .postgres {
                 // The picker lists schemas, and postgres_query reads with the server's own
@@ -128,7 +132,8 @@ enum QueryRoute: Equatable {
             if let route = sqlite(conn) ?? native(conn) ?? passthrough(conn) ?? postgresWrite(conn) { return route }
             // A lone SET: on the server, where it means something, and saying it lasts for
             // its run only (DuckDB refused PostgreSQL's own settings).
-            if conn.engine == .mysql || conn.engine == .postgres, QueryEffects.isSessionSetting(sql) {
+            if conn.engine == .mysql || conn.engine == .postgres, QueryEffects.isSessionSetting(sql),
+               !(conn.engine == .mysql && QueryEffects.isPersistentSetting(sql)) {
                 return .native(alias: conn.alias, serverSQL: SQLBuilder.stripAliasPrefix(sql, alias: conn.alias),
                                database: catalogDatabase(conn.alias, connections: connections, facts: facts))
             }
@@ -168,8 +173,10 @@ enum QueryRoute: Equatable {
     static func sessionScript(_ statements: [String], connections: [Connection], active: String?,
                               facts: (String) -> Facts) -> SessionScript? {
         let targets = statements.map { SQLBuilder.soleTarget(of: $0, connections: connections, active: active) }
+        // Inside a transaction begun in the Query tab, each statement joins it instead.
         guard let target = targets.first ?? nil, targets.allSatisfy({ $0?.alias == target.alias }),
-              target.engine == .mysql || target.engine == .postgres || (target.engine == .sqlite && !facts(target.alias).inTransaction),
+              target.engine == .mysql || target.engine == .postgres || target.engine == .sqlite,
+              !facts(target.alias).inTransaction,
               QueryEffects.needsOneSession(statements, engine: target.engine) else { return nil }
         if facts(target.alias).isReadOnly, statements.contains(where: { !SQLBuilder.isReadOnly($0) }) {
             return .refused(SequelBridgeError.readOnly(target.name).errorDescription ?? "The connection is read-only.")

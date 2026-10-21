@@ -233,6 +233,32 @@ struct SQLiteCorpusTests {
         CorpusCase(sql: "ANALYZE", expect: .ok),
         CorpusCase(sql: "VACUUM", expect: .ok),
 
+        // What macOS's SQLite has: a full-text table read back, a generated column, a STRICT
+        // table, and syntax newer than the SQLite reads stream through (3.38): RIGHT JOIN
+        // (3.39), concat and string_agg (3.44).
+        CorpusCase(sql: "CREATE VIRTUAL TABLE {p}docs USING fts5(title, body)", expect: .ok),
+        CorpusCase(sql: "INSERT INTO {p}docs VALUES ('Engines', 'the quick brown fox'), ('Other', 'lazy dogs')", expect: .ok),
+        CorpusCase(sql: "SELECT title FROM {p}docs WHERE {p}docs MATCH 'quick'", expect: .value("Engines")),
+        CorpusCase(sql: "SELECT count(*) FROM {p}docs", expect: .value("2")),
+        CorpusCase(sql: "DROP TABLE {p}docs", expect: .ok),
+        CorpusCase(sql: "CREATE TABLE {p}gen (a INTEGER, b INTEGER GENERATED ALWAYS AS (a * 2) STORED)", expect: .ok),
+        CorpusCase(sql: "INSERT INTO {p}gen (a) VALUES (21)", expect: .ok),
+        CorpusCase(sql: "SELECT b FROM {p}gen", expect: .value("42")),
+        CorpusCase(sql: "CREATE TABLE {p}strict (id INTEGER PRIMARY KEY, n INTEGER) STRICT", expect: .ok),
+        CorpusCase(sql: "INSERT INTO {p}strict VALUES (1, 'x')", expect: .error("cannot store TEXT")),
+        CorpusCase(sql: "SELECT '{\"a\":{\"b\":2}}' ->> '$.a.b'", expect: .value("2")),
+        CorpusCase(sql: "SELECT c.name FROM {p}orders o RIGHT JOIN {p}customers c ON c.id = o.customer_id WHERE o.id IS NULL", expect: .atLeast(1)),
+        CorpusCase(sql: "SELECT concat('a', 'b', 1)", expect: .value("ab1")),
+        CorpusCase(sql: "SELECT string_agg(name, '|') FROM (SELECT name FROM {p}customers WHERE vip = 1 ORDER BY name)", expect: .value("Ada Lovelace|Grace Hopper")),
+
+        // A statement that starts with a comment; a script's last statement, rows or not; reals.
+        CorpusCase(sql: "-- a note first\nINSERT INTO {p}log (msg) VALUES ('commented')", expect: .ok),
+        CorpusCase(sql: "SELECT count(*) FROM {p}log WHERE msg = 'commented'", expect: .value("1")),
+        CorpusCase(sql: "SELECT count(*) FROM {p}log; DELETE FROM {p}log WHERE msg = 'commented'", expect: .value("Done")),
+        CorpusCase(sql: "SELECT count(*) FROM {p}log WHERE msg = 'commented'", expect: .value("0")),
+        CorpusCase(sql: "INSERT INTO {p}log (msg) VALUES ('real') RETURNING 0.1 AS r", expect: .value("0.1")),
+        CorpusCase(sql: "SELECT 1; SELEC 2", expect: .error("Statement 2 of 2")),
+
         // Errors.
         CorpusCase(sql: "SELEC 1", expect: .error("syntax")),
         CorpusCase(sql: "SELECT * FROM {p}nope", expect: .error("{p}nope")),

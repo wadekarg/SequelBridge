@@ -137,4 +137,18 @@ struct AsTypedRoutingTests {
         #expect(QueryEffects.refusal("SELECT 'LOCK TABLES'") == nil)
         #expect(QueryEffects.refusal("UPDATE t SET a = 1") == nil)
     }
+
+    @Test("a script shares one connection when a statement sets what a later one reads, not for an @ in a string or a name")
+    func oneSession() {
+        #expect(QueryEffects.needsOneSession(["SET @d = '2026-01-01'", "SELECT COUNT(*) FROM t WHERE d > @d"], engine: .mysql))
+        #expect(QueryEffects.needsOneSession(["CREATE TEMPORARY TABLE x (id INT)", "SELECT * FROM x"], engine: .mysql))
+        #expect(QueryEffects.needsOneSession(["PREPARE q AS SELECT 1", "EXECUTE q"], engine: .postgres))
+        #expect(QueryEffects.needsOneSession(["SELECT 1", "SELECT 2"], engine: .sqlite))          // a SQLite script runs in one go
+        #expect(!QueryEffects.needsOneSession(["SELECT 1", "SELECT 2"], engine: .mysql))
+        #expect(!QueryEffects.needsOneSession(["SELECT * FROM t WHERE email LIKE '%@example.com'", "SELECT 2"], engine: .mysql))
+        #expect(!QueryEffects.needsOneSession(["SELECT * FROM t WHERE email LIKE \"%@example.com\"", "SELECT 2"], engine: .mysql))
+        #expect(!QueryEffects.needsOneSession(["SELECT `@odd` FROM t", "SELECT 2"], engine: .mysql))
+        #expect(!QueryEffects.needsOneSession(["SELECT @@version", "SELECT 2"], engine: .mysql))   // a server variable
+        #expect(!QueryEffects.needsOneSession(["SET @x = 1"], engine: .mysql))                      // one statement
+    }
 }

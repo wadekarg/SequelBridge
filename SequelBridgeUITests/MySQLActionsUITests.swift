@@ -230,6 +230,41 @@ class MySQLActionsUITests: XCTestCase {
         run("DROP TABLE ui_struct")
     }
 
+    func testAQueryResultCellIsEditedInItsPopup() throws {
+        pick(database: "sbwrite")
+        run("DROP TABLE IF EXISTS ui_pop; CREATE TABLE ui_pop (id INT PRIMARY KEY, note VARCHAR(20)); INSERT INTO ui_pop VALUES (1, 'before')")
+        run("SELECT id, note FROM ui_pop")
+        let cell = element("results.grid").staticTexts["before"]
+        XCTAssertTrue(cell.waitForExistence(timeout: 30), "the result didn't show the row")
+        cell.doubleClick()
+        let edit = app.popovers.buttons["Edit"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 10), "double-click opened no popup with Edit")
+        edit.click()
+        let text = app.popovers.textViews.firstMatch
+        XCTAssertTrue(text.waitForExistence(timeout: 10), "Edit gave nothing to type in")
+        text.click()
+        text.typeKey("a", modifierFlags: .command)
+        text.typeText("after")
+        app.popovers.buttons["Save"].click()
+        expectValue("SELECT CONCAT('note=', note) AS v FROM ui_pop WHERE id = 1", "note=after", "the popup's Save didn't write the value")
+        run("DROP TABLE ui_pop")
+    }
+
+    func testCreateTableMakesTheTable() throws {
+        pick(database: "sbwrite")
+        run("DROP TABLE IF EXISTS ui_made")
+        element("sidebar.createTable").click()
+        let name = app.sheets.textFields.firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 10), "the Create Table sheet didn't open")
+        name.click()
+        name.typeText("ui_made")
+        app.sheets.buttons["Create Table"].click()
+        XCTAssertTrue(table("ui_made").waitForExistence(timeout: 30), "the new table didn't appear in the left panel")
+        expectValue("SELECT CONCAT('made=', COUNT(*)) AS v FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'sbwrite' AND TABLE_NAME = 'ui_made'",
+                    "made=1", "the table wasn't made on the server")
+        run("DROP TABLE ui_made")
+    }
+
     func testCancelStopsALongQuery() {
         run("SELECT SLEEP(30)")
         let cancel = element("query.cancel")
@@ -238,6 +273,28 @@ class MySQLActionsUITests: XCTestCase {
         cancel.click()
         XCTAssertTrue(app.buttons["query.run"].waitForExistence(timeout: 15), "the query didn't stop")
         XCTAssertLessThan(Date().timeIntervalSince(started), 15, "Cancel took as long as the query")
+    }
+
+    /// A script on one connection that failed before its USE still moved the left panel to
+    /// the database it named, which it never reached.
+    func testAScriptThatFailsBeforeItsUSELeavesTheDatabasePicked() {
+        run("SET @n = 1; SELEC 2; USE sbwrite")
+        XCTAssertTrue(text(containing: "Statement 2 of 3").waitForExistence(timeout: 30), "the script's failure wasn't shown")
+        let moved = expectation(for: NSPredicate(format: "value == %@", "sbwrite"), evaluatedWith: element("sidebar.database"))
+        XCTAssertEqual(XCTWaiter.wait(for: [moved], timeout: 5), .timedOut, "the left panel moved to a database the script never reached")
+        XCTAssertEqual(element("sidebar.database").value as? String, "sbtest")
+    }
+}
+
+/// The same flows through a Unix socket (a relay to the same MariaDB). Needs SB_UI_MYSQL_SOCKET.
+final class MySQLActionsOverSocketUITests: MySQLActionsUITests {
+    override func connectionEntry(port: Int) throws -> [String: Any] {
+        guard let socket = env["SB_UI_MYSQL_SOCKET"] else { throw XCTSkip("no MySQL socket for the UI tests (SB_UI_MYSQL_SOCKET)") }
+        var entry = try super.connectionEntry(port: port)
+        entry["id"] = "5B0A0000-0000-4000-8000-000000000603"
+        entry["connectionType"] = "Socket"
+        entry["socketPath"] = socket
+        return entry
     }
 }
 

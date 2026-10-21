@@ -469,6 +469,22 @@ struct SSHTunnelTests {
         try? await manager.queryEngine.detach("sshdrop")
     }
 
+    /// Picking another database after the tunnel dropped opened a new tunnel, but the
+    /// Reconnect banner stayed, offering to fix what already worked.
+    @Test("a database picked after the tunnel dropped opens a new one, and the Reconnect banner goes")
+    func databaseSwitchAfterADrop() async throws {
+        let conn = sshConnection(alias: "sshdropsw")
+        let manager = try manager(for: conn)
+        try await manager.connect([conn])
+        let pid = try #require(manager.queryEngine.tunnelProcessID("sshdropsw"), "no ssh running for the tunnel")
+        kill(pid, SIGKILL)
+        for _ in 0..<50 where !manager.droppedTunnels.contains("sshdropsw") { try await Task.sleep(nanoseconds: 100_000_000) }
+        #expect(manager.droppedTunnels.contains("sshdropsw"), "the dropped tunnel wasn't noticed")
+        _ = try await manager.switchDatabase(alias: "sshdropsw", to: "sbwrite")    // lists its tables: the new tunnel works
+        #expect(manager.droppedTunnels.isEmpty, "the banner stayed after the switch opened a new tunnel")
+        try? await manager.queryEngine.detach("sshdropsw")
+    }
+
     /// A public key of the test server's own type (ED25519) that isn't the server's.
     func fakeHostKey() throws -> String {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-fake-\(UUID().uuidString.prefix(8))")

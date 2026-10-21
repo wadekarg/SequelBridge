@@ -290,9 +290,24 @@ nonisolated enum SQLBuilder {
         var i = 0
         while i < c.count {
             let ch = c[i]
+            // A /* comment */ as written; PostgreSQL nests them.
+            if ch == "/", i + 1 < c.count, c[i + 1] == "*" {
+                var j = i + 2, depth = 1
+                while j < c.count, depth > 0 {
+                    if c[j] == "/", j + 1 < c.count, c[j + 1] == "*" { depth += 1; j += 2; continue }
+                    if c[j] == "*", j + 1 < c.count, c[j + 1] == "/" { depth -= 1; j += 2; continue }
+                    j += 1
+                }
+                out.append(contentsOf: c[i..<min(j, c.count)]); i = j; continue
+            }
             if ch == "'" || ch == "\"" {
+                // E'…' takes backslash escapes: E'\'' is one quote, not the string's end.
+                let escapes = ch == "'" && i > 0 && (c[i - 1] == "E" || c[i - 1] == "e")
                 var j = i + 1
-                while j < c.count, c[j] != ch { j += 1 }
+                while j < c.count, c[j] != ch {
+                    if escapes, c[j] == "\\" { j += 1 }
+                    j += 1
+                }
                 out.append(contentsOf: c[i...min(j, c.count - 1)]); i = j + 1; continue
             }
             if ch == "$", i + 1 < c.count, let end = c[(i + 1)...].firstIndex(of: "$"),

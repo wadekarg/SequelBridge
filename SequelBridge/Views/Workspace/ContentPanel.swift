@@ -437,12 +437,20 @@ struct ContentPanel: View {
             //    Through DuckDB's scanner a COUNT(*) is a full table scan (~20s on a
             //    20M-row table), which also occupies the query actor and can make a
             //    concurrent connect appear to hang.
+            let cached = session.sidebarTrees[conn.alias]?.first(where: { $0.id == table.id })
+            func tableColumns() async -> [ColumnInfo] {
+                (cached?.columns.isEmpty == false)
+                    ? cached!.columns
+                    : ((try? await manager.queryEngine.fetchColumns(alias: conn.alias, database: db, table: table.name)) ?? [])
+            }
+            // On MySQL the page names its columns, to read its dates as the server keeps them.
+            let known: [ColumnInfo]? = usePassthrough && conn.engine == .mysql ? await tableColumns() : nil
             let result: QueryResult
             if usePassthrough {
                 result = try await manager.queryEngine.serverContentPage(
                     alias: conn.alias, database: db, table: table.name,
                     filter: appliedFilter, sortColumn: sortColumn, sortAscending: sortAscending,
-                    limit: pageSize, offset: page * pageSize)
+                    limit: pageSize, offset: page * pageSize, columns: known ?? [])
             } else if isNative {
                 result = try await manager.queryEngine.clickhouseQuery(alias: conn.alias, sql: dataSql)
             } else {
@@ -453,11 +461,8 @@ struct ContentPanel: View {
             rows    = result.rows
             nullMask = result.nullMask
 
-            let cached = session.sidebarTrees[conn.alias]?.first(where: { $0.id == table.id })
-            let colInfo: [ColumnInfo] = (cached?.columns.isEmpty == false)
-                ? cached!.columns
-                : ((try? await manager.queryEngine.fetchColumns(
-                    alias: conn.alias, database: db, table: table.name)) ?? [])
+            let colInfo: [ColumnInfo]
+            if let known { colInfo = known } else { colInfo = await tableColumns() }
             pkColumns = colInfo.filter { $0.isPrimaryKey }.map { $0.name }
             generatedColumns = ContentPaging.generatedColumns(colInfo, engine: conn.engine)
             emptyFieldHints = Dictionary(colInfo.map { ($0.name, ContentPaging.placeholder(for: $0, generated: generatedColumns.contains($0.name))) },

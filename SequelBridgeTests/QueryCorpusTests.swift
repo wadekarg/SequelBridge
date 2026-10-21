@@ -450,6 +450,25 @@ struct MySQLCorpusTests {
             CorpusCase(sql: "SELECT * FROM {p}types ORDER BY id", expect: .rows(2)),
             CorpusCase(sql: "SELECT * FROM {p}types WHERE id = 2", expect: .rows(1)),
             CorpusCase(sql: "SELECT * FROM information_schema.COLUMNS", expect: .atLeast(100)),
+            // Values an old server, or one in a lax sql_mode, keeps: zero dates, and a date
+            // with a zero month or day. A read DuckDB's MySQL driver can't convert runs on the
+            // app's own client, as the server keeps it; a lone zero date reads as NULL there
+            // (the driver's way, as JDBC's convertToNull), where the Content tab shows it as kept.
+            CorpusCase(sql: """
+                SET SESSION sql_mode = ''; DROP TABLE IF EXISTS {p}legacy;
+                CREATE TABLE {p}legacy (id INT PRIMARY KEY, d DATE, dt DATETIME, ts TIMESTAMP NULL DEFAULT NULL);
+                INSERT INTO {p}legacy VALUES (1, '0000-00-00', '0000-00-00 00:00:00', '0000-00-00 00:00:00'),
+                  (2, '2026-00-15', '2026-01-00 10:00:00', NULL), (3, '2026-10-20', '2026-10-20 22:00:00', '2026-10-20 22:00:00')
+                """, expect: .ok),
+            CorpusCase(sql: "SELECT * FROM {p}legacy ORDER BY id", expect: .rows(3)),
+            CorpusCase(sql: "SELECT d FROM {p}legacy ORDER BY id", expect: .value("0000-00-00")),   // with 2026-00-15: the app's own client
+            CorpusCase(sql: "SELECT d FROM {p}legacy WHERE id = 1", expect: .value("NULL")),
+            CorpusCase(sql: "SELECT dt FROM {p}legacy WHERE id = 1", expect: .value("NULL")),
+            CorpusCase(sql: "SELECT ts FROM {p}legacy WHERE id = 1", expect: .value("NULL")),
+            CorpusCase(sql: "SELECT d, dt FROM {p}legacy WHERE id = 2", expect: .value("2026-00-15")),
+            CorpusCase(sql: "SELECT dt FROM {p}legacy WHERE id = 2", expect: .value("2026-01-00 10:00:00")),
+            CorpusCase(sql: "SELECT d FROM {p}legacy WHERE id = 3", expect: .value("2026-10-20")),
+            CorpusCase(sql: "DROP TABLE {p}legacy", expect: .ok),
 
             // Session state the next statement relies on, and transactions.
             // A script's statements share one connection; a lone SET says it lasts its run.
@@ -458,6 +477,8 @@ struct MySQLCorpusTests {
             CorpusCase(sql: "SET @corpus_d = '2026-01-01'; SELECT COUNT(*) FROM {p}orders WHERE placed > @corpus_d", expect: .value("3")),
             CorpusCase(sql: "CREATE TEMPORARY TABLE {p}tmp (id INT); INSERT INTO {p}tmp VALUES (1), (2); SELECT COUNT(*) FROM {p}tmp", expect: .value("2")),
             CorpusCase(sql: "INSERT INTO {p}log (msg) VALUES ('id'); SELECT LAST_INSERT_ID() > 0", expect: .value("1")),
+            CorpusCase(sql: "SELECT SQL_CALC_FOUND_ROWS id FROM {p}customers LIMIT 1; SELECT FOUND_ROWS()", expect: .value("5")),
+            CorpusCase(sql: "SELECT COUNT(*) INTO @corpus_n FROM {p}customers; SELECT @corpus_n", expect: .value("5")),
             CorpusCase(sql: "LOCK TABLES {p}log WRITE; INSERT INTO {p}log (msg) VALUES ('locked'); UNLOCK TABLES", expect: .ok),
             CorpusCase(sql: "LOCK TABLES {p}log WRITE", expect: .error("LOCK TABLES")),
             CorpusCase(sql: "DELETE FROM {p}log", expect: .ok),
@@ -515,6 +536,51 @@ struct MySQLCorpusTests {
             CorpusCase(sql: "INSERT INTO `{p}odd name` VALUES (1, 'a b', 2)", expect: .ok),
             CorpusCase(sql: "SELECT `select`, `my col`, `ünï` FROM `{p}odd name`", expect: .value("1")),
             CorpusCase(sql: "DROP TABLE `{p}odd name`", expect: .ok),
+            CorpusCase(sql: "ALTER TABLE {p}customers ADD FULLTEXT INDEX {p}ft_name (name)", expect: .ok),
+            CorpusCase(sql: "SELECT name FROM {p}customers WHERE MATCH(name) AGAINST('+Turing' IN BOOLEAN MODE)", expect: .value("Alan Turing")),
+            CorpusCase(sql: "CREATE TABLE {p}geo (id INT PRIMARY KEY, g POINT NOT NULL)", expect: .ok),
+            CorpusCase(sql: "INSERT INTO {p}geo VALUES (1, POINT(1, 2))", expect: .ok),
+            CorpusCase(sql: "SELECT ST_AsText(g) FROM {p}geo", expect: .value("POINT(1 2)")),
+            CorpusCase(sql: "SELECT * FROM {p}geo", expect: .rows(1)),
+            CorpusCase(sql: "DROP TABLE {p}geo", expect: .ok),
+            CorpusCase(sql: "CREATE EVENT {p}ev ON SCHEDULE EVERY 1 DAY DO DELETE FROM {p}log WHERE 1 = 0", expect: .ok),
+            CorpusCase(sql: "SHOW EVENTS LIKE '{p}ev'", expect: .rows(1)),
+            CorpusCase(sql: "DROP EVENT {p}ev", expect: .ok),
+            // A mysqldump file as it comes: executable comments, a table made before the one
+            // it refers to (FOREIGN_KEY_CHECKS=0 lets it), LOCK TABLES around its rows.
+            CorpusCase(sql: """
+                /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+                /*!40101 SET NAMES utf8mb4 */;
+                /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+                DROP TABLE IF EXISTS `{p}dchild`;
+                /*!40101 SET @saved_cs_client     = @@character_set_client */;
+                CREATE TABLE `{p}dchild` (
+                  `id` int(11) NOT NULL,
+                  `parent_id` int(11) DEFAULT NULL,
+                  PRIMARY KEY (`id`),
+                  KEY `{p}dchild_fk` (`parent_id`),
+                  CONSTRAINT `{p}dchild_fk` FOREIGN KEY (`parent_id`) REFERENCES `{p}dparent` (`id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                /*!40101 SET character_set_client = @saved_cs_client */;
+                LOCK TABLES `{p}dchild` WRITE;
+                /*!40000 ALTER TABLE `{p}dchild` DISABLE KEYS */;
+                INSERT INTO `{p}dchild` VALUES (1,1),(2,2);
+                /*!40000 ALTER TABLE `{p}dchild` ENABLE KEYS */;
+                UNLOCK TABLES;
+                DROP TABLE IF EXISTS `{p}dparent`;
+                CREATE TABLE `{p}dparent` (
+                  `id` int(11) NOT NULL,
+                  `name` varchar(40) DEFAULT NULL,
+                  PRIMARY KEY (`id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                LOCK TABLES `{p}dparent` WRITE;
+                INSERT INTO `{p}dparent` VALUES (1,'one'),(2,'it\\'s two');
+                UNLOCK TABLES;
+                /*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+                /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+                """, expect: .ok),
+            CorpusCase(sql: "SELECT p.name FROM {p}dchild c JOIN {p}dparent p ON p.id = c.parent_id WHERE c.id = 2", expect: .value("it's two")),
+            CorpusCase(sql: "DROP TABLE {p}dchild, {p}dparent", expect: .ok),
 
             // Routines and triggers.
             CorpusCase(sql: "DROP PROCEDURE IF EXISTS {p}proc", expect: .ok),
@@ -536,6 +602,19 @@ struct MySQLCorpusTests {
             CorpusCase(sql: "SELECT msg FROM {p}log ORDER BY id DESC LIMIT 1", expect: .value("HELLO")),
             CorpusCase(sql: "SHOW TRIGGERS LIKE '{p}%'", expect: .atLeast(1)),
             CorpusCase(sql: "DROP TRIGGER {p}trg", expect: .ok),
+            // A body in BEGIN … END without a DELIMITER line, as SHOW CREATE PROCEDURE gives it.
+            CorpusCase(sql: "DROP PROCEDURE IF EXISTS {p}proc2", expect: .ok),
+            CorpusCase(sql: "CREATE PROCEDURE {p}proc2()\nBEGIN\n  DECLARE n INT DEFAULT 20;\n  SET n = n + 1;\n  SELECT n * 2 AS v;\nEND", expect: .ok),
+            CorpusCase(sql: "CALL {p}proc2()", expect: .value("42")),
+            CorpusCase(sql: "CREATE TRIGGER {p}trg2 BEFORE INSERT ON {p}log FOR EACH ROW BEGIN IF NEW.msg IS NULL THEN SET NEW.msg = 'none'; END IF; END", expect: .ok),
+            CorpusCase(sql: "INSERT INTO {p}log (msg) VALUES (NULL)", expect: .ok),
+            CorpusCase(sql: "SELECT msg FROM {p}log ORDER BY id DESC LIMIT 1", expect: .value("none")),
+            CorpusCase(sql: "DROP TRIGGER {p}trg2", expect: .ok),
+            CorpusCase(sql: "DROP PROCEDURE {p}proc2", expect: .ok),
+            // MariaDB's block of its own: its rows come back, and it opens no transaction.
+            CorpusCase(sql: "BEGIN NOT ATOMIC DECLARE x INT DEFAULT 41; SELECT x + 1; END", expect: .value("42"),
+                       when: { $0.atLeast(mariadb: [10, 1, 1], mysql: nil) }),
+            CorpusCase(sql: "SELECT COUNT(*) FROM {p}log", expect: .value("2")),
 
             // What the server says about itself.
             CorpusCase(sql: "SHOW DATABASES", expect: .atLeast(2)),
@@ -555,6 +634,7 @@ struct MySQLCorpusTests {
             CorpusCase(sql: "SHOW WARNINGS", expect: .ok),
             CorpusCase(sql: "SHOW ERRORS", expect: .ok),
             CorpusCase(sql: "SHOW ENGINES", expect: .atLeast(1)),
+            CorpusCase(sql: "SHOW ENGINE INNODB STATUS", expect: .rows(1)),
             CorpusCase(sql: "SHOW CHARACTER SET LIKE 'utf8mb4'", expect: .rows(1)),
             CorpusCase(sql: "SHOW COLLATION LIKE 'utf8mb4_bin'", expect: .rows(1)),
             CorpusCase(sql: "SHOW PLUGINS", expect: .atLeast(1)),
@@ -595,6 +675,8 @@ struct MySQLCorpusTests {
             CorpusCase(sql: "# a comment\nSELECT 2", expect: .value("2")),
             CorpusCase(sql: "/* a comment */ SELECT 3", expect: .value("3")),
             CorpusCase(sql: "SELECT 4 -- trailing", expect: .value("4")),
+            CorpusCase(sql: "SELECT /*+ MAX_EXECUTION_TIME(5000) */ COUNT(*) FROM {p}customers", expect: .value("5")),
+            CorpusCase(sql: "SELECT /*!32302 DISTINCT */ vip FROM {p}customers", expect: .rows(2)),
             CorpusCase(sql: "SELECT 1; SELECT 2;", expect: .value("2")),
 
             // Errors said plainly.

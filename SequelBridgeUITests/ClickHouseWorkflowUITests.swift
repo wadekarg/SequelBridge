@@ -3,18 +3,33 @@
 //  SequelBridgeUITests
 //
 //  ClickHouse clicked through the app on a real server: its tables, Content's rows and
-//  why a cell can't be edited there, a query, and the Server tab's query insights. With
-//  no SB_UI_CH_PORT the suite is skipped.
+//  why a cell can't be edited there, a query, and the Server tab's query insights.
+//  ClickHouseWorkflowOverSSHUITests runs them again through an SSH tunnel. With no
+//  SB_UI_CH_PORT the suite is skipped.
 //
 
 import XCTest
 
-final class ClickHouseWorkflowUITests: XCTestCase {
-    private var app: XCUIApplication!
+class ClickHouseWorkflowUITests: XCTestCase {
+    var app: XCUIApplication!
     private var dir: URL!
-    private let alias = "ch"
+    let alias = "ch"
 
-    private var env: [String: String] { ProcessInfo.processInfo.environment }
+    var env: [String: String] { ProcessInfo.processInfo.environment }
+
+    /// The connection to make: TCP/IP here; the subclass goes through SSH.
+    func connectionEntry(port: Int) throws -> [String: Any] {
+        [
+            "id": "5B0A0000-0000-4000-8000-000000000301", "name": "ClickHouse", "alias": alias,
+            "connectionType": "TCP/IP", "color": "#C9A227",
+            "host": env["SB_UI_CH_HOST"] ?? "127.0.0.1", "port": port,
+            "username": env["SB_UI_CH_USER"] ?? "sbuser", "password": env["SB_UI_CH_PASS"] ?? "",
+            "database": "default", "engine": "clickhouse", "folder": "", "readOnly": false,
+        ]
+    }
+
+    /// Extra launch arguments (through SSH, a known-hosts file of its own).
+    func launchArguments(in dir: URL) throws -> [String] { [] }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -22,30 +37,29 @@ final class ClickHouseWorkflowUITests: XCTestCase {
         dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-ui-ch-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let fixture = dir.appendingPathComponent("connections.json")
-        let entry: [String: Any] = [
-            "id": "5B0A0000-0000-4000-8000-000000000301", "name": "ClickHouse", "alias": alias,
-            "connectionType": "TCP/IP", "color": "#C9A227",
-            "host": env["SB_UI_CH_HOST"] ?? "127.0.0.1", "port": Int(port) ?? 8123,
-            "username": env["SB_UI_CH_USER"] ?? "sbuser", "password": env["SB_UI_CH_PASS"] ?? "",
-            "database": "default", "engine": "clickhouse", "folder": "", "readOnly": false,
-        ]
-        try JSONSerialization.data(withJSONObject: [entry]).write(to: fixture)
+        try JSONSerialization.data(withJSONObject: [try connectionEntry(port: Int(port) ?? 8123)]).write(to: fixture)
         let support = dir.appendingPathComponent("support")
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
 
         app = XCUIApplication()
         app.launchArguments = ["-SBConnectionsFile", fixture.path, "-SBSupportDir", support.path,
-                               "-ApplePersistenceIgnoreState", "YES", "-theme", "Light"]
+                               "-ApplePersistenceIgnoreState", "YES", "-theme", "Light"] + (try launchArguments(in: dir))
         app.launch()
         XCTAssertTrue(app.buttons["home.select.\(alias)"].waitForExistence(timeout: 30), "Home didn't show the connection")
         app.buttons["home.select.\(alias)"].click()
         app.buttons["home.connect"].click()
+        // Through SSH, a server met for the first time is trusted (SSHHostKeyUITests covers that question).
+        dialogButton("Trust and Connect", timeout: 8)?.click()
         XCTAssertTrue(app.buttons["query.newTab"].waitForExistence(timeout: 120), "the workspace didn't open")
         XCTAssertTrue(table("events").waitForExistence(timeout: 60), "default's tables weren't listed")
     }
 
     override func tearDownWithError() throws {
-        app?.terminate()
+        // Quit as a person does: the app ends its ssh tunnels (terminate() leaves them).
+        if let app, app.state != .notRunning {
+            app.typeKey("q", modifierFlags: .command)
+            if !app.wait(for: .notRunning, timeout: 15) { app.terminate() }
+        }
         if let dir { try? FileManager.default.removeItem(at: dir) }
     }
 
@@ -59,6 +73,16 @@ final class ClickHouseWorkflowUITests: XCTestCase {
 
     private func text(containing s: String) -> XCUIElement {
         app.staticTexts.containing(NSPredicate(format: "value CONTAINS %@", s)).firstMatch
+    }
+
+    /// A button of the question on screen (a sheet over the window), not the Touch Bar's copy.
+    private func dialogButton(_ title: String, timeout: TimeInterval = 10) -> XCUIElement? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            for b in [app.sheets.buttons[title], app.dialogs.buttons[title], app.windows.buttons[title]] where b.exists { return b }
+            Thread.sleep(forTimeInterval: 0.3)
+        } while Date() < deadline
+        return nil
     }
 
     private func run(_ sql: String) {
@@ -95,5 +119,29 @@ final class ClickHouseWorkflowUITests: XCTestCase {
             if !listed { refresh.click() }
         }
         XCTAssertTrue(listed, "the Server tab's insights didn't list the query")
+    }
+}
+
+/// The same flows through an SSH tunnel to the same ClickHouse (the test SSH server sees it
+/// at host.docker.internal). Needs SB_UI_SSH_KEY.
+final class ClickHouseWorkflowOverSSHUITests: ClickHouseWorkflowUITests {
+    override func connectionEntry(port: Int) throws -> [String: Any] {
+        guard let key = env["SB_UI_SSH_KEY"] else { throw XCTSkip("no SSH server for the UI tests (SB_UI_SSH_KEY)") }
+        var entry = try super.connectionEntry(port: port)
+        entry["id"] = "5B0A0000-0000-4000-8000-000000000302"
+        entry["connectionType"] = "SSH"
+        entry["host"] = env["SB_UI_SSH_DB_HOST"] ?? "host.docker.internal"
+        entry["sshHost"] = "127.0.0.1"
+        entry["sshPort"] = Int(env["SB_UI_SSH_PORT"] ?? "") ?? 2224
+        entry["sshUsername"] = "tunneluser"
+        entry["sshKeyPath"] = key
+        return entry
+    }
+
+    /// A known-hosts file of its own, never the Mac's.
+    override func launchArguments(in dir: URL) throws -> [String] {
+        let file = dir.appendingPathComponent("known_hosts")
+        try "".write(to: file, atomically: true, encoding: .utf8)
+        return ["-SBKnownHostsFile", file.path]
     }
 }

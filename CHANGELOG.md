@@ -14,18 +14,28 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   work and RETURNING shows its rows (inside a BEGIN typed in the Query tab, they still
   join that transaction). A function or DO body in $$ … $$ is no longer cut at its
   semicolons, #>> is no longer taken for a comment, and SET search_path TO x picks
-  that schema, as USE does on MySQL.
+  that schema, as USE does on MySQL. COPY … TO STDOUT shows its rows; COPY … FROM STDIN
+  says to use Import CSV, where it waited for data that never came.
 - SQLite: statements typed in the Query tab ran in DuckDB, so a table made there
   numbered nothing (INTEGER PRIMARY KEY gave NULL ids, and a duplicate id went in), and
   SQLite's functions (datetime, strftime), PRAGMA, INSERT OR REPLACE, upserts, RETURNING,
   triggers and WITHOUT ROWID failed. They run in SQLite itself now; a script runs in
-  one go, as in the sqlite3 shell.
+  one go, as in the sqlite3 shell. A read using SQLite newer than the copy reads stream
+  through (RIGHT JOIN, concat, string_agg) runs in macOS's own SQLite.
 - ClickHouse: every INSERT … VALUES typed in the Query tab failed ("Cannot parse
   input"), as did DELETE and a query with its own FORMAT: the app added a FORMAT clause
   to every statement. It asks for its format another way now.
 - MySQL: a CALL to a procedure that returns rows failed ("Commands out of sync"); a
   SELECT with two columns of one name, such as SELECT * over a join, failed ("duplicate
   column name"); a statement starting with a # comment failed. All three run.
+- MySQL and MariaDB: legacy dates broke Content. A zero date (0000-00-00) showed as
+  NULL, and a date with a zero month or day (2026-00-15) failed the whole page. Content
+  now shows them as the server keeps them. In the Query tab such a read runs on the
+  app's own client.
+- A procedure, function, trigger or event with a BEGIN … END body, typed without a
+  DELIMITER line as SHOW CREATE PROCEDURE gives it, was cut at its first semicolon; so
+  was a SQLite trigger. Each is one statement now, as is MariaDB's BEGIN NOT ATOMIC
+  block, whose rows show.
 - A script's statements run on one connection when one sets what a later one reads:
   SET @d = …; SELECT … WHERE placed > @d counted nothing, without an error, and a
   temporary table, PREPARE/EXECUTE, LAST_INSERT_ID() or LOCK TABLES … UNLOCK TABLES

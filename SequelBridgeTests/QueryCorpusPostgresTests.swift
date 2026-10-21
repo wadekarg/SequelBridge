@@ -185,6 +185,9 @@ struct PostgresCorpusTests {
             // SET search_path picks the schema, as the left panel does; another lone SET says
             // it lasts its run; a script's statements share one connection.
             CorpusCase(sql: "SET search_path TO public", expect: .contains("public")),
+            CorpusCase(sql: "SET search_path TO 'public'", expect: .contains("public")),
+            CorpusCase(sql: "COPY (SELECT 1 AS a UNION ALL SELECT 2) TO STDOUT", expect: .rows(2)),
+            CorpusCase(sql: "COPY {p}log FROM STDIN", expect: .error("Import CSV")),
             CorpusCase(sql: "SET statement_timeout = '5s'", expect: .contains("lasts for the run")),
             CorpusCase(sql: "RESET statement_timeout", expect: .contains("lasts for the run")),
             CorpusCase(sql: "SET statement_timeout = '5s'; SHOW statement_timeout", expect: .value("5s")),
@@ -204,6 +207,15 @@ struct PostgresCorpusTests {
             CorpusCase(sql: "INSERT INTO {p}customers (name, email, city) VALUES ('Ada Again', 'ada@example.com', 'Paris') ON CONFLICT (email) DO UPDATE SET city = EXCLUDED.city", expect: .ok),
             CorpusCase(sql: "SELECT city FROM {p}customers WHERE email = 'ada@example.com'", expect: .value("Paris")),
             CorpusCase(sql: "INSERT INTO {p}customers (name, email) VALUES ('Dup', 'ada@example.com') ON CONFLICT DO NOTHING", expect: .ok),
+            // MERGE (PostgreSQL 15), full-text search, an extension's function.
+            CorpusCase(sql: """
+                MERGE INTO {p}customers c USING (VALUES ('ada@example.com', 'Oxford')) AS v(email, city) ON c.email = v.email
+                WHEN MATCHED THEN UPDATE SET city = v.city WHEN NOT MATCHED THEN INSERT (name, email, city) VALUES ('Merged', v.email, v.city)
+                """, expect: .ok),
+            CorpusCase(sql: "SELECT city FROM {p}customers WHERE email = 'ada@example.com'", expect: .value("Oxford")),
+            CorpusCase(sql: "SELECT to_tsvector('english', 'The quick brown foxes') @@ to_tsquery('english', 'fox')", expect: .value("true")),
+            CorpusCase(sql: "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"", expect: .ok),
+            CorpusCase(sql: "SELECT uuid_generate_v4() IS NOT NULL", expect: .value("true")),
             CorpusCase(sql: "UPDATE {p}orders o SET note = 'for ' || c.name FROM {p}customers c WHERE c.id = o.customer_id AND c.vip", expect: .ok),
             CorpusCase(sql: "SELECT note FROM {p}orders WHERE id = 4", expect: .value("for Grace Hopper")),
             CorpusCase(sql: "DELETE FROM {p}items i USING {p}orders o WHERE o.id = i.order_id AND o.status = 'shipped'", expect: .ok),
@@ -261,6 +273,10 @@ struct PostgresCorpusTests {
             CorpusCase(sql: "INSERT INTO {p}log (msg) VALUES ('hello')", expect: .ok),
             CorpusCase(sql: "SELECT msg FROM {p}log ORDER BY id DESC LIMIT 1", expect: .value("HELLO")),
             CorpusCase(sql: "DROP TRIGGER {p}trg ON {p}log", expect: .ok),
+            // A SQL-standard body (PostgreSQL 14): BEGIN ATOMIC … END keeps its semicolons.
+            CorpusCase(sql: "CREATE OR REPLACE FUNCTION {p}atomic() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT 41 + 1; END", expect: .ok),
+            CorpusCase(sql: "SELECT {p}atomic()", expect: .value("42")),
+            CorpusCase(sql: "DROP FUNCTION {p}atomic()", expect: .ok),
 
             // Maintenance and server-wide statements, some of which can't run in a transaction.
             CorpusCase(sql: "VACUUM {p}log", expect: .ok),
