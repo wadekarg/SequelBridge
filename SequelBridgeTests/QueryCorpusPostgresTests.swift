@@ -195,6 +195,14 @@ struct PostgresCorpusTests {
             CorpusCase(sql: "INSERT INTO {p}log (msg) VALUES ('rolled back')", expect: .ok),
             CorpusCase(sql: "ROLLBACK", expect: .ok),
             CorpusCase(sql: "SELECT count(*) FROM {p}log WHERE msg = 'rolled back'", expect: .value("0")),
+            // A setting in a transaction: SET LOCAL holds in it and ends with it; a plain SET
+            // would outlast it on a connection the app reuses, so it is refused.
+            CorpusCase(sql: "BEGIN", expect: .ok),
+            CorpusCase(sql: "SET LOCAL statement_timeout = '5s'", expect: .ok),
+            CorpusCase(sql: "SELECT current_setting('statement_timeout')", expect: .value("5s")),
+            CorpusCase(sql: "SET statement_timeout = '5s'", expect: .error("SET LOCAL")),
+            CorpusCase(sql: "ROLLBACK", expect: .ok),
+            CorpusCase(sql: "SELECT current_setting('statement_timeout')", expect: .value("0")),
             CorpusCase(sql: "BEGIN; INSERT INTO {p}log (msg) VALUES ('kept'); COMMIT", expect: .ok),
             CorpusCase(sql: "SELECT count(*) FROM {p}log WHERE msg = 'kept'", expect: .value("1")),
             CorpusCase(sql: "PREPARE {p}q AS SELECT $1::int + 1; EXECUTE {p}q(41)", expect: .value("42")),
@@ -241,6 +249,18 @@ struct PostgresCorpusTests {
             CorpusCase(sql: "CREATE TABLE {p}s.t (id int)", expect: .ok),
             CorpusCase(sql: "INSERT INTO {p}s.t VALUES (1)", expect: .ok),
             CorpusCase(sql: "SELECT count(*) FROM {p}s.t", expect: .value("1")),
+            // In a schema picked (not public), a transaction begun in the Query tab: its
+            // write goes to that schema, its read sees the write, ROLLBACK undoes it.
+            CorpusCase(sql: "CREATE TABLE {p}s.{p}tx (id int)", expect: .ok),
+            CorpusCase(sql: "SET search_path TO {p}s", expect: .contains("{p}s")),
+            CorpusCase(sql: "INSERT INTO {p}tx VALUES (1)", expect: .ok),
+            CorpusCase(sql: "SELECT count(*) FROM {p}tx", expect: .value("1")),
+            CorpusCase(sql: "BEGIN", expect: .ok),
+            CorpusCase(sql: "INSERT INTO {p}tx VALUES (2)", expect: .ok),
+            CorpusCase(sql: "SELECT count(*) FROM {p}tx", expect: .value("2")),
+            CorpusCase(sql: "ROLLBACK", expect: .ok),
+            CorpusCase(sql: "SELECT count(*) FROM {p}tx", expect: .value("1")),
+            CorpusCase(sql: "SET search_path TO public", expect: .contains("public")),
             CorpusCase(sql: "DROP SCHEMA {p}s CASCADE", expect: .ok),
             CorpusCase(sql: "CREATE SEQUENCE {p}seq START 100", expect: .ok),
             CorpusCase(sql: "SELECT nextval('{p}seq')", expect: .value("100")),

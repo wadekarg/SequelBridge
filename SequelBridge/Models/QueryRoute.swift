@@ -101,8 +101,11 @@ enum QueryRoute: Equatable {
                 // schema the app's own client reads, with search_path set to it. (Compared
                 // with the database's name, the pick never matched, and every read went
                 // through DuckDB: 7 / 2 was 3.5, a regex matched nothing, arrays were NULL.)
+                // Inside a transaction begun in the Query tab, in that transaction whatever the
+                // schema: the engine puts it first on the transaction's search_path. The app's
+                // own client didn't see what the transaction wrote.
                 let schema = f.selectedDatabase ?? "public"
-                return schema == "public" ? .passthrough(alias: conn.alias, serverSQL: serverSQL)
+                return schema == "public" || f.inTransaction ? .passthrough(alias: conn.alias, serverSQL: serverSQL)
                     : .native(alias: conn.alias, serverSQL: serverSQL, database: schema)
             }
             guard (f.selectedDatabase ?? f.attachedDatabase) == f.attachedDatabase else { return nil }
@@ -136,6 +139,14 @@ enum QueryRoute: Equatable {
             guard let conn = target else { return .scanner(sql: sql, context: nil) }
             if conn.engine == .clickhouse { return .clickhouse(alias: conn.alias, sql: sql) }
             if let route = sqlite(conn) ?? native(conn) ?? passthrough(conn) ?? postgresWrite(conn) { return route }
+            // A setting inside a transaction begun in the Query tab, on PostgreSQL: SET LOCAL
+            // (SET CONSTRAINTS, SET TRANSACTION) ends with the transaction, so it runs in it;
+            // any other SET or RESET would outlast it on a connection DuckDB goes on to reuse.
+            // (Both ran in DuckDB, which took a timezone setting for its own.)
+            if conn.engine == .postgres, facts(conn.alias).inTransaction, QueryEffects.isSessionSetting(sql) {
+                guard QueryEffects.isTransactionScopedSetting(sql) else { return .refused(QueryEffects.transactionSettingRefusal) }
+                return .asTyped(alias: conn.alias, serverSQL: SQLBuilder.stripAliasPrefix(sql, alias: conn.alias))
+            }
             // A lone SET: on the server, where it means something, and saying it lasts for
             // its run only (DuckDB refused PostgreSQL's own settings).
             // Inside a transaction begun in the Query tab, it joins that (as typed): on a

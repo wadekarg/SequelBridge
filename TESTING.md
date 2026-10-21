@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 820 tests in 164 suites (about three minutes of tests after the build).
+at them, and runs all 821 tests in 164 suites (about three minutes of tests after the build).
 Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
 MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
@@ -105,7 +105,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-820 tests across 121 files.
+821 tests across 121 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -146,7 +146,7 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `MySQLRowWriteTests` | `SB_MYSQL_VERIFY` (`SB_MYSQL_BIG_DB` for the last) | those writes on the real servers, each type stored as meant, a row added with its key left to the server and deleted; an edit on a database of 3,275 tables (`sbbig`, MariaDB 10.0) done in under 2 s, where DuckDB took 16 |
 | `ExtensionCacheTests` | always | the scanner cache keeps one build per CPU, so an Apple Silicon Mac running the app natively and under Rosetta never loads the other CPU's build; a cached file from before is used only when its Mach-O header is this CPU's |
 | `ClickHouseContentTests` | `SB_CH_VERIFY` | ClickHouse's Content tab on the real server: pages sorted and paged, every filter operator on a number column with its value quoted, and a `%`, `_` or backslash matching as itself |
-| `QueryRouteTests` | always | which path a Query-tab statement takes (QueryRoute): refused on a read-only target only, Explain's path, USE and SET search_path (quoted, folded, not DEFAULT or a list), as typed, the app's own client, ClickHouse, the passthrough, SQLite itself, DuckDB's catalog; one server named among several; inside a Query-tab transaction nothing runs on a connection of its own (a `SET` joins it, a `CALL` is refused there); a script that leaves a transaction open isn't run on one that closes; MariaDB's `BEGIN NOT ATOMIC` opens no transaction; MySQL 8's `WITH … DELETE` runs as typed, a `WITH` whose strings or names say DELETE reads |
+| `QueryRouteTests` | always | which path a Query-tab statement takes (QueryRoute): refused on a read-only target only, Explain's path, USE and SET search_path (quoted, folded, not DEFAULT or a list), as typed, the app's own client, ClickHouse, the passthrough, SQLite itself, DuckDB's catalog; one server named among several; inside a Query-tab transaction nothing runs on a connection of its own (a `SET` joins it, a `CALL` is refused there, a PostgreSQL read in another schema joins it too, the schema first on the transaction's `search_path`); a script that leaves a transaction open isn't run on one that closes; MariaDB's `BEGIN NOT ATOMIC` opens no transaction; MySQL 8's `WITH … DELETE` runs as typed, a `WITH` whose strings or names say DELETE reads |
 | `DefaultContextTests` | always | DuckDB's one default database follows the connection a statement is for, after another connection's statement or a detach |
 | `ConnectionLifecycleTests` | always | a Connect that fails part-way leaves none of its connections attached; a server added in the workspace closes with the next Connect from Home; saving a SQLite connection writes nothing to the Keychain |
 | `AppUpdaterTests` | always | the updater (Sparkle): not started in a test run, a copy launched with files of its own (UI tests, screenshots) or a Debug build, unless `-SBUpdateFeed` names a feed; Info.plist's feed on GitHub Releases and its Ed25519 update key |

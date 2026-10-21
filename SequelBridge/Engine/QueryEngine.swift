@@ -786,14 +786,16 @@ final class QueryEngine {
     /// rows it changed: nil for a statement MySQL doesn't count (OPTIMIZE TABLE). The
     /// statement runs in a transaction of its own, which keeps one server connection for
     /// it and the ROW_COUNT() after it; inside a transaction begun in the Query tab it
-    /// runs in that one instead, and waits for its COMMIT or ROLLBACK.
-    func runAsTyped(alias: String, sql: String) async throws -> Int? {
+    /// runs in that one instead, and waits for its COMMIT or ROLLBACK. `schema` is the
+    /// PostgreSQL schema picked in the left panel, where a statement in that transaction runs.
+    func runAsTyped(alias: String, sql: String, schema: String? = nil) async throws -> Int? {
         // (A nested BEGIN can't probe for the Query tab's transaction: in DuckDB a failed
         // statement aborts the transaction it ran in.)
         try ensureWritable(alias)
         if engine(for: alias) == .postgres {
             // postgres_execute reports no row count, and a counting data-modifying CTE
             // can't go through postgres_query either: it wraps the query in COPY.
+            try await useSchemaInQueryTabTransaction(alias: alias, schema: schema)
             try await postgresExecute(alias: alias, sql: sql)
             return nil
         }
@@ -2090,6 +2092,7 @@ final class QueryEngine {
                 let wrapped = "SELECT * FROM sqlite_query(\(SQLBuilder.literal(alias)), \(SQLBuilder.literal(serverSQL)))"
                 return try await openStreamingQuery(wrapped, firstChunk: firstChunk, logSQL: serverSQL)
             }
+            try await useSchemaInQueryTabTransaction(alias: alias, schema: database)
             return try await openServerStreamingQuery(alias: alias, serverSQL: serverSQL, firstChunk: firstChunk)
         } catch {
             switch Self.readFallback(engine: engine(for: alias), error: error, sql: serverSQL,
@@ -2137,6 +2140,33 @@ final class QueryEngine {
         guard let schema, !schema.isEmpty, schema != "public" else { return [] }
         let first = SQLBuilder.literal(SQLBuilder.duckIdent(schema) + ", ")
         return ["SELECT set_config('search_path', \(first) || current_setting('search_path'), false)"]
+    }
+
+    /// Inside a transaction begun in the Query tab, the schema picked put first on the search
+    /// path of that transaction's connection (DuckDB's postgres_execute and postgres_query run
+    /// there), for the transaction only. Built from the session's own path each time, so a
+    /// pick later in the transaction takes over, and public goes back to the session's path.
+    /// Without it a write typed there went to the session's path: public, or nowhere.
+    nonisolated static func transactionSearchPath(_ schema: String?) -> String {
+        let own = "(SELECT reset_val FROM pg_settings WHERE name = 'search_path')"
+        guard let schema, !schema.isEmpty, schema != "public" else {
+            return "SELECT set_config('search_path', \(own), true)"
+        }
+        return "SELECT set_config('search_path', \(SQLBuilder.literal(SQLBuilder.duckIdent(schema) + ", ")) || \(own), true)"
+    }
+
+    /// Before a PostgreSQL statement in the Query tab's transaction: see transactionSearchPath.
+    private func useSchemaInQueryTabTransaction(alias: String, schema: String?) async throws {
+        guard queryTabTransaction, engine(for: alias) == .postgres else { return }
+        let setup = Self.transactionSearchPath(schema)
+        do {
+            try await userSerial.execute("CALL postgres_execute(\(SQLBuilder.literal(alias)), \(SQLBuilder.literal(setup)))")
+            logStatement(setup, nil, nil, 0, appsOwn: true)
+        } catch {
+            let reason = Self.extractReason(from: error)
+            logStatement(setup, nil, reason, 0, appsOwn: true)
+            throw SequelBridgeError.attachFailed(reason)
+        }
     }
 
     /// Runs `sql` in SQLite itself, in SQLite's own SQL (see SQLiteTool): its functions,

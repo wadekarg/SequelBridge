@@ -70,6 +70,18 @@ nonisolated enum QueryEffects {
     /// What a lone SET or RESET says it did.
     static let settingNote = "Done. A setting lasts for the run it is in: run it together with the statements it is for (SET …; SELECT …)."
 
+    /// On PostgreSQL, a setting that ends with the transaction it is made in: SET LOCAL,
+    /// SET CONSTRAINTS, SET TRANSACTION.
+    static func isTransactionScopedSetting(_ sql: String) -> Bool {
+        guard let statement = statements(sql).first else { return false }
+        return matches(transactionScopedSetting, statement)
+    }
+
+    /// Why any other SET or RESET isn't run inside a transaction begun in the Query tab on
+    /// PostgreSQL.
+    static let transactionSettingRefusal = "Inside a transaction begun in the Query tab, write SET LOCAL: it holds until "
+        + "COMMIT or ROLLBACK. A SET or RESET of its own would outlast the transaction, on a connection the app goes on to reuse."
+
     /// On MySQL, whether the Query tab runs `sql` on the server as typed, as Sequel Ace
     /// does: a statement that returns no rows. DuckDB refused MySQL's own syntax and
     /// changed what it accepted (a VARCHAR(40) column became TEXT). Reads already go to
@@ -77,7 +89,7 @@ nonisolated enum QueryEffects {
     /// whose transaction keeps one server connection for the statements in it.
     /// On PostgreSQL likewise (DuckDB dropped a VARCHAR's length and divided integers
     /// as floats), except SET and RESET: on the server they'd change the session of a
-    /// connection the app goes on to reuse, so they stay DuckDB's as before.
+    /// connection the app goes on to reuse, so QueryRoute gives them paths of their own.
     static func runsAsTyped(_ sql: String, engine: DatabaseEngine = .mysql) -> Bool {
         guard engine == .mysql || engine == .postgres, let statement = statements(sql).first else { return false }
         if (SQLBuilder.isRowReturning(statement) && !isDataModifyingWith(statement)) || soleUse(statement) != nil { return false }
@@ -243,6 +255,7 @@ nonisolated enum QueryEffects {
     private static let andChain = regex("\\bAND\\s+CHAIN\\b")
     private static let anonymousBlock = regex("^BEGIN\\s+NOT\\s+ATOMIC\\b")
     private static let sessionSetting = regex("^(?:SET|RESET)\\b")
+    private static let transactionScopedSetting = regex("^SET\\s+(?:LOCAL|CONSTRAINTS|TRANSACTION)\\b")
     private static let lockTables = regex("^(?:UN)?LOCK\\s+TABLES?\\b")
     private static let setSearchPath = regex(#"^SET\s+(?:SESSION\s+)?search_path\s*(?:TO|=)\s*('(?:''|[^'])*'|"(?:""|[^"])*"|[A-Za-z_][A-Za-z0-9_$]*)\s*$"#)
     private static let persistentSetting = regex("^SET\\s+(?:GLOBAL|PERSIST|PERSIST_ONLY|PASSWORD|DEFAULT\\s+ROLE)\\b|^SET\\s+@@(?:GLOBAL|PERSIST)")

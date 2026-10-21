@@ -69,6 +69,27 @@ struct QueryRouteTests {
                 == .native(alias: "crm", serverSQL: "WITH gone AS (DELETE FROM t RETURNING *) SELECT count(*) FROM gone", database: "public"))
         // Inside a transaction begun in the Query tab, in that transaction, so ROLLBACK undoes it.
         #expect(route("CREATE TABLE t (id int)", [pg], inTransaction: true) == .asTyped(alias: "crm", serverSQL: "CREATE TABLE t (id int)"))
+        // A read in another schema too: on the transaction's connection (the engine puts the
+        // schema first on its search_path), not the app's own client, which didn't see what
+        // the transaction wrote.
+        #expect(route("SELECT * FROM daily", [pg], picked: ["crm": "reporting"], inTransaction: true)
+                == .passthrough(alias: "crm", serverSQL: "SELECT * FROM daily"))
+        #expect(route("INSERT INTO daily VALUES (1)", [pg], picked: ["crm": "reporting"], inTransaction: true)
+                == .asTyped(alias: "crm", serverSQL: "INSERT INTO daily VALUES (1)"))
+        // A setting in that transaction: SET LOCAL, SET CONSTRAINTS and SET TRANSACTION end
+        // with it, so they run in it; any other SET or RESET would outlast it on a connection
+        // DuckDB reuses, and is refused, saying to write SET LOCAL. (It ran in DuckDB.)
+        #expect(route("SET LOCAL statement_timeout = '5s'", [pg], inTransaction: true)
+                == .asTyped(alias: "crm", serverSQL: "SET LOCAL statement_timeout = '5s'"))
+        #expect(route("SET CONSTRAINTS ALL DEFERRED", [pg], inTransaction: true)
+                == .asTyped(alias: "crm", serverSQL: "SET CONSTRAINTS ALL DEFERRED"))
+        for setting in ["SET statement_timeout = '5s'", "SET SESSION timezone TO 'UTC'", "RESET statement_timeout", "SET ROLE reporting"] {
+            guard case .refused(let why) = route(setting, [pg], inTransaction: true) else {
+                Issue.record("\(setting) wasn't refused in a transaction"); continue
+            }
+            #expect(why.contains("SET LOCAL"), "\(why)")
+        }
+        #expect(route("SET search_path TO x", [pg], inTransaction: true) == .use(alias: "crm", database: "x"))
         // SET search_path picks the schema, as the left panel does; another lone SET runs there.
         #expect(route("SET search_path TO x", [pg]) == .use(alias: "crm", database: "x"))
         #expect(route("SET statement_timeout = '5s'", [pg]) == .native(alias: "crm", serverSQL: "SET statement_timeout = '5s'", database: "public"))
@@ -189,5 +210,19 @@ struct QueryRouteTests {
                 == .passthrough(alias: "shop", serverSQL: #"WITH x AS (SELECT * FROM t WHERE action = "DELETE") SELECT * FROM x"#))
         #expect(route("SET GLOBAL max_connections = 200", [my]) == .asTyped(alias: "shop", serverSQL: "SET GLOBAL max_connections = 200"))
         #expect(route("SET PERSIST max_connections = 200", [my]) == .asTyped(alias: "shop", serverSQL: "SET PERSIST max_connections = 200"))
+    }
+
+    /// Before each PostgreSQL statement of a Query-tab transaction: the schema picked first on
+    /// that transaction's search_path, built from the session's own path each time, so a pick
+    /// later in the transaction takes over and public goes back to the session's path.
+    @Test("in a Query-tab transaction on PostgreSQL, the schema picked goes first on the transaction's search_path")
+    func transactionSearchPath() {
+        let own = "(SELECT reset_val FROM pg_settings WHERE name = 'search_path')"
+        #expect(QueryEngine.transactionSearchPath("reporting")
+                == "SELECT set_config('search_path', '\"reporting\", ' || \(own), true)")
+        #expect(QueryEngine.transactionSearchPath("public") == "SELECT set_config('search_path', \(own), true)")
+        #expect(QueryEngine.transactionSearchPath(nil) == "SELECT set_config('search_path', \(own), true)")
+        #expect(QueryEngine.transactionSearchPath(#"o'neil "x""#)
+                == "SELECT set_config('search_path', '\"o''neil \"\"x\"\"\", ' || \(own), true)")
     }
 }

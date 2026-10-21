@@ -772,7 +772,8 @@ struct QueryPanelView: View {
                     await manager.queryEngine.setDefaultContextAwaited(alias: ctx.alias, database: ctx.database)
                 }
                 if let typed = asTyped {
-                    let changed = try await manager.queryEngine.runAsTyped(alias: typed.alias, sql: typed.serverSQL)
+                    let changed = try await manager.queryEngine.runAsTyped(alias: typed.alias, sql: typed.serverSQL,
+                                                                           schema: catalogDatabase(for: typed.alias))
                     let result = changed.map { QueryResult(columns: ["Affected rows"], rows: [["\($0)"]], executionTime: 0) }
                         ?? QueryResult(columns: ["Result"], rows: [["Done"]], executionTime: 0)
                     setTab { $0.result = runClock.stamped(result); $0.isRunning = false }

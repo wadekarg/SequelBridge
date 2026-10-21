@@ -230,7 +230,8 @@ final class CorpusRun {
             picked = database
             return QueryResult(columns: ["Result"], rows: [["Database changed to \(database)"]], executionTime: 0)
         case .asTyped(let alias, let serverSQL):
-            let changed = try await engine.runAsTyped(alias: alias, sql: serverSQL)
+            let changed = try await engine.runAsTyped(alias: alias, sql: serverSQL,
+                                                      schema: QueryRoute.catalogDatabase(alias, connections: [conn], facts: facts))
             return changed.map { QueryResult(columns: ["Affected rows"], rows: [["\($0)"]], executionTime: 0) }
                 ?? QueryResult(columns: ["Result"], rows: [["Done"]], executionTime: 0)
         case .native(let alias, let serverSQL, let database):

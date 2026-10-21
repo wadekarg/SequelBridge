@@ -2,6 +2,20 @@
 
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+### Fixed
+- PostgreSQL, in a schema other than public picked in the left panel: inside a
+  transaction begun in the Query tab, a statement that changed data ran in public, not
+  in that schema, so it failed ("relation … does not exist") or changed public's table
+  of the same name; and a read ran on a connection of its own, so it didn't see what the
+  transaction had written. Both run in the transaction now, in the picked schema.
+- PostgreSQL: a SET typed inside a transaction begun in the Query tab ran in DuckDB, not
+  on the server: most failed ("unrecognized configuration parameter"), SET LOCAL was
+  "not implemented", and SET timezone changed DuckDB's own time zone. SET LOCAL now runs
+  in the transaction and ends with it; any other SET or RESET there is refused, saying to
+  write SET LOCAL, since it would outlast the transaction on a connection the app reuses.
+
 ## 1.2.2 — 2026-10-21
 
 ### Fixed
