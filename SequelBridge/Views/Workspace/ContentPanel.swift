@@ -11,6 +11,8 @@ struct ContentPanel: View {
     @EnvironmentObject private var appSettings: AppSettings
 
     @State private var rows:      [[String]] = []
+    /// Delete's question is open: rows go from the server only on its yes.
+    @State private var confirmingDelete = false
     @State private var nullMask:  [[Bool]]  = []
     @State private var columns:   [String]   = []
     @State private var columnTypes: [String]  = []
@@ -146,6 +148,16 @@ struct ContentPanel: View {
                 (try? await manager.queryEngine.fetchRelations(alias: conn.alias, database: db, table: table.name)) ?? [])
             await load()
         }
+        // As in Sequel Ace: rows are deleted on the server only after a yes. One click deleted them.
+        .confirmationDialog(selectedRowIndices.count == 1 ? "Delete this row?" : "Delete \(selectedRowIndices.count) rows?",
+                            isPresented: $confirmingDelete) {
+            Button(selectedRowIndices.count == 1 ? "Delete Row" : "Delete \(selectedRowIndices.count) Rows", role: .destructive) {
+                Task { await deleteSelectedRows() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("\(selectedRowIndices.count == 1 ? "It is" : "They are") deleted from “\(table.name)” on the server. This can't be undone.")
+        }
         .sheet(item: $rowSheet) { request in
             InsertRowSheet(
                 title: request.title,
@@ -227,7 +239,7 @@ struct ContentPanel: View {
 
             // Delete selected rows
             Button {
-                Task { await deleteSelectedRows() }
+                confirmingDelete = true
             } label: {
                 Image(systemName: "minus").modifier(RowButtonIcon())
             }

@@ -48,7 +48,12 @@ final class SSHHostKeyUITests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        app?.terminate()
+        // Quit as a person does, so the app ends its ssh tunnels; terminate() kills it and
+        // leaves them running.
+        if let app, app.state != .notRunning {
+            app.typeKey("q", modifierFlags: .command)
+            if !app.wait(for: .notRunning, timeout: 15) { app.terminate() }
+        }
         if let dir { try? FileManager.default.removeItem(at: dir) }
     }
 

@@ -8,6 +8,8 @@ struct WorkspaceSidebarView: View {
     @ObservedObject var session: WorkspaceSession
     @State private var showAddSheet = false          // pick from existing favorites
     @State private var showNewConnectionSheet = false // create brand-new connection
+    /// The saved connections when New Connection… opened: closing it opens only one it added.
+    @State private var savedBeforeNewConnection: Set<UUID> = []
     @State private var tableInfo: [(key: String, value: String)] = []
     @State private var tableInfoLoading = false
     @State private var tableInfoForId: String? = nil
@@ -73,7 +75,8 @@ struct WorkspaceSidebarView: View {
         // Create a brand-new connection
         .sheet(isPresented: $showNewConnectionSheet) {
             AddConnectionSheet(isPresented: $showNewConnectionSheet)
-                .onDisappear { Task { await attachNewConnections() } }
+                .onAppear { savedBeforeNewConnection = Set(manager.saved.map(\.id)) }
+                .onDisappear { Task { await attachNewConnections(savedBefore: savedBeforeNewConnection) } }
         }
         // Create new table
         .sheet(isPresented: $showCreateTable) {
@@ -798,16 +801,12 @@ struct WorkspaceSidebarView: View {
         } catch {}
     }
 
-    private func attachNewConnections() async {
-        // Only called after creating a brand-new connection — connects any newly saved one
-        for conn in manager.saved {
-            guard !session.connections.contains(where: { $0.id == conn.id }),
-                  let password = manager.password(for: conn) else { continue }
-            do {
-                try await manager.queryEngine.attach(conn, password: password)
-                session.connections.append(conn)
-                await loadDatabases(for: conn)
-            } catch {}
+    /// After New Connection… closes: opens the connection it saved, if it saved one. It
+    /// opened every saved favorite not yet open, Cancel included.
+    private func attachNewConnections(savedBefore: Set<UUID>) async {
+        manager.reloadSaved()
+        for conn in manager.saved where !savedBefore.contains(conn.id) {
+            await connectOne(conn)
         }
     }
 

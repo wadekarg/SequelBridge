@@ -22,6 +22,8 @@ struct TriggersPanel: View {
     @State private var expanded: Set<UUID> = []
     @State private var selectedId: UUID? = nil
     @State private var showCreateSheet = false
+    /// The trigger Drop asks about: dropped only on its yes.
+    @State private var dropping: TriggerInfo?
     @State private var actionError: String? = nil
 
     var body: some View {
@@ -31,19 +33,18 @@ struct TriggersPanel: View {
                 panelHeader(icon: "bolt", title: table.name, subtitle: "Triggers", tint: conn.displayColor)
                 Spacer()
                 Button {
-                    if let id = selectedId,
-                       let t = triggers.first(where: { $0.id == id }) {
-                        Task { await dropTrigger(t) }
-                    }
+                    if let id = selectedId { dropping = triggers.first(where: { $0.id == id }) }
                 } label: { Image(systemName: "minus").frame(width: 20, height: 20) }
                 .buttonStyle(.bordered).controlSize(.mini)
                 .disabled(selectedId == nil || !TriggerEditing.canDrop(on: conn.engine))
                 .help(TriggerEditing.canDrop(on: conn.engine) ? "Drop trigger" : (TriggerEditing.reason(conn.engine) ?? ""))
+                .accessibilityIdentifier("triggers.drop")
                 Button { showCreateSheet = true } label: {
                     Image(systemName: "plus").frame(width: 20, height: 20)
                 }
                 .buttonStyle(.borderedProminent).controlSize(.mini)
                 .disabled(!TriggerEditing.canCreate(on: conn.engine))
+                .accessibilityIdentifier("triggers.add")
                 .help(TriggerEditing.canCreate(on: conn.engine) ? "Create trigger" : (TriggerEditing.reason(conn.engine) ?? ""))
             }
             .padding(.trailing, 12)
@@ -77,6 +78,14 @@ struct TriggersPanel: View {
             }
         }
         .task(id: table.id) { await loadTriggers() }
+        // A schema change on the server: only after a yes (one click dropped the trigger).
+        .confirmationDialog("Drop this trigger?", isPresented: Binding(get: { dropping != nil }, set: { if !$0 { dropping = nil } }),
+                            presenting: dropping) { t in
+            Button("Drop “\(t.name)”", role: .destructive) { Task { await dropTrigger(t) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { t in
+            Text("“\(t.name)” (\(t.timing) \(t.event)) is dropped from “\(table.name)” on the server.")
+        }
         .sheet(isPresented: $showCreateSheet) {
             CreateTriggerSheet(engine: conn.engine, tableName: table.name,
                                database: session.selectedDatabase[conn.alias] ?? conn.database) { sql in

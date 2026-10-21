@@ -111,7 +111,7 @@ struct SSHLoginTests {
         #expect(askpass.cancelled)
     }
 
-    @MainActor @Test("the login dialog has a field wide enough to type in, and typing goes there: a password, a passphrase, a one-time code")
+    @MainActor @Test("the login dialog has a field wide enough to type in: a password, a passphrase, a one-time code (SSHLoginUITests types into it)")
     func dialogFieldIsUsable() {
         for kind in [SSHLogin.Kind.password, .passphrase, .code] {
             let request = SSHLoginRequest(prompt: "Enter PASSCODE:", kind: kind, timesAsked: 1,
@@ -120,7 +120,6 @@ struct SSHLoginTests {
             dialog.alert.layout()
             #expect(dialog.field.frame.width >= 200, "\(kind): the field is \(dialog.field.frame.width) points wide")
             #expect(dialog.field.frame.height >= 20, "\(kind): the field is \(dialog.field.frame.height) points high")
-            #expect(dialog.alert.window.initialFirstResponder === dialog.field, "\(kind): typing doesn't go to the field")
         }
     }
 

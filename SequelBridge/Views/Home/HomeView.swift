@@ -12,6 +12,8 @@ struct HomeView: View {
     @EnvironmentObject private var manager: ConnectionManager
     @State private var selectedIds: Set<UUID> = []
     @State private var editingConnection: Connection?   // non-nil → edit sheet
+    /// The favorite Remove from Favorites asks about.
+    @State private var removing: Connection?
     @State private var showNewConnectionSheet = false   // "New Connection" sheet
     @State private var showWorkspace = false
     @State private var connectError: String?
@@ -40,6 +42,17 @@ struct HomeView: View {
                 WorkspaceView()
                     .environmentObject(manager)
             }
+        }
+        // Removing a favorite deletes its saved password too: only after a yes.
+        .confirmationDialog("Remove this favorite?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                            presenting: removing) { conn in
+            Button("Remove “\(conn.name)”", role: .destructive) {
+                try? manager.deleteSaved(id: conn.id)
+                selectedIds.remove(conn.id)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Its saved password is removed from the Keychain too.")
         }
         // Edit sheet — .sheet(item:) guarantees a fresh view instance per connection,
         // so the pre-filled init always runs with the correct data.
@@ -218,10 +231,7 @@ struct HomeView: View {
                 Task { await connect() }
             }
             Divider()
-            Button("Remove from Favorites", role: .destructive) {
-                try? manager.deleteSaved(id: conn.id)
-                selectedIds.remove(conn.id)
-            }
+            Button("Remove from Favorites…", role: .destructive) { removing = conn }
         }
     }
 

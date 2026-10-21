@@ -11,6 +11,8 @@ struct SettingsView: View {
     @EnvironmentObject private var appSettings: AppSettings
     @EnvironmentObject private var manager: ConnectionManager
     @State private var editingConnection: Connection?
+    /// The favorite Delete asks about.
+    @State private var removing: Connection?
 
     var body: some View {
         TabView {
@@ -58,16 +60,23 @@ struct SettingsView: View {
                     Circle().fill(conn.displayColor).frame(width: 10, height: 10)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(conn.name).font(.body)
-                        Text("\(conn.host):\(conn.port)").font(.caption).foregroundColor(.secondary)
+                        Text(conn.displayHost).font(.caption).foregroundColor(.secondary)
                     }
                     Spacer()
                     Button("Edit") { editingConnection = conn }
                         .controlSize(.small)
-                    Button("Delete") { try? manager.deleteSaved(id: conn.id) }
+                    Button("Delete") { removing = conn }
                         .controlSize(.small)
                         .foregroundColor(.red)
                 }
             }
+        }
+        .confirmationDialog("Delete this favorite?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                            presenting: removing) { conn in
+            Button("Delete “\(conn.name)”", role: .destructive) { try? manager.deleteSaved(id: conn.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Its saved password is removed from the Keychain too.")
         }
         .sheet(item: $editingConnection) { conn in
             AddConnectionSheet(isPresented: Binding(

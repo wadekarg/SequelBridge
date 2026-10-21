@@ -18,6 +18,8 @@ struct RelationsPanel: View {
     @ObservedObject var session: WorkspaceSession
     @EnvironmentObject private var manager: ConnectionManager
     @State private var relations: [RelationInfo] = []
+    /// The foreign key Drop asks about: dropped only on its yes.
+    @State private var dropping: RelationInfo?
     @State private var isLoading = true
     @State private var selectedId: UUID? = nil
     @State private var showAddSheet = false
@@ -38,14 +40,14 @@ struct RelationsPanel: View {
                 }
                 .buttonStyle(.bordered).controlSize(.mini)
                 .help("Add foreign key")
+                .accessibilityIdentifier("relations.add")
 
                 Button {
-                    if let id = selectedId, let rel = relations.first(where: { $0.id == id }) {
-                        Task { await dropFK(rel) }
-                    }
+                    if let id = selectedId { dropping = relations.first(where: { $0.id == id }) }
                 } label: { Image(systemName: "minus").frame(width: 20, height: 20) }
                 .buttonStyle(.bordered).controlSize(.mini).disabled(selectedId == nil)
                 .help("Drop selected foreign key")
+                .accessibilityIdentifier("relations.drop")
             }
             .padding(.trailing, 12)
             Divider()
@@ -81,6 +83,14 @@ struct RelationsPanel: View {
             }
         }
         .task(id: table.id) { await loadRelations() }
+        // A schema change on the server: only after a yes (one click dropped the key).
+        .confirmationDialog("Drop this foreign key?", isPresented: Binding(get: { dropping != nil }, set: { if !$0 { dropping = nil } }),
+                            presenting: dropping) { rel in
+            Button("Drop “\(rel.name)”", role: .destructive) { Task { await dropFK(rel) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { rel in
+            Text("“\(rel.name)” (\(rel.column) → \(rel.referencedTable).\(rel.referencedColumn)) is dropped from “\(table.name)” on the server.")
+        }
         .sheet(isPresented: $showAddSheet) {
             let localColumns = session.sidebarTrees[conn.alias]?
                 .first(where: { $0.id == table.id })?.columns.map(\.name) ?? []

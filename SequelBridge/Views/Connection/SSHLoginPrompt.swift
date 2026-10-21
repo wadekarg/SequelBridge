@@ -33,6 +33,9 @@ enum SSHLoginPrompt {
         }
 
         let dialog = loginAlert(request, saved: saved)
+        // The alert keeps the focus for itself when it runs, initialFirstResponder or not:
+        // put the cursor in the field once it is on screen, so typing goes straight in.
+        RunLoop.main.perform(inModes: [.modalPanel, .default]) { dialog.field.window?.makeFirstResponder(dialog.field) }
         guard dialog.alert.runModal() == .alertFirstButtonReturn else { return nil }
         let value = dialog.field.stringValue
         if let kind, let remember = dialog.remember {

@@ -1,0 +1,238 @@
+//
+//  MySQLActionsUITests.swift
+//  SequelBridgeUITests
+//
+//  What changes or removes data and schema, clicked through on MariaDB: deleting rows,
+//  truncating and dropping a table, dropping a foreign key and a trigger (each asks
+//  first, and Cancel leaves everything), adding a row, and stopping a long query. They
+//  ran on one click before. MySQLActionsOverSSHUITests runs every one of them again
+//  through an SSH tunnel. With no SB_UI_MYSQL_PORT the suite is skipped.
+//
+
+import XCTest
+
+class MySQLActionsUITests: XCTestCase {
+    var app: XCUIApplication!
+    private var dir: URL!
+    let alias = "my"
+
+    var env: [String: String] { ProcessInfo.processInfo.environment }
+
+    /// The connection to make: TCP/IP here; a subclass goes through SSH.
+    func connectionEntry(port: Int) throws -> [String: Any] {
+        [
+            "id": "5B0A0000-0000-4000-8000-000000000601", "name": "MariaDB", "alias": alias,
+            "connectionType": "TCP/IP", "color": "#3A9AA8",
+            "host": env["SB_UI_MYSQL_HOST"] ?? "127.0.0.1", "port": port,
+            "username": env["SB_UI_MYSQL_USER"] ?? "sbui", "password": env["SB_UI_MYSQL_PASS"] ?? "",
+            "database": "sbtest", "engine": "mysql", "folder": "", "readOnly": false,
+        ]
+    }
+
+    /// Extra launch arguments (a subclass gives SSH a known-hosts file of its own).
+    func launchArguments(in dir: URL) throws -> [String] { [] }
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+        guard let port = env["SB_UI_MYSQL_PORT"] else { throw XCTSkip("no MariaDB for the UI tests (SB_UI_MYSQL_PORT)") }
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-ui-act-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let fixture = dir.appendingPathComponent("connections.json")
+        try JSONSerialization.data(withJSONObject: [try connectionEntry(port: Int(port) ?? 3306)]).write(to: fixture)
+        let support = dir.appendingPathComponent("support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+
+        app = XCUIApplication()
+        app.launchArguments = ["-SBConnectionsFile", fixture.path, "-SBSupportDir", support.path,
+                               "-ApplePersistenceIgnoreState", "YES", "-theme", "Light"] + (try launchArguments(in: dir))
+        app.launch()
+        XCTAssertTrue(app.buttons["home.select.\(alias)"].waitForExistence(timeout: 30), "Home didn't show the connection")
+        app.buttons["home.select.\(alias)"].click()
+        app.buttons["home.connect"].click()
+        // Through SSH, a server met for the first time is trusted (SSHHostKeyUITests covers that question).
+        dialogButton("Trust and Connect", timeout: 8)?.click()
+        XCTAssertTrue(app.buttons["query.newTab"].waitForExistence(timeout: 180), "the workspace didn't open")
+        XCTAssertTrue(table("orders").waitForExistence(timeout: 60), "sbtest's tables weren't listed")
+    }
+
+    override func tearDownWithError() throws {
+        // Quit as a person does: the app ends its ssh tunnels (terminate() leaves them).
+        if let app, app.state != .notRunning {
+            app.typeKey("q", modifierFlags: .command)
+            if !app.wait(for: .notRunning, timeout: 15) { app.terminate() }
+        }
+        if let dir { try? FileManager.default.removeItem(at: dir) }
+    }
+
+    // MARK: - Helpers
+
+    func element(_ identifier: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    func table(_ name: String) -> XCUIElement { element("sidebar.table.\(name)") }
+
+    func text(containing s: String) -> XCUIElement {
+        app.staticTexts.containing(NSPredicate(format: "value CONTAINS %@", s)).firstMatch
+    }
+
+    /// Replaces the editor's text with `sql` and runs it, on the Query tab.
+    func run(_ sql: String) {
+        app.typeKey("6", modifierFlags: .command)
+        let editor = element("query.editor")
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "no SQL editor")
+        editor.click()
+        editor.typeKey("a", modifierFlags: .command)
+        editor.typeText(sql)
+        app.buttons["query.run"].click()
+    }
+
+    /// Runs `sql` and waits for its one value, "label=value".
+    func expectValue(_ sql: String, _ shown: String, _ why: String) {
+        run(sql)
+        XCTAssertTrue(text(containing: shown).waitForExistence(timeout: 30), why)
+    }
+
+    func pick(database: String) {
+        let picker = element("sidebar.database")
+        XCTAssertTrue(picker.waitForExistence(timeout: 10), "no database picker")
+        picker.click()
+        app.menuItems[database].click()
+    }
+
+    /// A button of the question on screen (a sheet over the window), not the Touch Bar's copy.
+    func dialogButton(_ title: String, timeout: TimeInterval = 10) -> XCUIElement? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            for b in [app.sheets.buttons[title], app.dialogs.buttons[title], app.windows.buttons[title]] where b.exists { return b }
+            Thread.sleep(forTimeInterval: 0.3)
+        } while Date() < deadline
+        return nil
+    }
+
+    func waitForGone(_ e: XCUIElement, timeout: TimeInterval = 15) -> Bool {
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: e)
+        return XCTWaiter.wait(for: [gone], timeout: timeout) == .completed
+    }
+
+    // MARK: - Flows
+
+    func testDeletingRowsAsksFirstAndCancelKeepsThem() throws {
+        pick(database: "sbwrite")
+        run("DROP TABLE IF EXISTS ui_del; CREATE TABLE ui_del (id INT PRIMARY KEY, note VARCHAR(20)); INSERT INTO ui_del VALUES (1, 'keep'), (2, 'gone')")
+        XCTAssertTrue(table("ui_del").waitForExistence(timeout: 30), "the new table didn't appear in the left panel")
+        table("ui_del").click()
+        app.typeKey("2", modifierFlags: .command)
+        let gone = element("results.grid").staticTexts["gone"]
+        XCTAssertTrue(gone.waitForExistence(timeout: 30), "the Content tab didn't show the rows")
+        gone.click()
+        element("content.deleteRows").click()
+        try XCTUnwrap(dialogButton("Cancel"), "deleting a row didn't ask first").click()
+        XCTAssertTrue(gone.exists, "Cancel deleted the row")
+        element("content.deleteRows").click()
+        try XCTUnwrap(dialogButton("Delete Row"), "no Delete Row in the question").click()
+        XCTAssertTrue(waitForGone(gone), "the deleted row stayed on screen")
+        expectValue("SELECT CONCAT('left=', COUNT(*), ':', MIN(note)) AS v FROM ui_del", "left=1:keep", "the wrong rows were deleted")
+        run("DROP TABLE ui_del")
+    }
+
+    func testAddRowInContent() throws {
+        pick(database: "sbwrite")
+        run("DROP TABLE IF EXISTS ui_add; CREATE TABLE ui_add (id INT PRIMARY KEY, note VARCHAR(20))")
+        XCTAssertTrue(table("ui_add").waitForExistence(timeout: 30))
+        table("ui_add").click()
+        app.typeKey("2", modifierFlags: .command)
+        element("content.addRow").click()
+        let id = element("rowSheet.field.id"), note = element("rowSheet.field.note")
+        XCTAssertTrue(id.waitForExistence(timeout: 10), "Add Row didn't open the row sheet")
+        id.click(); id.typeText("7")
+        note.click(); note.typeText("added")
+        element("rowSheet.insert").click()
+        XCTAssertTrue(element("results.grid").staticTexts["added"].waitForExistence(timeout: 30), "the new row isn't shown")
+        expectValue("SELECT CONCAT('row=', id, ':', note) AS v FROM ui_add", "row=7:added", "the row wasn't added")
+        run("DROP TABLE ui_add")
+    }
+
+    func testTruncateAndDropTableAskFirst() throws {
+        pick(database: "sbwrite")
+        run("DROP TABLE IF EXISTS ui_drop; CREATE TABLE ui_drop (id INT PRIMARY KEY); INSERT INTO ui_drop VALUES (1), (2)")
+        XCTAssertTrue(table("ui_drop").waitForExistence(timeout: 30))
+        table("ui_drop").rightClick()
+        app.menuItems["Truncate Table…"].click()
+        try XCTUnwrap(dialogButton("Cancel"), "Truncate didn't ask first").click()
+        expectValue("SELECT CONCAT('kept=', COUNT(*)) AS v FROM ui_drop", "kept=2", "Cancel emptied the table")
+        table("ui_drop").rightClick()
+        app.menuItems["Truncate Table…"].click()
+        try XCTUnwrap(dialogButton("Truncate “ui_drop”"), "no Truncate in the question").click()
+        expectValue("SELECT CONCAT('now=', COUNT(*)) AS v FROM ui_drop", "now=0", "Truncate left rows")
+        table("ui_drop").rightClick()
+        app.menuItems["Drop Table…"].click()
+        try XCTUnwrap(dialogButton("Drop “ui_drop”"), "Drop didn't ask first").click()
+        XCTAssertTrue(waitForGone(table("ui_drop")), "the dropped table stayed in the left panel")
+    }
+
+    func testDroppingAForeignKeyAndATriggerAskFirst() throws {
+        pick(database: "sbwrite")
+        run("""
+            DROP TABLE IF EXISTS ui_child, ui_parent; CREATE TABLE ui_parent (id INT PRIMARY KEY) ENGINE=InnoDB;
+            CREATE TABLE ui_child (id INT PRIMARY KEY, pid INT, CONSTRAINT ui_fk FOREIGN KEY (pid) REFERENCES ui_parent(id)) ENGINE=InnoDB;
+            CREATE TRIGGER ui_trg BEFORE INSERT ON ui_child FOR EACH ROW SET NEW.pid = NEW.pid
+            """)
+        XCTAssertTrue(table("ui_child").waitForExistence(timeout: 30))
+        table("ui_child").click()
+
+        app.typeKey("3", modifierFlags: .command)                      // Relations
+        let fk = app.staticTexts["ui_fk"]
+        XCTAssertTrue(fk.waitForExistence(timeout: 30), "Relations didn't list the foreign key")
+        fk.click()
+        element("relations.drop").click()
+        try XCTUnwrap(dialogButton("Cancel"), "dropping a foreign key didn't ask first").click()
+        XCTAssertTrue(fk.exists, "Cancel dropped the foreign key")
+        element("relations.drop").click()
+        try XCTUnwrap(dialogButton("Drop “ui_fk”"), "no Drop in the question").click()
+        XCTAssertTrue(waitForGone(fk, timeout: 30), "the dropped foreign key is still listed")
+
+        app.typeKey("4", modifierFlags: .command)                      // Triggers
+        let trigger = app.staticTexts["ui_trg"]
+        XCTAssertTrue(trigger.waitForExistence(timeout: 30), "Triggers didn't list the trigger")
+        trigger.click()
+        element("triggers.drop").click()
+        try XCTUnwrap(dialogButton("Drop “ui_trg”"), "dropping a trigger didn't ask first").click()
+        XCTAssertTrue(waitForGone(trigger, timeout: 30), "the dropped trigger is still listed")
+        run("DROP TABLE ui_child, ui_parent")
+    }
+
+    func testCancelStopsALongQuery() {
+        run("SELECT SLEEP(30)")
+        let cancel = element("query.cancel")
+        XCTAssertTrue(cancel.waitForExistence(timeout: 10), "a running query offers no Cancel")
+        let started = Date()
+        cancel.click()
+        XCTAssertTrue(app.buttons["query.run"].waitForExistence(timeout: 15), "the query didn't stop")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 15, "Cancel took as long as the query")
+    }
+}
+
+/// The same flows through an SSH tunnel to the same MariaDB (the test SSH server sees it at
+/// host.docker.internal). Needs SB_UI_SSH_KEY.
+final class MySQLActionsOverSSHUITests: MySQLActionsUITests {
+    override func connectionEntry(port: Int) throws -> [String: Any] {
+        guard let key = env["SB_UI_SSH_KEY"] else { throw XCTSkip("no SSH server for the UI tests (SB_UI_SSH_KEY)") }
+        var entry = try super.connectionEntry(port: Int(env["SB_UI_SSH_DB_PORT"] ?? "") ?? port)
+        entry["id"] = "5B0A0000-0000-4000-8000-000000000602"
+        entry["connectionType"] = "SSH"
+        entry["host"] = env["SB_UI_SSH_DB_HOST"] ?? "host.docker.internal"
+        entry["sshHost"] = "127.0.0.1"
+        entry["sshPort"] = Int(env["SB_UI_SSH_PORT"] ?? "") ?? 2224
+        entry["sshUsername"] = "tunneluser"
+        entry["sshKeyPath"] = key
+        return entry
+    }
+
+    /// A known-hosts file of its own, never the Mac's.
+    override func launchArguments(in dir: URL) throws -> [String] {
+        let file = dir.appendingPathComponent("known_hosts")
+        try "".write(to: file, atomically: true, encoding: .utf8)
+        return ["-SBKnownHostsFile", file.path]
+    }
+}
