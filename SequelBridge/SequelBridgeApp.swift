@@ -23,6 +23,7 @@ struct SequelBridgeApp: App {
         // What ssh asks while it logs in (a password, a key's passphrase, a one-time code)
         // is asked in a dialog. Tests set their own answerer.
         SSHTunnel.prompter = { await SSHLoginPrompt.answer($0) }
+        SSHTunnel.knownHostsFile = SSHTunnel.knownHostsFile(from: CommandLine.arguments)
     }
 
     var body: some Scene {

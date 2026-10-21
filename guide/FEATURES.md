@@ -57,7 +57,10 @@ set, with the keys in your ssh-agent and `~/.ssh`, as ssh does in Terminal. It c
 when you disconnect or quit the app. When the SSH server asks for something (a password, the
 key's passphrase, or a one-time code from an RSA token or an authenticator app), a
 dialog shows its question; **Remember in Keychain** saves a password or passphrase,
-never a one-time code. **Test Connection** on the form tries the connection,
+never a one-time code. A server met for the first time shows its key's fingerprint and
+asks to be trusted. If a server's key has changed, the connection stops before anything
+is sent and says so; **Forget the Old Key and Connect…** removes the old key once you
+have confirmed the new one. **Test Connection** on the form tries the connection,
 tunnel included, before saving. Passwords go into your Keychain, never into the
 connection file. A failed connection says why, in the server's words: a wrong
 password, an unknown host, SSL required but not offered.

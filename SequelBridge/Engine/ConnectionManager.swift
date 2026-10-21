@@ -21,6 +21,9 @@ class ConnectionManager: ObservableObject {
     var saved: [Connection] = []      { willSet { objectWillChange.send() } }
     var active: [Connection] = []     { willSet { objectWillChange.send() } }
     var connectionError: String?      { willSet { objectWillChange.send() } }
+    /// The changed SSH server key the last Test Connection stopped at, for "Forget the Old
+    /// Key…"; nil once that is done or another test starts. (Connect throws it.)
+    var hostKeyChange: SSHHostKeyChange? { willSet { objectWillChange.send() } }
 
     private let store: ConnectionStore
     /// True when launched with `-SBConnectionsFile`: the list comes from a read-only
@@ -191,6 +194,7 @@ class ConnectionManager: ObservableObject {
 
     /// Returns nil on success, or an error message string on failure.
     func testConnection(_ conn: Connection, password: String) async -> String? {
+        hostKeyChange = nil
         let tempAlias = "__test_\(conn.alias)"
         var testConn = conn
         testConn.alias = tempAlias
@@ -200,10 +204,20 @@ class ConnectionManager: ObservableObject {
             return nil   // success
         } catch {
             try? await queryEngine.detach(tempAlias)
+            hostKeyChange = error as? SSHHostKeyChange
             let msg = error.localizedDescription
             Log.connections.error("testConnection failed: \(msg, privacy: .public)")
             return msg
         }
+    }
+}
+
+extension ConnectionManager {
+    /// Forgets the changed server's old key and trusts the new one the user confirmed, so
+    /// the next connect or test goes through without asking again (SSHTunnel.forget).
+    func forgetHostKey(_ change: SSHHostKeyChange) throws {
+        try SSHTunnel.forget(change)
+        hostKeyChange = nil
     }
 }
 

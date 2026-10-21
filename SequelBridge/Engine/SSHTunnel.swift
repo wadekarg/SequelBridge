@@ -17,6 +17,39 @@ final class SSHTunnel {
     /// and a login that needs an answer fails.
     static var prompter: ((SSHLoginRequest) async -> String?)?
 
+    /// Where ssh remembers servers' keys: nil for ssh's own ~/.ssh/known_hosts, shared with
+    /// Terminal. A test or UI test passes a throwaway file (-SBKnownHostsFile).
+    static var knownHostsFile: String?
+
+    /// The -SBKnownHostsFile path among the launch arguments, if there is one.
+    static func knownHostsFile(from arguments: [String]) -> String? {
+        guard let i = arguments.firstIndex(of: "-SBKnownHostsFile"), i + 1 < arguments.count else { return nil }
+        return arguments[i + 1]
+    }
+
+    /// Host → the fingerprint of the new key the user confirmed when forgetting the old
+    /// one: the next login trusts that key, and only that key, without asking again.
+    static var trusted: [String: String] = [:]
+
+    /// Forgets the key remembered for `change`'s server (`ssh-keygen -R`, which keeps the
+    /// file as it was beside it, ending .old) and trusts the key the server sent now, which
+    /// the user confirmed, for the next login.
+    static func forget(_ change: SSHHostKeyChange) throws {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/ssh-keygen")
+        p.arguments = ["-R", change.key.host, "-f", change.knownHostsFile]
+        let errors = Pipe()
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = errors
+        try p.run()
+        let text = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else {
+            throw SequelBridgeError.attachFailed("Couldn't forget the old key: \(text.trimmingCharacters(in: .whitespacesAndNewlines))")
+        }
+        trusted[change.key.host] = change.key.fingerprint
+    }
+
     /// Every tunnel whose ssh is running. A child process outlives its parent on macOS,
     /// so without this an ssh left open at quit kept its SSH session and local port
     /// alive, reparented to launchd, until the server went away.
@@ -56,12 +89,20 @@ final class SSHTunnel {
             askpass = try await SSHAskpass { prompt in
                 guard !counts.cancelled else { return nil }
                 let kind = SSHLogin.kind(of: prompt)
+                // The new key the user confirmed when forgetting the old one: trusted unasked.
+                if kind == .hostKey, let key = SSHHostKey(newServerPrompt: prompt), Self.trusted[key.host] == key.fingerprint {
+                    return "yes"
+                }
                 let request = SSHLoginRequest(prompt: prompt, kind: kind, timesAsked: counts.next(kind),
                                               user: conn.sshUsername, host: conn.sshHost, connectionID: conn.id)
                 let reply = await prompter(request)
                 // Cancel on a password or a code: ssh would ask again, up to three times, so
                 // the login ends. On a key's passphrase, ssh moves on to the next way in.
-                if reply == nil, SSHLogin.cancelEndsLogin(kind) { counts.cancelled = true; p.terminate() }
+                if reply == nil, SSHLogin.cancelEndsLogin(kind) {
+                    counts.cancelled = true
+                    counts.untrusted = kind == .hostKey
+                    p.terminate()
+                }
                 return reply
             }
         }
@@ -96,8 +137,12 @@ final class SSHTunnel {
             if !p.isRunning {
                 Self.running.removeValue(forKey: ObjectIdentifier(self))
                 endLogin()
-                if counts.cancelled { throw SequelBridgeError.attachFailed("SSH login cancelled.") }
                 let msg = stderrPipe.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let change = SSHHostKeyChange(sshOutput: msg) { throw change }
+                if counts.untrusted {
+                    throw SequelBridgeError.attachFailed("The SSH server's key wasn't trusted, so SequelBridge didn't connect.")
+                }
+                if counts.cancelled { throw SequelBridgeError.attachFailed("SSH login cancelled.") }
                 throw SequelBridgeError.attachFailed(
                     "SSH process exited unexpectedly.\(msg.isEmpty ? "" : " \(msg)")\n\nCheck: SSH host, username, key path and password.")
             }
@@ -124,7 +169,9 @@ final class SSHTunnel {
             "-N",                                               // no remote command
             "-L", "\(localPort):\(conn.host):\(conn.port)",   // forward local→remote database
             "-p", "\(conn.sshPort)",                           // SSH server port
-            "-o", "StrictHostKeyChecking=accept-new",          // auto-accept new host keys
+            // A server not met before: the app asks whether to trust its key, as ssh does in
+            // Terminal; with nothing to answer (a script, a test), it's trusted as before.
+            "-o", "StrictHostKeyChecking=\(interactive ? "ask" : "accept-new")",
             "-o", "ExitOnForwardFailure=yes",                  // die if tunnel can't bind
             "-o", "ServerAliveInterval=30",                    // keepalive
             "-o", "ConnectTimeout=10",                         // SSH connect timeout
@@ -134,6 +181,7 @@ final class SSHTunnel {
         // With nothing to answer them, ssh must not wait on questions (a password, a
         // key's passphrase, a one-time code); with SSHAskpass, the app answers.
         if !interactive { args += ["-o", "BatchMode=yes"] }
+        if let file = knownHostsFile { args += ["-o", "UserKnownHostsFile=\(file)"] }
         if let keyPath {
             // IdentitiesOnly=yes: use ONLY this key, never the agent or defaults,
             // so the connection depends on exactly the key the user chose.
@@ -214,6 +262,7 @@ final class SSHTunnel {
 /// How often each kind of question was asked in one login, and whether it was cancelled.
 private final class AskCounts {
     var cancelled = false
+    var untrusted = false          // the cancelled question was whether to trust a new server
     private var counts: [SSHLogin.Kind: Int] = [:]
     func next(_ kind: SSHLogin.Kind) -> Int {
         defer { counts[kind, default: 0] += 1 }

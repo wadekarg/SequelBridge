@@ -226,6 +226,11 @@ struct AddConnectionSheet: View {
                         Text(err).font(.caption).foregroundColor(.red)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    if testStatus == .failure, let change = manager.hostKeyChange {
+                        Button("Forget the Old Key and Test Again…") { Task { await forgetAndTest(change) } }
+                            .controlSize(.small)
+                            .accessibilityIdentifier("connection.forgetHostKey")
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
@@ -351,7 +356,10 @@ struct AddConnectionSheet: View {
         }
         HStack {
             Image(systemName: "info.circle").foregroundColor(.secondary)
-            Text("Key-based auth only. Leave SSH Key blank to use ~/.ssh/id_rsa.").font(.caption).foregroundColor(.secondary)
+            Text("With SSH Key blank, ssh uses your usual keys and ssh-agent, or a password. Whatever the server asks "
+                 + "(a password, a key's passphrase, a one-time code) is asked when you connect.")
+                .font(.caption).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -458,6 +466,13 @@ struct AddConnectionSheet: View {
         } else {
             testStatus = .success
         }
+    }
+
+    /// After the user confirms the server's new key: the old one goes, and the test runs again.
+    private func forgetAndTest(_ change: SSHHostKeyChange) async {
+        guard SSHLoginPrompt.confirmForget(change) else { return }
+        do { try manager.forgetHostKey(change) } catch { testError = error.localizedDescription; return }
+        await runTest()
     }
 
     private func addToFavorites() {

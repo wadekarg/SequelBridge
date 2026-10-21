@@ -28,6 +28,8 @@ struct SSHLoginTests {
         #expect(SSHLogin.kind(of: "One-time password (OATH) for `me': ") == .code)
         #expect(SSHLogin.kind(of: "Enter your OTP password: ") == .code)
         #expect(SSHLogin.kind(of: "Token password: ") == .code)
+        // A server never met before: whether to trust its key.
+        #expect(SSHLogin.kind(of: Self.newServerPrompt) == .hostKey)
         // ssh's own password question names the host, whatever the host is called.
         #expect(SSHLogin.kind(of: "me@otp-gateway.example.com's password: ") == .password)
         #expect(SSHLogin.kind(of: "me@token.example.com's password: ") == .password)
@@ -116,5 +118,60 @@ struct SSHLoginTests {
         #expect(!interactive.contains("BatchMode=yes"))
         let quiet = SSHTunnel.arguments(for: conn, localPort: 13307, keyPath: nil, interactive: false)
         #expect(quiet.contains("BatchMode=yes"))
+    }
+
+    static let newServerPrompt = """
+        The authenticity of host '[127.0.0.1]:2224 ([127.0.0.1]:2224)' can't be established.
+        ED25519 key fingerprint is SHA256:Zx9FakeFingerprintFakeFingerprintFake0123ab.
+        This key is not known by any other names.
+        Are you sure you want to continue connecting (yes/no/[fingerprint])?
+        """
+
+    /// ssh's warning for a key that changed, with a made-up host, fingerprint and path.
+    static let changedKeyOutput = """
+        @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        @    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+        @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!
+        Someone could be eavesdropping on you right now (man-in-the-middle attack)!
+        It is also possible that a host key has just been changed.
+        The fingerprint for the RSA key sent by the remote host is
+        SHA256:Qr7FakeRSAFingerprintFakeRSAFingerprint456cd.
+        Please contact your system administrator.
+        Add correct host key in /Users/me/.ssh/known_hosts to get rid of this message.
+        Offending ED25519 key in /Users/me/.ssh/known_hosts:112
+        Host key for 203.0.113.7 has changed and you have requested strict checking.
+        Host key verification failed.
+        """
+
+    @Test("a new server's question: trust its key, read from it, never saved; Cancel ends the login")
+    func newServer() throws {
+        let key = try #require(SSHHostKey(newServerPrompt: Self.newServerPrompt))
+        #expect(key == SSHHostKey(host: "[127.0.0.1]:2224", keyType: "ED25519",
+                                  fingerprint: "SHA256:Zx9FakeFingerprintFakeFingerprintFake0123ab"))
+        #expect(SSHLogin.answer(kind: .hostKey, timesAsked: 0, saved: "yes") == .ask)
+        #expect(SSHLogin.cancelEndsLogin(.hostKey))
+        #expect(SSHHostKey(newServerPrompt: "Password: ") == nil)
+        // OpenSSH 10's wording: "fingerprint is:" and no full stop.
+        let ssh10 = Self.newServerPrompt.replacingOccurrences(
+            of: "fingerprint is SHA256:Zx9FakeFingerprintFakeFingerprintFake0123ab.",
+            with: "fingerprint is: SHA256:Zx9FakeFingerprintFakeFingerprintFake0123ab")
+        #expect(SSHHostKey(newServerPrompt: ssh10)?.fingerprint == "SHA256:Zx9FakeFingerprintFakeFingerprintFake0123ab")
+    }
+
+    @Test("a changed key, read out of ssh's warning: the host, the key it sent, and the line holding the old one")
+    func changedKey() throws {
+        let change = try #require(SSHHostKeyChange(sshOutput: Self.changedKeyOutput))
+        #expect(change.key == SSHHostKey(host: "203.0.113.7", keyType: "RSA",
+                                         fingerprint: "SHA256:Qr7FakeRSAFingerprintFakeRSAFingerprint456cd"))
+        #expect(change.knownHostsFile == "/Users/me/.ssh/known_hosts")
+        #expect(change.line == 112)
+        // Said plainly: which server, which key, where the old one is, and what to do.
+        let message = change.localizedDescription
+        for part in ["203.0.113.7", "SHA256:Qr7FakeRSAFingerprintFakeRSAFingerprint456cd", "line 112", "forget the old key"] {
+            #expect(message.contains(part), "\(part) not in: \(message)")
+        }
+        #expect(!message.contains("@@@@"), "ssh's banner is in the message")
+        #expect(SSHHostKeyChange(sshOutput: "Permission denied (publickey).") == nil)
     }
 }

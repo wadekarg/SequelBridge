@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 753 tests in 152 suites (about three minutes of tests after the build).
+at them, and runs all 760 tests in 152 suites (about three minutes of tests after the build).
 Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
 MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
@@ -66,8 +66,12 @@ Content tab's ⌘J (page and rows per page), ⌘D (duplicate a row), its column-
 `PostgresWorkflowUITests` (with `SB_UI_PG_PORT`) picks a schema, shows Content and
 Structure, Explain's plan and a typed `SHOW`, and edits a cell in place;
 `ClickHouseWorkflowUITests` (with `SB_UI_CH_PORT`) shows Content and why a cell can't be
-edited there, runs a query and finds it in the Server tab's insights. On GitHub neither
-has a server, so both are skipped there;
+edited there, runs a query and finds it in the Server tab's insights;
+`SSHHostKeyUITests` (with `SB_UI_SSH_KEY`, the test SSH server's key) connects through
+SSH to a server met for the first time (its fingerprint shown, Cancel, then Trust and
+Connect) and to one whose key changed (the plain message, Forget the Old Key refused
+then confirmed, from Home and from Test Connection). On GitHub none of the three has a
+server, so they are skipped there;
 `MySQLRefreshUITests` refreshes one connection after a change through another, by
 the button, by ⇧⌘R and by ⌃⌘R, and checks ⌘R (the statement under the cursor) against
 ⌥⌘R (all). `VisualTourUITests` takes a screenshot of every screen and sheet in light and
@@ -85,7 +89,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-753 tests across 111 files.
+760 tests across 111 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -118,8 +122,8 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `DatabaseDumpTests` | `SB_MYSQL_VERIFY` | whole-database SQL dump (all tables, schema + data) |
 | `PostgresTests` | `SB_PG_VERIFY` | PostgreSQL attach, query, joins |
 | `CrossEngineBenchmark` | `SB_BENCH` | timing (not correctness) for the MySQL×Postgres JOIN |
-| `SSHTunnelTests` | always (ports, arguments) / `SB_SSH_VERIFY` (tunnels) | port allocation, failure paths, MySQL through the tunnel on a current and an `ssh-rsa`-only server; the login prompts on a real ssh: a password (`pwuser`), a key with a passphrase, a one-time code from google-authenticator's PAM module answered with the TOTP an authenticator app shows (`otpuser`), Cancel stopping at once, a wrong password asked three times; a key in a private ssh-agent with no key file set |
-| `SSHLoginTests` | always | what ssh asks (password, passphrase, one-time code, also one that calls itself a "One-time password", while ssh's own `user@host's password:` stays a password whatever the host is called), when a saved answer is used, and the askpass script's round trip to the app: the answer back, a wrong token refused, Cancel failing the attempt |
+| `SSHTunnelTests` | always (ports, arguments) / `SB_SSH_VERIFY` (tunnels) | port allocation, failure paths, MySQL through the tunnel on a current and an `ssh-rsa`-only server; the login prompts on a real ssh: a password (`pwuser`), a key with a passphrase, a one-time code from google-authenticator's PAM module answered with the TOTP an authenticator app shows (`otpuser`), Cancel stopping at once, a wrong password asked three times; a key in a private ssh-agent with no key file set; a server met for the first time asks to be trusted (trusted: remembered; not: stopped at once, nothing remembered), a changed key stops the login and is read out of ssh's warning, and once forgotten the confirmed new key connects unasked, from Test Connection and Connect too; each on a known-hosts file of its own |
+| `SSHLoginTests` | always | what ssh asks (password, passphrase, one-time code, also one that calls itself a "One-time password", while ssh's own `user@host's password:` stays a password whatever the host is called, whether to trust a new server's key, in older and newer OpenSSH's wording), a changed key read out of ssh's warning (the host, the key sent, the line holding the old one), when a saved answer is used, and the askpass script's round trip to the app: the answer back, a wrong token refused, Cancel failing the attempt |
 | `PostgresScannerCacheTests`, `MySQLScannerCacheTests` | `SB_PG_VERIFY`, `SB_MYSQL_VERIFY` | a Content edit of a table made after DuckDB read the server's catalog: a schema and table made in the app on PostgreSQL, and a table another connection made on either server, once the app lists it |
 | `MySQLRowWriteSQLTests`, `ResultEditingPickedConnectionTests` | always | a Content or result edit in MySQL's own SQL (true and false as 1 and 0 for TINYINT(1) and BIT, a BIT as a number, backslashes escaped, NULL and CURRENT_TIMESTAMP as the row sheet means them); a result edited on the connection picked in the left panel when two are open |
 | `MySQLRowWriteTests` | `SB_MYSQL_VERIFY` (`SB_MYSQL_BIG_DB` for the last) | those writes on the real servers, each type stored as meant, a row added with its key left to the server and deleted; an edit on a database of 3,275 tables (`sbbig`, MariaDB 10.0) done in under 2 s, where DuckDB took 16 |

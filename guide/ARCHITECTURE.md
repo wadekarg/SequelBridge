@@ -81,9 +81,15 @@ app tells you exactly what it sent to each server.
      interface has none.
 
    **The tunnel.** `SSHTunnel` runs `/usr/bin/ssh -N -L <local>:<host>:<port>` with
-   your key only (`IdentitiesOnly`), no prompts (`BatchMode`), new host keys accepted
-   once and checked after (`StrictHostKeyChecking=accept-new`), and `ssh-rsa` appended
-   to the accepted host-key and signature types: OpenSSH 8.8 and later switched it off,
+   the key set on the connection only (`IdentitiesOnly`), or with none set, ssh's usual
+   keys and ssh-agent. What ssh asks while it logs in (a password, a key's passphrase, a
+   one-time code, whether to trust a server it hasn't met) reaches the app through
+   `SSH_ASKPASS` (`SSHAskpass`), and `SSHLoginPrompt` shows it. Servers' keys are checked
+   against `~/.ssh/known_hosts` as in Terminal (`StrictHostKeyChecking=ask`); a changed
+   one stops the login, `SSHHostKeyChange` reads ssh's warning, and once the user has
+   confirmed the new key, `SSHTunnel.forget` removes the old one (`ssh-keygen -R`). With
+   nothing to answer (the tests), ssh runs in `BatchMode` and trusts a new server once
+   (`accept-new`). `ssh-rsa` is appended to the accepted host-key and signature types: OpenSSH 8.8 and later switched it off,
    which locked out servers running OpenSSH 7.1 and older ("no matching host key type
    found. Their offer: ssh-rsa"). Appended, it is used only when the server offers
    nothing newer. A tunnel ends when its connection detaches, and every tunnel ends

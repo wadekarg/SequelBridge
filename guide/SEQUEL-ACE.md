@@ -16,8 +16,10 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | ● SSH tunnel with a key file | ✓ also old `ssh-rsa`-only servers | `SSHTunnelTests` |
 | SSH tunnel with a password | ✓ asked in a dialog, can be saved in Keychain | `SSHTunnelTests.passwordLogin` |
 | SSH key with a passphrase | ✓ asked in a dialog, can be saved in Keychain | `SSHTunnelTests.passphraseLogin` |
-| SSH one-time code (RSA token, authenticator) | ✓ *no live test*: same path as a password, no OTP server in the test setup | `SSHLoginTests` |
-| SSH key held by ssh-agent, no key file | ✓ *no test* | |
+| SSH one-time code (RSA token, authenticator) | ✓ asked in a dialog, never saved | `SSHTunnelTests.oneTimeCodeLogin` |
+| SSH key held by ssh-agent, no key file | ✓ | `SSHTunnelTests.agentLogin` |
+| SSH server met for the first time | ✓ shows its key's fingerprint and asks to trust it | `SSHTunnelTests.newServerTrusted`, `SSHHostKeyUITests` |
+| SSH server whose key changed | ✓ says so; forgets the old key once you confirm the new one | `SSHTunnelTests.changedKey`, `SSHHostKeyUITests` |
 | Require SSL | ✓ | `SSLConnectionTests` |
 | SSL with client key, certificate and CA files | ✗ | |
 | Favorites with colours | ✓ | `ConnectionStoreTests` |

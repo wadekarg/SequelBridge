@@ -94,6 +94,19 @@ struct SSHTunnelTests {
         #expect(args.last == "me@bastion.example")
     }
 
+    @Test("ssh asks before trusting a new server when the app can answer; a known-hosts file of its own can stand in")
+    func hostKeyChecking() {
+        var conn = Connection(name: "t", alias: "t", connectionType: .ssh, host: "db.internal", port: 3306, username: "dbuser")
+        conn.sshHost = "bastion.example"
+        conn.sshUsername = "me"
+        #expect(SSHTunnel.arguments(for: conn, localPort: 13307, keyPath: nil, interactive: true).contains("StrictHostKeyChecking=ask"))
+        // With nothing to answer (a script, a test), a new server is trusted as before.
+        #expect(SSHTunnel.arguments(for: conn, localPort: 13307, keyPath: nil, interactive: false).contains("StrictHostKeyChecking=accept-new"))
+        SSHTunnel.knownHostsFile = "/tmp/sb_known_hosts"
+        defer { SSHTunnel.knownHostsFile = nil }
+        #expect(SSHTunnel.arguments(for: conn, localPort: 13307, keyPath: nil).contains("UserKnownHostsFile=/tmp/sb_known_hosts"))
+    }
+
     @Test("stop() is safe to call when no tunnel was ever started")
     func stopWithoutStart() {
         let t = SSHTunnel()
@@ -151,11 +164,15 @@ struct SSHTunnelTests {
 
     // MARK: - Login prompts (needs SB_SSH_VERIFY=1): what ssh asks goes to the app
 
-    /// Runs `body` with `answer` answering ssh's questions; returns what ssh asked.
-    func answering(_ answer: @escaping (SSHLoginRequest) -> String?,
+    /// Runs `body` with `answer` answering ssh's questions; returns what ssh asked. A new
+    /// server's key is trusted unasked unless `hostKeys`, as on a Mac that met it before.
+    func answering(hostKeys: Bool = false, _ answer: @escaping (SSHLoginRequest) -> String?,
                    _ body: () async throws -> Void) async throws -> [SSHLoginRequest] {
         let asked = AskLog()
-        SSHTunnel.prompter = { @MainActor request in asked.items.append(request); return answer(request) }
+        SSHTunnel.prompter = { @MainActor request in
+            if request.kind == .hostKey, !hostKeys { return "yes" }
+            asked.items.append(request); return answer(request)
+        }
         defer { SSHTunnel.prompter = nil }
         try await body()
         return asked.items
@@ -287,6 +304,111 @@ struct SSHTunnelTests {
         }
         #expect(asked.map(\.timesAsked) == [0, 1, 2], "asked: \(asked.map(\.prompt))")
         #expect(reason.contains("Permission denied"), "got: \(reason)")
+    }
+
+    // MARK: - Server keys (needs SB_SSH_VERIFY=1), each on a known-hosts file of its own
+
+    /// Runs `body` with a throwaway known_hosts holding `contents`, never the user's own.
+    func withKnownHosts(_ contents: String, _ body: (String) async throws -> Void) async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-kh-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let path = dir.appendingPathComponent("known_hosts").path
+        try contents.write(toFile: path, atomically: true, encoding: .utf8)
+        SSHTunnel.knownHostsFile = path
+        defer { SSHTunnel.knownHostsFile = nil; SSHTunnel.trusted = [:] }
+        try await body(path)
+    }
+
+    func file(_ path: String) -> String { (try? String(contentsOfFile: path, encoding: .utf8)) ?? "" }
+
+    @Test("a server never met before asks to be trusted, with its key's fingerprint; trusted, it's remembered",
+          .enabled(if: SSHEnv.enabled && !SSHEnv.keyPath.isEmpty))
+    func newServerTrusted() async throws {
+        try await withKnownHosts("") { path in
+            let asked = try await answering(hostKeys: true, { $0.kind == .hostKey ? "yes" : nil }) {
+                try await attachAndQuery(sshConnection(alias: "sshnew"))
+            }
+            #expect(asked.map(\.kind) == [.hostKey], "asked: \(asked.map(\.prompt))")
+            #expect(asked.first.flatMap { SSHHostKey(newServerPrompt: $0.prompt) }?.fingerprint.hasPrefix("SHA256:") == true)
+            #expect(file(path).contains("[127.0.0.1]:\(SSHEnv.port)"), "not remembered: \(file(path))")
+        }
+    }
+
+    @Test("a server not trusted stops the connection at once, saying why; nothing is remembered",
+          .enabled(if: SSHEnv.enabled && !SSHEnv.keyPath.isEmpty))
+    func newServerDeclined() async throws {
+        try await withKnownHosts("") { path in
+            let engine = try QueryEngine()
+            var reason = ""
+            let started = Date()
+            _ = try await answering(hostKeys: true, { _ in nil }) {
+                do { try await engine.attach(sshConnection(alias: "sshno"), password: SSHEnv.dbPass) }
+                catch { reason = QueryEngine.extractReason(from: error) }
+            }
+            #expect(reason.contains("trust"), "\(reason)")
+            #expect(Date().timeIntervalSince(started) < 10)
+            #expect(file(path).isEmpty, "remembered: \(file(path))")
+        }
+    }
+
+    @Test("a changed key stops the login and says so; with the old key forgotten, the confirmed new one connects unasked",
+          .enabled(if: SSHEnv.enabled && !SSHEnv.keyPath.isEmpty))
+    func changedKey() async throws {
+        let fake = try fakeHostKey()
+        try await withKnownHosts("[127.0.0.1]:\(SSHEnv.port) \(fake)\n") { path in
+            var change: SSHHostKeyChange?
+            do { try await QueryEngine().attach(sshConnection(alias: "sshchg"), password: SSHEnv.dbPass) }
+            catch let c as SSHHostKeyChange { change = c }
+            let c = try #require(change, "the login didn't stop at the changed key")
+            #expect(c.key.host == "[127.0.0.1]:\(SSHEnv.port)" && c.knownHostsFile == path && c.line == 1)
+
+            try SSHTunnel.forget(c)
+            let asked = try await answering(hostKeys: true, { _ in nil }) {
+                try await attachAndQuery(sshConnection(alias: "sshchg2"))
+            }
+            #expect(asked.isEmpty, "asked again: \(asked.map(\.prompt))")
+            #expect(file(path).contains("[127.0.0.1]:\(SSHEnv.port)") && !file(path).contains(fake), "\(file(path))")
+        }
+    }
+
+    @Test("Test Connection keeps a changed key for \"Forget the Old Key…\" and Connect throws it; forgotten, both go through",
+          .enabled(if: SSHEnv.enabled && !SSHEnv.keyPath.isEmpty))
+    func changedKeyInTheApp() async throws {
+        let fake = try fakeHostKey()
+        // A fixture list: Connect finds the password there, not in the Keychain.
+        let conn = sshConnection(alias: "sshmgr")
+        var entry = try JSONSerialization.jsonObject(with: JSONEncoder().encode(conn)) as! [String: Any]
+        entry["password"] = SSHEnv.dbPass
+        let list = FileManager.default.temporaryDirectory.appendingPathComponent("sb-mgr-\(UUID().uuidString.prefix(8)).json")
+        try JSONSerialization.data(withJSONObject: [entry]).write(to: list)
+        let manager = try ConnectionManager(arguments: ["app", "-SBConnectionsFile", list.path])
+
+        try await withKnownHosts("[127.0.0.1]:\(SSHEnv.port) \(fake)\n") { _ in
+            let message = await manager.testConnection(conn, password: SSHEnv.dbPass)
+            #expect(message?.contains("key has changed") == true, "\(message ?? "connected")")
+            #expect(manager.hostKeyChange?.key.host == "[127.0.0.1]:\(SSHEnv.port)", "Test Connection didn't keep it")
+        }
+        try await withKnownHosts("[127.0.0.1]:\(SSHEnv.port) \(fake)\n") { _ in
+            var thrown: SSHHostKeyChange?
+            do { try await manager.connect([conn]) } catch let c as SSHHostKeyChange { thrown = c }
+            let change = try #require(thrown, "Connect didn't stop at the changed key")
+            try manager.forgetHostKey(change)
+            #expect(manager.hostKeyChange == nil)
+            try await manager.connect([conn])
+            #expect(manager.active.map(\.alias) == ["sshmgr"])
+            manager.disconnect("sshmgr")
+        }
+    }
+
+    /// A public key of the test server's own type (ED25519) that isn't the server's.
+    func fakeHostKey() throws -> String {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-fake-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let keygen = Process()
+        keygen.executableURL = URL(fileURLWithPath: "/usr/bin/ssh-keygen")
+        keygen.arguments = ["-q", "-t", "ed25519", "-N", "", "-f", dir.appendingPathComponent("fake").path]
+        try keygen.run(); keygen.waitUntilExit()
+        return file(dir.appendingPathComponent("fake.pub").path).split(separator: " ").prefix(2).joined(separator: " ")
     }
 
     @Test("a wrong key path fails with an actionable message, not a hang")

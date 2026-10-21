@@ -15,6 +15,7 @@ struct HomeView: View {
     @State private var showNewConnectionSheet = false   // "New Connection" sheet
     @State private var showWorkspace = false
     @State private var connectError: String?
+    @State private var keyChange: SSHHostKeyChange?      // the changed SSH key connectError is about
     @State private var isConnecting = false
 
     var body: some View {
@@ -240,10 +241,20 @@ struct HomeView: View {
     private var footer: some View {
         HStack(spacing: 12) {
             if let err = connectError {
-                Label(err, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundColor(.red)
-                    .font(.caption)
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 6) {
+                    // A changed server key is said in full: it is what to check before going on.
+                    Label(err, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundColor(.red)
+                        .font(.caption)
+                        .lineLimit(keyChange == nil ? 2 : 6)
+                        .help(err)
+                        .accessibilityIdentifier("home.connectError")
+                    if let change = keyChange {
+                        Button("Forget the Old Key and Connect…") { Task { await forgetAndConnect(change) } }
+                            .controlSize(.small)
+                            .accessibilityIdentifier("home.forgetHostKey")
+                    }
+                }
             }
             Spacer()
             Text(selectedIds.isEmpty ? "" : "\(selectedIds.count) selected")
@@ -278,6 +289,7 @@ struct HomeView: View {
 
     private func connect() async {
         connectError = nil
+        keyChange = nil
         isConnecting = true
         let toConnect = manager.saved.filter { selectedIds.contains($0.id) }
         do {
@@ -285,8 +297,16 @@ struct HomeView: View {
             showWorkspace = true
         } catch {
             connectError = error.localizedDescription
+            keyChange = error as? SSHHostKeyChange
         }
         isConnecting = false
+    }
+
+    /// After the user confirms the server's new key: the old one goes, and the connect runs again.
+    private func forgetAndConnect(_ change: SSHHostKeyChange) async {
+        guard SSHLoginPrompt.confirmForget(change) else { return }
+        do { try manager.forgetHostKey(change) } catch { connectError = error.localizedDescription; return }
+        await connect()
     }
 
     private func fitWindowToScreen() {
