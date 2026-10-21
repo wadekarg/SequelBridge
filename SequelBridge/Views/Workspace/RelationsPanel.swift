@@ -30,12 +30,27 @@ struct RelationsPanel: View {
     private let wRef:       CGFloat = 200
     private let wAction:    CGFloat = 110
 
+    /// Add Foreign Key offers the table's columns to pick from: they're read first when the
+    /// left panel hasn't yet (it reads them when Structure opens). Without them the sheet
+    /// fell back to typing the column's name.
+    private func openAddSheet() async {
+        let cached = session.sidebarTrees[conn.alias]?.first(where: { $0.id == table.id })?.columns ?? []
+        if cached.isEmpty {
+            let db = session.selectedDatabase[conn.alias] ?? conn.database
+            if let cols = try? await manager.queryEngine.fetchColumns(alias: conn.alias, database: db, table: table.name),
+               let i = session.sidebarTrees[conn.alias]?.firstIndex(where: { $0.id == table.id }) {
+                session.sidebarTrees[conn.alias]?[i].columns = cols
+            }
+        }
+        showAddSheet = true
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 panelHeader(icon: "link", title: table.name, subtitle: "Relations", tint: conn.displayColor)
                 Spacer()
-                Button { showAddSheet = true } label: {
+                Button { Task { await openAddSheet() } } label: {
                     Image(systemName: "plus").frame(width: 20, height: 20)
                 }
                 .buttonStyle(.bordered).controlSize(.mini)
