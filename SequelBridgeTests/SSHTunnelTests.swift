@@ -471,7 +471,8 @@ struct SSHTunnelTests {
 
     /// Picking another database after the tunnel dropped opened a new tunnel, but the
     /// Reconnect banner stayed, offering to fix what already worked.
-    @Test("a database picked after the tunnel dropped opens a new one, and the Reconnect banner goes")
+    @Test("a database picked after the tunnel dropped opens a new one, and the Reconnect banner goes",
+          .enabled(if: SSHEnv.enabled && !SSHEnv.keyPath.isEmpty))
     func databaseSwitchAfterADrop() async throws {
         let conn = sshConnection(alias: "sshdropsw")
         let manager = try manager(for: conn)

@@ -115,6 +115,14 @@ class MySQLActionsUITests: XCTestCase {
         return XCTWaiter.wait(for: [gone], timeout: timeout) == .completed
     }
 
+    /// Narrows the window to `width` by dragging its right edge, as a person does.
+    func narrowWindow(to width: CGFloat) {
+        let window = app.windows.firstMatch
+        let edge = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5)).withOffset(CGVector(dx: 1, dy: 0))
+        edge.press(forDuration: 0.3, thenDragTo: edge.withOffset(CGVector(dx: width - window.frame.width, dy: 0)))
+        XCTAssertLessThan(abs(window.frame.width - width), 20, "the window is \(window.frame.width) wide, not \(width)")
+    }
+
     // MARK: - Flows
 
     func testDeletingRowsAsksFirstAndCancelKeepsThem() throws {
@@ -180,6 +188,9 @@ class MySQLActionsUITests: XCTestCase {
             """)
         XCTAssertTrue(table("ui_child").waitForExistence(timeout: 30))
         table("ui_child").click()
+        // Narrower than the Relations table's columns, as the window a 1024×768 screen
+        // opens: the foreign key's name is scrolled to, not cut off.
+        narrowWindow(to: 760)
 
         app.typeKey("3", modifierFlags: .command)                      // Relations
         let fk = app.staticTexts["ui_fk"]

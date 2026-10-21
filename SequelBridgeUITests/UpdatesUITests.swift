@@ -45,7 +45,8 @@ final class UpdatesUITests: XCTestCase {
         let tab = app.windows.toolbars.buttons["Updates"].exists ? app.windows.toolbars.buttons["Updates"] : app.buttons["Updates"]
         XCTAssertTrue(tab.waitForExistence(timeout: 10), "Settings has no Updates tab")
         tab.click()
-        let toggle = app.checkBoxes["Check for updates automatically"]
+        // A switch in the grouped form, its title beside it rather than on it.
+        let toggle = app.switches["settings.updates.auto"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 10), "the Updates tab has no daily-check switch")
         XCTAssertFalse(toggle.isEnabled, "a copy launched for the tests let its updater be switched on")
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "value BEGINSWITH %@", "SequelBridge ")).firstMatch.exists,

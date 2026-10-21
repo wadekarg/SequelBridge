@@ -45,6 +45,14 @@ nonisolated enum SQLiteTool {
     /// Printed after each statement, so each result is known to be whose. A line of its own.
     private static let marker = "@@sequelbridge-end-of-statement@@"
 
+    /// The app's environment, less OS_ACTIVITY_DT_MODE: set when the app is launched from
+    /// Xcode or a test run, it has a process copy its os_log records to stderr, and macOS
+    /// 15's sqlite3 logs each error there. What the tool writes to stderr is then only its
+    /// own messages, which are the reason a statement failed.
+    static func environment(from base: [String: String]) -> [String: String] {
+        base.filter { $0.key != "OS_ACTIVITY_DT_MODE" }
+    }
+
     private static func scriptWaiting(_ statements: [String], file: String, busyTimeout: TimeInterval, readOnly: Bool) throws
         -> (columns: [String], rows: [[String?]]) {
         let p = Process()
@@ -53,6 +61,7 @@ nonisolated enum SQLiteTool {
         // read as an option, and a long one was too big for the command line.
         p.arguments = ["-batch", "-bail", "-init", "/dev/null", "-json"] + (readOnly ? ["-readonly"] : [])
             + ["-cmd", ".timeout \(Int(busyTimeout * 1000))", file]
+        p.environment = environment(from: ProcessInfo.processInfo.environment)
         // Each statement ends on a line of its own (a trailing -- comment can't take its
         // semicolon), then the marker.
         var input = ""

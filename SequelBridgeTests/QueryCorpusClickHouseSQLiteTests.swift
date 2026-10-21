@@ -157,6 +157,18 @@ struct SQLiteCorpusTests {
         await run.close()
     }
 
+    /// macOS's own sqlite3, which runs what the SQLite reads stream through can't: its
+    /// version is the system's (3.43 on macOS 15, before string_agg).
+    nonisolated static let tool: CorpusServer = {
+        let p = Process(), out = Pipe()
+        p.executableURL = URL(fileURLWithPath: SQLiteTool.executable)
+        p.arguments = ["--version"]
+        p.standardOutput = out
+        try? p.run()
+        p.waitUntilExit()
+        return CorpusServer(kind: "SQLite", versionString: String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
+    }()
+
     static let cases: [CorpusCase] = [
         CorpusCase(sql: "CREATE TABLE {p}customers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE, city TEXT DEFAULT 'Pune', vip INTEGER NOT NULL DEFAULT 0, created TEXT DEFAULT CURRENT_TIMESTAMP)", expect: .ok),
         CorpusCase(sql: "CREATE TABLE {p}orders (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL REFERENCES {p}customers(id), total REAL NOT NULL, placed DATE, note TEXT)", expect: .ok),
@@ -235,7 +247,8 @@ struct SQLiteCorpusTests {
 
         // What macOS's SQLite has: a full-text table read back, a generated column, a STRICT
         // table, and syntax newer than the SQLite reads stream through (3.38): RIGHT JOIN
-        // (3.39), concat and string_agg (3.44).
+        // (3.39), concat and string_agg (3.44). Where macOS's sqlite3 is older than
+        // string_agg, it says so.
         CorpusCase(sql: "CREATE VIRTUAL TABLE {p}docs USING fts5(title, body)", expect: .ok),
         CorpusCase(sql: "INSERT INTO {p}docs VALUES ('Engines', 'the quick brown fox'), ('Other', 'lazy dogs')", expect: .ok),
         CorpusCase(sql: "SELECT title FROM {p}docs WHERE {p}docs MATCH 'quick'", expect: .value("Engines")),
@@ -249,7 +262,10 @@ struct SQLiteCorpusTests {
         CorpusCase(sql: "SELECT '{\"a\":{\"b\":2}}' ->> '$.a.b'", expect: .value("2")),
         CorpusCase(sql: "SELECT c.name FROM {p}orders o RIGHT JOIN {p}customers c ON c.id = o.customer_id WHERE o.id IS NULL", expect: .atLeast(1)),
         CorpusCase(sql: "SELECT concat('a', 'b', 1)", expect: .value("ab1")),
-        CorpusCase(sql: "SELECT string_agg(name, '|') FROM (SELECT name FROM {p}customers WHERE vip = 1 ORDER BY name)", expect: .value("Ada Lovelace|Grace Hopper")),
+        CorpusCase(sql: "SELECT string_agg(name, '|') FROM (SELECT name FROM {p}customers WHERE vip = 1 ORDER BY name)", expect: .value("Ada Lovelace|Grace Hopper"),
+                   when: { _ in SQLiteCorpusTests.tool.atLeast([3, 44]) }),
+        CorpusCase(sql: "SELECT string_agg(name, '|') FROM (SELECT name FROM {p}customers WHERE vip = 1 ORDER BY name)", expect: .error("no such function: string_agg"),
+                   when: { _ in !SQLiteCorpusTests.tool.atLeast([3, 44]) }),
 
         // A statement that starts with a comment; a script's last statement, rows or not; reals.
         CorpusCase(sql: "-- a note first\nINSERT INTO {p}log (msg) VALUES ('commented')", expect: .ok),

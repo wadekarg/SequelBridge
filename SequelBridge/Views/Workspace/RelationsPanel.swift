@@ -25,11 +25,6 @@ struct RelationsPanel: View {
     @State private var showAddSheet = false
     @State private var actionError: String? = nil
 
-    // Fixed column widths
-    private let wColumn:    CGFloat = 140
-    private let wRef:       CGFloat = 200
-    private let wAction:    CGFloat = 110
-
     /// Add Foreign Key offers the table's columns to pick from: they're read first when the
     /// left panel hasn't yet (it reads them when Structure opens). Without them the sheet
     /// fell back to typing the column's name.
@@ -81,20 +76,7 @@ struct RelationsPanel: View {
                 emptyState(icon: "link.badge.plus",
                            message: "No foreign key constraints defined on this table")
             } else {
-                ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        tableHeader
-                        Divider()
-                        ForEach(relations) { rel in
-                            tableRow(rel)
-                                .background(selectedId == rel.id ? Color.accentColor.opacity(0.08) : Color.clear)
-                                .contentShape(Rectangle())
-                                .onTapGesture { selectedId = rel.id }
-                            Divider().padding(.leading, 16)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                RelationsTable(relations: relations, selectedId: $selectedId)
             }
         }
         .task(id: table.id) { await loadRelations() }
@@ -179,7 +161,70 @@ struct RelationsPanel: View {
         await loadRelations()
     }
 
-    // MARK: - Table
+    // MARK: - Data loading
+
+    private func loadRelations() async {
+        isLoading = true; relations = []
+        let db = session.selectedDatabase[conn.alias] ?? conn.database
+        guard !db.isEmpty else { isLoading = false; return }
+        let rows = (try? await manager.queryEngine.fetchRelations(
+            alias: conn.alias, database: db, table: table.name)) ?? []
+        relations = rows.map {
+            RelationInfo(name: $0[0], column: $0[1],
+                         referencedTable: $0[2], referencedColumn: $0[3],
+                         onDelete: $0[4], onUpdate: $0[5])
+        }
+        isLoading = false
+    }
+}
+
+// MARK: - Table
+
+/// The table's foreign keys, a row each; a click selects one for Drop. The columns keep
+/// their widths: in a pane narrower than they are the table scrolls sideways, anchored at
+/// the top left as the Structure panel's is. In a vertical ScrollView it was centered and
+/// cut off on both sides, its name column squeezed to nothing (a 1024×768 screen's window).
+struct RelationsTable: View {
+    let relations: [RelationInfo]
+    @Binding var selectedId: UUID?
+
+    // Fixed column widths
+    private let wColumn:    CGFloat = 140
+    private let wRef:       CGFloat = 200
+    private let wAction:    CGFloat = 110
+
+    /// The Constraint column: as wide as the longest name, at least as wide as its header.
+    static func nameColumnWidth(for relations: [RelationInfo]) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: 11)
+        let widest = relations.map { NSAttributedString(string: $0.name, attributes: [.font: font]).size().width }.max() ?? 0
+        return max(widest.rounded(.up) + 4, 80)
+    }
+
+    private var contentWidth: CGFloat {
+        16 + wColumn + wRef + wAction * 2 + Self.nameColumnWidth(for: relations) + 16
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            ScrollView([.horizontal, .vertical]) {
+                VStack(alignment: .leading, spacing: 0) {
+                    tableHeader
+                    Divider()
+                    ForEach(relations) { rel in
+                        tableRow(rel)
+                            .background(selectedId == rel.id ? Color.accentColor.opacity(0.08) : Color.clear)
+                            .contentShape(Rectangle())
+                            .onTapGesture { selectedId = rel.id }
+                        Divider().padding(.leading, 16)
+                    }
+                }
+                // As wide as the columns, or the pane when it's wider; from the top, not
+                // centered when the rows don't fill it.
+                .frame(width: max(contentWidth, geo.size.width), alignment: .leading)
+                .frame(minHeight: geo.size.height, alignment: .top)
+            }
+        }
+    }
 
     private var tableHeader: some View {
         HStack(spacing: 0) {
@@ -249,22 +294,6 @@ struct RelationsPanel: View {
             .font(.system(size: 10, weight: .semibold))
             .foregroundColor(.secondary)
             .frame(width: width, alignment: .leading)
-    }
-
-    // MARK: - Data loading
-
-    private func loadRelations() async {
-        isLoading = true; relations = []
-        let db = session.selectedDatabase[conn.alias] ?? conn.database
-        guard !db.isEmpty else { isLoading = false; return }
-        let rows = (try? await manager.queryEngine.fetchRelations(
-            alias: conn.alias, database: db, table: table.name)) ?? []
-        relations = rows.map {
-            RelationInfo(name: $0[0], column: $0[1],
-                         referencedTable: $0[2], referencedColumn: $0[3],
-                         onDelete: $0[4], onUpdate: $0[5])
-        }
-        isLoading = false
     }
 }
 

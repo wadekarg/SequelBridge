@@ -68,4 +68,14 @@ struct SQLiteToolScriptTests {
                                                + ["SELECT count(*) FROM t"], file: file, busyTimeout: 5)
         #expect(rest.rows == [["5000"]])
     }
+
+    /// Launched from Xcode or a test run (OS_ACTIVITY_DT_MODE), a process copies its
+    /// os_log records to stderr, and macOS 15's sqlite3 logs each error there: the reason
+    /// shown began "2026-10-21 16:31:35.274860+0000 sqlite3[5227:18709] [logging] ", and
+    /// a statement that logged a warning but ran would have failed.
+    @Test("the tool runs without copying its log records to stderr; the rest of the environment stays")
+    func noLogRecordsOnStderr() {
+        let env = SQLiteTool.environment(from: ["OS_ACTIVITY_DT_MODE": "YES", "PATH": "/usr/bin:/bin", "HOME": "/Users/x"])
+        #expect(env == ["PATH": "/usr/bin:/bin", "HOME": "/Users/x"])
+    }
 }

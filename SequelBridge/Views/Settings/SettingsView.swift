@@ -54,6 +54,7 @@ struct SettingsView: View {
                 get: { updater.automaticallyChecksForUpdates },
                 set: { updater.automaticallyChecksForUpdates = $0 }))
                 .disabled(!updater.isRunning)
+                .accessibilityIdentifier("settings.updates.auto")
             HStack {
                 Text("SequelBridge \(version) (\(build))")
                 Spacer()

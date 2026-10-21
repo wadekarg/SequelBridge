@@ -37,6 +37,9 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 - Saving a SQLite connection left an empty item in the login Keychain.
 - Relations: Add Foreign Key asked for the column's name to be typed unless Structure
   had been opened first; it offers the table's columns now.
+- Relations in a narrow window (as a 1024×768 screen opens it): the table was centered
+  and cut off on both sides, and the foreign key's name didn't show at all. A table
+  wider than its pane scrolls sideways now, from the left, as Structure's does.
 - MySQL and MariaDB: legacy dates broke Content. A zero date (0000-00-00) showed as
   NULL, and a date with a zero month or day (2026-00-15) failed the whole page. Content
   now shows them as the server keeps them. In the Query tab such a read runs on the
