@@ -23,9 +23,10 @@ scripts/run-all-tests.sh                # the full matrix against local containe
 scripts/run-all-tests.sh --provision    # the same from scratch: fresh containers, seeded
 ```
 
-The full matrix needs Docker. The script starts MariaDB, PostgreSQL and ClickHouse
-containers, seeds them from `scripts/fixtures/`, and runs every gated suite against
-them. [TESTING.md](TESTING.md) explains what each suite covers and how the gates work.
+The full matrix needs Docker. The script starts MariaDB (10.0, 11.4), MySQL (8.0, 8.4),
+PostgreSQL (with and without TLS), ClickHouse and SSH server containers, seeds them from
+`scripts/fixtures/`, and runs every gated suite against them. [TESTING.md](TESTING.md)
+explains what each suite covers and how the gates work.
 
 ## What a change needs
 

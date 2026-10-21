@@ -12,7 +12,7 @@ in the server's own client.
 | Engine | Where it runs | EXPLAIN |
 |---|---|---|
 | MySQL / MariaDB | A read on the server, through the passthrough; anything else on the server as typed. `SHOW`, `HELP`, `CHECK TABLE`, `CHECKSUM TABLE`, `CALL` and MariaDB's `BEGIN NOT ATOMIC … END` on the built-in MySQL client, since the scanner can't prepare them; so is a read whose result has two columns of one name, or a date the scanner can't read (a zero month or day) | The Explain button, or a typed `EXPLAIN …`: the server's own plan (on the built-in MySQL client too) |
-| PostgreSQL | A read on the server: through the passthrough in `public`, on the built-in PostgreSQL client in another schema (with `search_path` set to it). A write on the built-in client, as psql runs it, so `VACUUM`, `CREATE INDEX CONCURRENTLY` and `CREATE DATABASE` work and `RETURNING` shows its rows; inside a `BEGIN` typed in the Query tab, in that transaction. `SHOW` on the built-in client. `SET search_path TO x` picks the schema, as `USE` does on MySQL | The Explain button, or a typed `EXPLAIN …`: the server's own plan (on the built-in PostgreSQL client too) |
+| PostgreSQL | A read on the server: through the passthrough in `public`, on the built-in PostgreSQL client in another schema (with `search_path` set to it). A write on the built-in client, as psql runs it, so `VACUUM`, `CREATE INDEX CONCURRENTLY` and `CREATE DATABASE` work and `RETURNING` shows its rows; `COPY … TO STDOUT` shows its rows, and `COPY … FROM STDIN` is refused: use Import CSV. Inside a `BEGIN` typed in the Query tab, a read in any schema and a write run in that transaction, the schema picked first on its `search_path`. `SHOW` on the built-in client. `SET search_path TO x` picks the schema, as `USE` does on MySQL | The Explain button, or a typed `EXPLAIN …`: the server's own plan (on the built-in PostgreSQL client too) |
 | ClickHouse | On the server, over its HTTP interface; a statement with its own `FORMAT` shows that text | A typed `EXPLAIN …` runs on ClickHouse like any statement; the Explain button is for MySQL and PostgreSQL only |
 | SQLite file | In SQLite itself, in SQLite's own SQL: a read streams from the file (SQLite 3.38), and one that needs newer SQLite (`RIGHT JOIN`, `concat`, `string_agg`) runs in macOS's `sqlite3`, as does anything else; inside a `BEGIN` typed in the Query tab, in that transaction (DuckDB's) | A typed `EXPLAIN QUERY PLAN …` runs in SQLite; the Explain button is for MySQL and PostgreSQL only |
 
@@ -23,9 +23,14 @@ transaction or a lock), the whole script runs on one connection of the server's 
 client, as in Sequel Ace or psql. What it sets lasts for that run: run a `SET` together
 with the statements it is for. On a SQLite file a script runs in one go, as in the
 `sqlite3` shell. Inside a `BEGIN` typed in the Query tab, each statement joins that
-transaction, a `SET` too; a `CALL` is refused there (a procedure's rows would leave the
-transaction's connection out of step): `COMMIT` first, or run `BEGIN; CALL …; COMMIT` as
-one script.
+transaction (on MySQL a `SET` too; on PostgreSQL in the schema picked, put first on the
+transaction's `search_path`). On PostgreSQL write `SET LOCAL` there, which ends with the
+transaction: any other `SET` or `RESET` is refused, since it would outlast the
+transaction on a connection the app reuses (`SET search_path TO x` still picks the
+schema). `SHOW` and `EXPLAIN` on MySQL and PostgreSQL are the exceptions: they run on a
+connection of the built-in client, which doesn't see the transaction's changes. A `CALL`
+is refused there (a procedure's rows would leave the transaction's connection out of
+step): `COMMIT` first, or run `BEGIN; CALL …; COMMIT` as one script.
 
 A procedure, function, trigger or event whose body is in `BEGIN … END` is one statement,
 with or without a `DELIMITER` line, as `SHOW CREATE PROCEDURE` gives it and as SQLite
@@ -123,9 +128,12 @@ or with three or more tables, is not supported.
 
 ## Results
 
-Rows stream in as they arrive and keep streaming, with no row cap; the status bar counts
-them. Cancel stops the app's work: DuckDB stops pulling rows and the ClickHouse request
-is dropped. A statement a MySQL, PostgreSQL or ClickHouse server is already running
+Rows stream in as they arrive and keep streaming, with no row cap, when DuckDB reads
+them: the passthrough, a SQLite read, a join across servers. A result that comes from the
+built-in MySQL or PostgreSQL client, a script run on one connection, or ClickHouse
+arrives whole. The status bar counts the rows. Cancel stops the app's work: DuckDB stops
+pulling rows, the ClickHouse request is dropped, and the built-in client closes its
+connection. A statement a MySQL, PostgreSQL or ClickHouse server is already running
 finishes there on its own; the app does not kill it. The Console tab lists every
 statement the app sent on your behalf, including the reduced server queries behind a
 cross-server join.

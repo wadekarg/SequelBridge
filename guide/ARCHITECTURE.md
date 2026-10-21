@@ -16,6 +16,9 @@ flowchart LR
   D -- postgres_scanner --> PG[(PostgreSQL)]
   D -- sqlite_scanner --> SL[(SQLite file)]
   QE -- HTTP client --> CH[(ClickHouse)]
+  QE -- native client --> MY
+  QE -- native client --> PG
+  QE -- sqlite3 --> SL
 ```
 
 One in-memory DuckDB lives inside the app. Every MySQL, PostgreSQL or SQLite
@@ -32,7 +35,7 @@ difference explains every ClickHouse rule in this guide:
 | | MySQL / MariaDB, PostgreSQL, SQLite | ClickHouse |
 |---|---|---|
 | How the app reaches it | attached to DuckDB through a scanner extension | its HTTP interface, through the app's own client |
-| A statement that names only it | runs on that server (a SQLite file is read by DuckDB) | runs on ClickHouse, never touching DuckDB |
+| A statement that names only it | runs on that server; a SQLite file's runs in SQLite itself (a read through DuckDB's `sqlite_query`, the rest in macOS's `sqlite3`) | runs on ClickHouse, never touching DuckDB |
 | A join with one other server | both sides stream through DuckDB, the bigger side reduced to the smaller side's keys | its side is copied into a DuckDB temp table first, then joined the same way |
 | Joins it can take part in | any shape DuckDB runs, three tables or more included | two tables, one of them ClickHouse |
 | Column types in a join | DuckDB's own mapping in the scanner | integers, floats, booleans, dates and timestamps typed; the rest as text |
@@ -45,16 +48,18 @@ app tells you exactly what it sent to each server.
 
 | Layer | Files | What they do |
 |---|---|---|
-| App state | `Models/WorkspaceSession.swift`, `QueryTab.swift`, `Utilities/AppSettings.swift` | The open connections, query tabs, the console log and history, saved queries, which panel is active. Settings live in UserDefaults: theme, editor font size, tab width, auto-complete. |
-| Connections | `Engine/ConnectionManager.swift`, `Utilities/ConnectionStore.swift`, `Keychain.swift`, `Engine/SSHTunnel.swift`, `Utilities/SupportDirectory.swift` | The saved list (`connections.json`), passwords (one Keychain item per connection id under the service "SequelBridge"), connect and disconnect, SSH port forwards, where the app's files live. |
+| App state | `Models/WorkspaceSession.swift`, `QueryTab.swift`, `Utilities/AppSettings.swift` | The open connections, query tabs, the console log and history, saved queries, which panel is active. Settings live in UserDefaults: theme, editor font size, tab width, auto-complete, Content's rows per page. |
+| Connections | `Engine/ConnectionManager.swift`, `Utilities/ConnectionStore.swift`, `Keychain.swift`, `Engine/SSHTunnel.swift`, `Utilities/SupportDirectory.swift` | The saved list (`connections.json`), passwords (Keychain items per connection id under the service "SequelBridge"), connect and disconnect, SSH port forwards, where the app's files live. |
 | Engine | `Engine/QueryEngine.swift` and its `+Postgres`, `+SQLite`, `+ClickHouse` extensions | One DuckDB, four connections to it, attach and detach, streaming results, the planner's entry points, per-engine metadata. |
 | Planner | `Engine/SQLBuilder.swift` (+ `SQLBuilder+Postgres.swift`), `Engine/SQLPushdown.swift` | Statement classification (`isReadOnly`, `isRowReturning`, `referencesAlias`, `detectCrossJoin`, `detectSemiJoin`), the rewrites (`crossJoinRewrite`, `planFallback`), per-dialect quoting and DDL, and which WHERE conditions each server can be trusted with. |
-| Native clients | `Engine/ClickHouseClient.swift`, `Engine/MySQLClient.swift`, `Engine/MySQLDirectConnection.swift`, `Engine/PostgresClient.swift`, `Engine/WireLink.swift` | ClickHouse over HTTP; minimal MySQL and PostgreSQL wire-protocol clients for the statements the scanner cannot run (`EXPLAIN`, `SHOW`, MySQL's `HELP` and `CHECK TABLE`), over one shared byte stream that can switch to TLS part-way. |
+| Routing | `Models/QueryRoute.swift`, `SQLScript.swift`, `QueryEffects.swift` | Which path a Query-tab statement takes (below); a script split into statements, a `DELIMITER` line, a `BEGIN … END` body and a `$$` quote kept whole; which statements run as typed, on a native client or on one connection; what a run changes in the left panel (`USE`, DDL). |
+| Native clients | `Engine/ClickHouseClient.swift`, `Engine/MySQLClient.swift`, `Engine/MySQLDirectConnection.swift`, `Engine/PostgresClient.swift`, `Engine/WireLink.swift`, `Engine/SQLiteTool.swift` | ClickHouse over HTTP; minimal MySQL and PostgreSQL wire-protocol clients for what the passthrough can't run or nest (`EXPLAIN`, `SHOW`, MySQL's `HELP`, `CHECK TABLE` and `CALL`, PostgreSQL's writes and reads outside `public`, a script on one connection), over one shared byte stream that can switch to TLS part-way; macOS's `sqlite3` for a SQLite file's statements. |
 | Results | `Models/QueryResult.swift`, `CellTable.swift`, `StreamBatcher.swift`, `RunClock.swift`, `ChartData.swift`, `Engine/ResultExporter.swift` | The result's columnar storage, when streamed chunks reach the screen, one clock per run, chart series, CSV/JSON/Markdown/SQL export. |
-| Views | `Views/Home/*`, `Views/Workspace/*` | Home and the connection form; the workspace: toolbar tabs (`WorkspaceView`), sidebar, the Query tab (`QueryPanelView`, which also dispatches each statement), editor, results grid and chart, and one file per panel. |
+| Views | `Views/Home/*`, `Views/Workspace/*`, `Views/Settings/*`, `Views/Connection/*` | Home and the connection form; the workspace: toolbar tabs (`WorkspaceView`), sidebar, the Query tab (`QueryPanelView`, which carries out each statement's route), editor, results grid and chart, and one file per panel; Settings; the SSH login dialog. |
 | Stores | `Utilities/HistoryStore.swift`, `SavedQueryStore.swift`, `CSVParser.swift`, `ConsoleExporter.swift` | Statement history (`history.jsonl`, append-only, compacted at 1,000 entries), saved queries (`saved_queries.json`), an RFC 4180 CSV reader, the console's `.sql` export. |
-| Scripts | `scripts/` | `fetch-duckdb.sh` (the static libraries), `run-all-tests.sh` (containers, fixtures, the whole matrix), `seed-demo.sh` and `capture-screenshots.sh` (the demo data and the guide's images), `check-docs.sh`. |
+| Scripts | `scripts/` | `fetch-duckdb.sh` (the static libraries), `run-all-tests.sh` (containers, fixtures, the whole matrix), `seed-demo.sh` and `capture-screenshots.sh` (the demo data and the guide's images), `check-docs.sh`, `build-release.sh` (the notarized DMG, `appcast.xml` and the Homebrew cask). |
 | Vendored DuckDB | `vendor/DuckDB/` | The Swift wrapper with three local patches; the libraries themselves are fetched, not committed. |
+| Updates | `Utilities/AppUpdater.swift`, `vendor/Sparkle/` | Sparkle 2.10, vendored: the daily check for a new version (asked first), **SequelBridge → Check for Updates…** and Settings → Updates; the feed is `appcast.xml` on the latest GitHub release. |
 
 ## A connection's life
 
@@ -64,16 +69,18 @@ app tells you exactly what it sent to each server.
    Keychain item for that connection id, else an empty string for a SQLite file.
 2. `QueryEngine.attach` does the engine-specific work:
    - **MySQL / MariaDB, PostgreSQL.** The scanner extension is loaded once per launch
-     (`ensureExtensionLoaded`): if it is not in `~/Library/Caches/SequelBridge/duckdb/1.5.6/`
-     it is downloaded from `extensions.duckdb.org` for the machine's architecture,
-     ad-hoc signed on Apple Silicon, then `LOAD`ed. A DSN is built for TCP/IP, a local
+     (`ensureExtensionLoaded`): if it is not in
+     `~/Library/Caches/SequelBridge/duckdb/v1.5.6/<platform>/` (`osx_arm64`, or
+     `osx_amd64` on Intel and under Rosetta), it is downloaded from
+     `extensions.duckdb.org` for the CPU the app runs on, ad-hoc signed on Apple
+     Silicon, then `LOAD`ed. A DSN is built for TCP/IP, a local
      socket, or SSH. A MySQL socket is the DSN's `socket=` file; a PostgreSQL socket
      becomes libpq's `host=<directory> port=<n>`, taken from the directory or from the
      `.s.PGSQL.<n>` file the user gave. For SSH, `startTunnel` opens an `SSHTunnel`
      (below) first and the DSN points at its local port. Then
      `ATTACH '<dsn>' AS "alias" (TYPE mysql)` or `(TYPE postgres)`. The DSN's database is
-     remembered, because the passthrough needs one, and for MySQL so is the endpoint the
-     built-in client uses for EXPLAIN: the tunnel's local port or the socket file.
+     remembered, because the passthrough needs one, and so is the endpoint the built-in
+     MySQL and PostgreSQL clients use: the tunnel's local port or the socket.
    - **SQLite.** `ATTACH '<path>' AS "alias" (TYPE sqlite)`.
    - **ClickHouse.** A `ClickHouseClient` with host, port, user, password and TLS, tried
      with `SELECT 1`; through SSH, it talks to the tunnel's local port. Nothing is
@@ -92,13 +99,18 @@ app tells you exactly what it sent to each server.
    (`accept-new`). `ssh-rsa` is appended to the accepted host-key and signature types: OpenSSH 8.8 and later switched it off,
    which locked out servers running OpenSSH 7.1 and older ("no matching host key type
    found. Their offer: ssh-rsa"). Appended, it is used only when the server offers
-   nothing newer. A tunnel ends when its connection detaches, and every tunnel ends
+   nothing newer. A tunnel ends when its connection is closed, and every tunnel ends
    when the app quits: a child process outlives its parent on macOS, so `ssh` would
    otherwise keep the session open in the background.
-3. Picking a database in the sidebar re-attaches a MySQL or PostgreSQL connection with
-   that database as the DSN default (`adoptDatabase`). The passthrough functions
-   `mysql_query` and `postgres_query` run on the connection's default schema, so this
-   is what makes an unqualified table name in your statement resolve on the server.
+3. Picking a database on MySQL attaches the connection again with that database as the
+   DSN default (`ConnectionManager.switchDatabase`), through the SSH tunnel already
+   running, so ssh doesn't log in again. `mysql_query` runs on the connection's default
+   database, so this is what makes an unqualified table name in your statement resolve
+   on the server. On PostgreSQL the picker lists the database's schemas, and picking one
+   leaves the attachment as it is: a read in `public` goes through `postgres_query`, and
+   one in another schema to the native client with that schema first on its
+   `search_path`, or, inside a transaction begun in the Query tab, through
+   `postgres_query` with the schema first on the transaction's `search_path`.
 4. Disconnecting detaches the catalog, drops the connection's metadata cache, and stops
    its tunnel.
 
@@ -111,24 +123,39 @@ is read-only on the server already.
 
 ## How a statement is dispatched
 
-`QueryPanelView.runQuery` looks at the statement before it runs:
+`QueryRoute.plan` (`Models/QueryRoute.swift`) decides where a statement runs, and
+`QueryPanelView.runTypedQuery` carries it out. `SQLScript` first splits the editor's text
+into statements; a `DELIMITER` line, a `BEGIN … END` body and a `$$` quote keep their
+semicolons. A script whose statements share what each sets (a variable, a temporary
+table, a transaction: `QueryEffects.needsOneSession`) runs whole on one connection of the
+server's native client, or in one run of `sqlite3` (`QueryRoute.sessionScript`).
+Otherwise each statement runs in turn, and the first that fails stops the run. For each:
 
-1. If it writes (`SQLBuilder.isReadOnly` says no) and any open connection is read-only,
-   it is refused with the connection's name.
-2. A typed `EXPLAIN …` that names one MySQL or PostgreSQL server takes the Explain
+1. `USE db` on MySQL, or `SET search_path TO x` on PostgreSQL, is the same switch as
+   picking that database or schema in the left panel.
+2. If it writes (`SQLBuilder.isReadOnly` says no) and the server it runs on (the one it
+   names, else the one picked in the left panel) is read-only, it is refused with that
+   connection's name; a writable connection open beside it is unaffected. MySQL's
+   `LOCK TABLES` and `SET autocommit`, a `CALL` inside a `BEGIN` typed in the Query tab,
+   and on PostgreSQL a `SET` or `RESET` inside one other than `SET LOCAL`, are refused
+   too, saying why.
+3. A typed `EXPLAIN …` that names one MySQL or PostgreSQL server takes the Explain
    button's path: the server's own plan, on that server's native client, since the
    scanner can run it on neither.
-3. Otherwise the servers it names are counted (`referencesAlias` per alias) and the
+4. Otherwise the servers it names are counted (`referencesAlias` per alias) and the
    statement goes down one of these paths. Every path keeps a plain form of the
    statement as its backstop, so a plan that cannot proceed falls back rather than
    failing.
 
 | The statement | Path | What the servers see |
 |---|---|---|
-| names one MySQL or PostgreSQL server | passthrough | the statement, as written, inside `mysql_query('alias', '…')` or `postgres_query(…)`; the server executes it, DuckDB streams the result |
-| `SHOW`, `HELP`, `CHECK` or `CHECKSUM` on one MySQL server; `SHOW` on one PostgreSQL server | native | the statement as written, on the server's native client, in the database (PostgreSQL: schema) picked; the whole result comes back |
+| a read on one MySQL server's attached database, or on one PostgreSQL server in `public` | passthrough | the statement, as written, inside `mysql_query('alias', '…')` or `postgres_query(…)`; the server executes it, DuckDB streams the result. A read the passthrough refuses (two columns of one name; on MySQL a date with a zero month or day) runs again on the native client |
+| `SHOW`; on MySQL `HELP`, `CHECK`, `CHECKSUM`, `CALL` and MariaDB's `BEGIN NOT ATOMIC`; on PostgreSQL a read in another schema, a write, `COPY`; a lone `SET` | native | the statement as written, on the server's native client, in the database (PostgreSQL: schema, first on the `search_path`) picked; the whole result comes back |
+| any other MySQL statement that returns no rows | as typed | `CALL mysql_execute('alias', '…')` in a DuckDB transaction of its own, then `SELECT ROW_COUNT()` |
+| a statement for one MySQL or PostgreSQL server inside a `BEGIN` typed in the Query tab | that transaction | DuckDB's: a read through the passthrough in any schema, any other MySQL statement and a PostgreSQL write or `SET LOCAL` through `mysql_execute` or `postgres_execute`; on PostgreSQL the schema picked goes first on the transaction's `search_path` (`transactionSearchPath`). `SHOW` and `EXPLAIN` still run on the native client, outside it |
+| `BEGIN`, `COMMIT`, `ROLLBACK`, and anything else on one server | DuckDB | DuckDB's catalog, after `USE "alias"."database"` |
 | names one ClickHouse server | native | the statement on ClickHouse over HTTP, with `alias.table` turned into `database.table` |
-| names only a SQLite file | DuckDB | DuckDB reads the file |
+| names only a SQLite file | SQLite | a read through DuckDB's `sqlite_query`, run again in macOS's `sqlite3` (`SQLiteTool`) when the scanner's older SQLite can't; anything else in `sqlite3`; inside a `BEGIN` typed in the Query tab, DuckDB's catalog, in that transaction |
 | `… WHERE x IN (SELECT … FROM other.table)` across two servers | semi-join | the subquery on its server first, its values inlined (up to 10,000), then the outer statement on its own server |
 | two tables on one key, inner join, in `JOIN … ON` or comma form | streaming cross-server join | the steps traced below |
 | the same with one ClickHouse side | ClickHouse bridge | the ClickHouse side copied first, then the steps below |
@@ -259,11 +286,15 @@ DuckDB, on the rows that arrive.
 
 ## The other paths
 
-**Passthrough.** A statement naming one MySQL or PostgreSQL server is sent as
-`SELECT * FROM mysql_query('alias', '<your statement>')` (or `postgres_query`). The
-server executes it as written; DuckDB only streams the result. This is why a
-single-server statement is server-native SQL, LIMIT and all, with no scanner in the
-way.
+**Passthrough.** A read naming one MySQL server's attached database, or PostgreSQL's
+`public` schema (any schema inside a transaction begun in the Query tab), is sent as
+`SELECT * FROM mysql_query('alias', '<your statement>')` (or `postgres_query`, with its
+`--` comments turned into `/* */` so the brackets around it hold). The server executes
+it as written; DuckDB only streams the result. This is why a single-server read is
+server-native SQL, LIMIT and all, with no scanner in the way. A statement that returns
+no rows goes as typed: on MySQL through `mysql_execute`, then `ROW_COUNT()`; on
+PostgreSQL on the native client, or through `postgres_execute` inside a transaction
+begun in the Query tab.
 
 **Semi-join** (`detectSemiJoin`). `WHERE x IN (SELECT … FROM other.table)` across two
 servers runs the subquery on its server first, inlines its values with `inValueList`
@@ -338,7 +369,8 @@ Measured on the same queries before and after that work (Release build):
 **Cancel.** The Cancel button interrupts the Query tab's DuckDB connection
 (`interruptUserQuery`), which aborts the statement inside DuckDB and frees the
 connection for the next one, and cancels the ClickHouse client's in-flight request. A
-statement a server is already running is not killed; it finishes there on its own.
+statement a server is already running is not killed; it finishes there on its own. A
+wait on the native MySQL or PostgreSQL client ends at once: Cancel closes its connection.
 
 ## ClickHouse beside DuckDB
 
@@ -370,7 +402,7 @@ is not supported.
 
 DuckDB's `mysql_query` prepares every statement to learn its result types, and MariaDB
 cannot describe `EXPLAIN` or `SHOW CREATE TABLE` that way. `MySQLClient` is a minimal
-client over the wire protocol for exactly those two: protocol 41, `COM_QUERY` with the
+client over the wire protocol for those two and more: protocol 41, `COM_QUERY` with the
 text result protocol, one short-lived connection per call. It logs in with the method
 the server asks for: `mysql_native_password` (MariaDB, MySQL 5.7) or
 `caching_sha2_password` (MySQL 8 and later). A first `caching_sha2_password` login needs
@@ -384,9 +416,13 @@ first `caching_sha2_password` login sends the password itself. Like the scanner'
 server that doesn't offer SSL is refused, never asked in clear. A refused or
 unreachable server fails at once, and no connect waits longer than ten seconds. Typed in
 the Query tab, `SHOW` (MySQL can't prepare `SHOW CREATE TABLE`, `SHOW PROCESSLIST`,
-`SHOW GRANTS` or `SHOW WARNINGS`), `HELP`, `CHECK TABLE` and `CHECKSUM TABLE` run on it
-too. On a read-only connection its session is read-only on the server. Everything else
-goes through the scanner.
+`SHOW GRANTS` or `SHOW WARNINGS`), `HELP`, `CHECK TABLE`, `CHECKSUM TABLE`, `CALL` (a
+procedure's rows left the scanner's connection out of step) and MariaDB's `BEGIN NOT
+ATOMIC` run on it too, as do a read the scanner refuses (two columns of one name, a date
+with a zero month or day), a lone `SET` and a script whose statements share a session;
+Table Maintenance and Import SQL file use it as well, a script or a file on one
+connection (`run`). On a read-only connection its session is read-only on the server.
+Everything else goes through the scanner.
 
 ## The native PostgreSQL client
 
@@ -394,13 +430,22 @@ goes through the scanner.
 PostgreSQL takes neither `EXPLAIN` nor `SHOW` there, nor in any function a query can
 call. `PostgresClient` speaks protocol 3.0: the startup message, a login with what the
 server asks for (SCRAM-SHA-256, MD5 or the password itself; the server's SCRAM proof is
-checked), one simple query, one short-lived connection per call. SSL is libpq's: it
+checked), simple queries, one short-lived connection per call. SSL is libpq's: it
 sends the SSLRequest first and switches to TLS when the server says yes; with Use SSL
 a server that says no is refused before any password is sent, and without it the
 connection goes on in plain text, as `sslmode=prefer` does. Like the scanner's
 `sslmode=require`, it doesn't check the certificate. A read-only connection starts its
 sessions with `default_transaction_read_only=on`; the schema picked in the left panel
-becomes the `search_path`.
+is put first on the `search_path`, the role's own path after it.
+
+Besides `EXPLAIN` and `SHOW`, the Query tab sends it a write, as psql runs it
+(`postgres_execute` wraps one in a DuckDB transaction, where `VACUUM`, `CREATE INDEX
+CONCURRENTLY` and `CREATE DATABASE` can't run, and `RETURNING`'s rows were lost), a read
+outside `public`, a lone `SET`, and `COPY … TO STDOUT`, whose lines come back as rows;
+`COPY … FROM STDIN` is refused at once. A script or an imported file runs on one
+connection, each statement a query of its own: several in one message would run as one
+transaction. Inside a transaction begun in the Query tab, reads and writes stay in that
+transaction instead (see the table above).
 
 ## Metadata
 
@@ -429,11 +474,12 @@ column to the table's columns before anything is written.
 | What | Where |
 |---|---|
 | Saved connections | `~/Library/Application Support/SequelBridge/connections.json`, no passwords |
-| Passwords | the Keychain, service "SequelBridge", one item per connection id |
+| Passwords | the Keychain, service "SequelBridge", per connection id: the database password, and the SSH password and key passphrase kept with **Remember in Keychain**; never a one-time code |
 | Statement history | `history.jsonl` beside the connections, append-only, compacted to the newest 1,000 |
 | Saved queries | `saved_queries.json` beside the connections |
-| Settings | UserDefaults: theme, editor font size, tab width, auto-complete, whether the conventions note is expanded |
-| Scanner extensions | `~/Library/Caches/SequelBridge/duckdb/<version>/` |
+| Settings | UserDefaults: theme, editor font size, tab width, auto-complete, Content's rows per page, whether the conventions note is expanded, and Sparkle's own (whether to check for updates, when it last did) |
+| Scanner extensions | `~/Library/Caches/SequelBridge/duckdb/<version>/<platform>/`, a folder per CPU (`osx_arm64`, `osx_amd64`) |
+| SSH host keys | `~/.ssh/known_hosts`, shared with Terminal: ssh adds a server you trust there; forgetting a changed server's old key runs `ssh-keygen -R`, which keeps the old file as `known_hosts.old` |
 
 Launch arguments change this for a demo or screenshot instance: `-SBConnectionsFile
 <path>` reads a fixture connection list with inline passwords and never writes it
@@ -452,7 +498,7 @@ Three local patches, each marked in the source and listed in that folder's READM
 - a chunk index for the result set, where the stock lookup walked every chunk from the
   first on each access (quadratic in rows).
 
-The scanner extensions are loadable modules downloaded once per DuckDB version from
+The scanner extensions are loadable modules downloaded once per DuckDB version and CPU from
 `extensions.duckdb.org`, ad-hoc signed on Apple Silicon so the system will load them,
 and loaded with `allow_unsigned_extensions`.
 
@@ -467,17 +513,25 @@ and loaded with `allow_unsigned_extensions`.
   refused, the certificate not verified. Without it each driver encrypts when the server
   offers TLS.
 - An SSH connection (MySQL, PostgreSQL, ClickHouse) opens a local port forward with
-  your key file (`SSHTunnel`); a key path that does not exist fails loudly rather than
-  letting `ssh` fall back to an agent or a default key. The forward closes on
-  disconnect and on quit.
+  `/usr/bin/ssh` (`SSHTunnel`): with the key file set, and only that key, or with ssh's
+  usual keys and ssh-agent; a password, passphrase or one-time code ssh asks for is
+  asked in the app's dialog. A key path that does not exist fails loudly rather than
+  letting `ssh` fall back to an agent or a default key. A server's key is checked
+  against `~/.ssh/known_hosts`: a new one is trusted only once you confirm its
+  fingerprint, and a changed one stops the login. The forward closes on disconnect and
+  on quit.
 - Plain HTTP is allowed to any server (`NSAllowsArbitraryLoads`), because a ClickHouse
   HTTP interface is often reached by host name without TLS; HTTPS is verified as always.
 - Read-only is a property of the engine's attachment, not of the interface: every
-  write path, typed or clicked, passes `ensureWritable`, and while a read-only
-  connection is open a typed statement that writes is refused whichever server it names.
+  write path, typed or clicked, passes `ensureWritable`, a typed statement that writes
+  to a read-only connection is refused before it runs, and one across servers that
+  writes into it is refused by DuckDB, which attached it `READ_ONLY`.
 - A demo or screenshot instance never shows or touches the owner's connections,
   Keychain items or history.
-- The app sends nothing anywhere but to your servers.
+- Besides your servers, the app reaches only extensions.duckdb.org, for a scanner
+  extension it doesn't have yet, and, when you allow it, the project's GitHub releases,
+  for the update feed (`appcast.xml`) and an update you choose to install. Neither
+  carries anything about you or your databases.
 
 ## Known limits
 
@@ -496,8 +550,9 @@ and loaded with `allow_unsigned_extensions`.
 
 Two layers. Hermetic unit tests run on every build with no database: SQL builders,
 the planner's detection and rewrites, pushdown rules, result storage, exporters,
-formatter, stores. Gated suites run against local MariaDB, PostgreSQL and ClickHouse
-containers that `scripts/run-all-tests.sh` provisions and seeds from committed SQL.
+formatter, stores. Gated suites run against local MariaDB 10.0 and 11.4, MySQL 8.0 and
+8.4, PostgreSQL 16 (with and without TLS), ClickHouse and SSH server containers that
+`scripts/run-all-tests.sh` provisions and seeds from committed SQL.
 The rule that makes planner work safe to ship: every optimized plan has a test that
 compares its rows, row for row, with the plain plan's. A reduction may make a query
 faster; it may never change the answer. The streaming tests assert that first rows
@@ -511,3 +566,10 @@ forbids downloaded executable code. Shipping them inside the app instead is not
 possible either: the MySQL scanner cannot be linked statically, and a loadable
 extension carries DuckDB's metadata after its Mach-O, which the strict signature
 validation of an app bundle rejects.
+
+It also installs with Homebrew (`brew install --cask wadekarg/tap/sequelbridge`), and an
+installed copy updates itself with Sparkle (`AppUpdater`). `scripts/build-release.sh`
+signs the DMG with the project's EdDSA key and writes `appcast.xml`, which the GitHub
+release carries, and the cask for the tap. The app takes an update only when that
+signature matches its `SUPublicEDKey` and the new copy's code signature matches its own.
+A Debug build, a test run and a demo instance run no updater.

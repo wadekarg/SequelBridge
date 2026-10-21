@@ -71,6 +71,8 @@ Newer versions are expected to work. If yours does not, please open an issue.
 - [Querying](guide/QUERYING.md): the rules a query follows, in full, with examples.
 - [Architecture](guide/ARCHITECTURE.md): how it is built and why, with one query traced
   statement by statement.
+- [Coming from Sequel Ace](guide/SEQUEL-ACE.md): each Sequel Ace feature, whether
+  SequelBridge has it, and the test that proves it.
 
 ## Build from source
 

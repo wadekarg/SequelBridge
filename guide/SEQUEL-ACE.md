@@ -28,7 +28,7 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | Connect from a `mysql://` URL | ✗ | |
 | Test connection | ✓ the server's reason when it fails, never the password | `ServerToolsTests` |
 | Several connections at once | ✓ one workspace holds several servers, and a query can join them | `MultiServerTests` |
-| New connection window or tab | ◐ File > New Window opens another workspace | |
+| New connection window or tab | ✗ the app has one set of open connections: File > New Window opens Home again, and a Connect there closes the ones the other window's workspace uses | |
 | Save a connection or session file (`.spf`) | ✗ | |
 
 ## Databases
@@ -62,7 +62,7 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | Drop a table | ✓ | `DestructiveDDLVerifyTests` |
 | Copy or show `CREATE TABLE` | ✓ in Table Info, with Copy: the server's own on MySQL and ClickHouse, the file's own on SQLite; PostgreSQL keeps none, so it is rebuilt and says so | `MySQLIntegrationTests.serverCreateTable`, `MySQLWorkflowUITests` |
 | Check, repair, analyze, optimize, flush, checksum | ✓ Table Maintenance on the table's right-click menu, with the server's answer; only Check and Checksum on a read-only connection (MySQL) | `TableMaintenanceTests`, `ServerToolsTests`, `MySQLWorkflowUITests` |
-| Open a table in a new tab or window | ◐ double-click opens `SELECT *` in a new query tab | |
+| Open a table in a new tab or window | ◐ `SELECT * FROM …` on the table's context menu opens it in a new query tab | |
 | Pin a table to the top | ✗ | |
 | Copy the table name | ✓ *no test* | |
 | Export a table | ◐ as SQL on MySQL; any query's result as CSV, JSON, Markdown or SQL | `DatabaseDumpTests`, `ResultExporterTests` |
@@ -142,7 +142,7 @@ has it, and the test that proves it. A feature without a test doesn't count as d
 | Sequel Ace | SequelBridge | Tested by |
 |---|---|---|
 | Import CSV with field mapping | ◐ columns matched by header name, no mapping step | `DestructiveDDLVerifyTests`, `CSVParserTests`, `CSVInferenceTests` |
-| Import a SQL file | ✓ MySQL and PostgreSQL: its statements in order, with progress and Stop; the first that fails stops it and says which | `MySQLIntegrationTests.importDump`, `SQLFileTests` |
+| Import a SQL file | ✓ MySQL and PostgreSQL: its statements in order, on one connection as mysql and psql run a file, with progress and Stop; the first that fails stops it and says which | `MySQLIntegrationTests.importDump`, `SQLFileTests` |
 | Import from the clipboard | ✗ | |
 | Export SQL with structure and content options | ◐ structure and content, no options | `DatabaseDumpTests` |
 | Export CSV, XML | ◐ CSV of a result; no XML | `ResultExporterTests` |

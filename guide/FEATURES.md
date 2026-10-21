@@ -20,12 +20,12 @@ Screenshots come from a demo instance on synthetic data.
 | Content: edit, insert, delete rows | ✓ | ✓ | ✓ | |
 | Query results: edit values | ✓ | ✓ | ✓ | |
 | Add columns and indexes, Create Table | ✓ | ✓ | ✓ | type the `ALTER`/`CREATE` in the Query tab |
-| Relations (foreign keys) | ✓ | ✓ | ✓ | |
+| Relations (foreign keys) | ✓ | ✓ | list | |
 | Triggers | ✓ | list, drop | ✓ | |
 | Routines | ✓ | ✓ | | |
 | Server: processes with Kill, variables, status | ✓ | ✓ | | |
 | Server: query insights from the query log | | | | ✓ |
-| Explain button, typed `EXPLAIN` on the server | ✓ | ✓ | | typed only |
+| Explain button, typed `EXPLAIN` on the server | ✓ | ✓ | typed only | typed only |
 | Export database as SQL | ✓ | ✓ | ✓ | |
 | Export one table as SQL | ✓ | | | |
 | Import CSV into an existing table | ✓ | ✓ | | |
@@ -37,7 +37,8 @@ Screenshots come from a demo instance on synthetic data.
 | Results: streaming grid, filter, charts, export | ✓ | ✓ | ✓ | ✓ |
 
 Row editing needs a primary key on the table; a query result is edited when it is one
-table's rows with that key in it. A typed `EXPLAIN` on a SQLite file shows DuckDB's plan.
+table's rows with that key in it. A typed `EXPLAIN QUERY PLAN` on a SQLite file runs in
+SQLite and shows its plan.
 
 ## Connecting
 
@@ -79,8 +80,9 @@ from then on the engine refuses every write against that connection: typed state
 cell edits, column DDL, imports, Kill, an `EXPLAIN ANALYZE` of a write (which runs it).
 Below that, DuckDB attaches the connection read-only and the server's own session is
 read-only (ClickHouse's `readonly=2`), so even a stored function a `SELECT` calls can't
-write. While a read-only connection is open in a workspace, a typed statement that
-writes is refused whichever server it names. Use it for production servers.
+write. A typed statement that writes to it is refused; one for a writable connection
+open beside it runs, and a statement across servers that writes into it is refused by
+DuckDB. Use it for production servers.
 
 ## Finding your way around
 
@@ -89,7 +91,8 @@ writes is refused whichever server it names. Use it for production servers.
 The sidebar has one tab per connected server, a database picker, a filter box for the
 table list with a **+** beside it that creates a table, and a strip at the bottom with
 the selected table's rows, data and index size, engine, collation and timestamps. The
-"…" button beside the picker holds the database-level actions: on MySQL, **Add
+**+** at the sidebar's top right adds a saved connection, or a new one, to the workspace.
+The "…" button beside the picker holds the database-level actions: on MySQL, **Add
 Database…** (a name, and an encoding and collation from the server's lists, each
 starting at its default) and **Delete Database…**, which asks first; export as SQL;
 **Import SQL file…** on MySQL and PostgreSQL; on MySQL, import a CSV into a new table.
@@ -102,12 +105,13 @@ Picking a database lists its tables; one that can't be opened says why, with
 **Try Again**, and the connection stays on the database it had. Another database closes
 the table open from the one before. The ↻ beside the picker re-reads the databases and
 the picked one's tables (⇧⌘R), or the tables alone (⌃⌘R), for changes made outside the
-app.
+app. On PostgreSQL the picker lists the database's schemas: picking one lists its tables,
+and the connection stays on its database.
 
 The toolbar tabs switch the main area: **Structure, Content, Relations, Triggers,
 Table Info** for the selected table; **Routines, Server, Query, Console** for the
-connection. Clicking a table in the sidebar inserts its name at the cursor in the
-editor; double-clicking opens `SELECT * … LIMIT 200` in a new query tab.
+connection. Clicking a table in the sidebar opens it; double-clicking copies its name.
+**SELECT * FROM …** on its context menu opens `SELECT * … LIMIT 200` in a new query tab.
 
 ## Looking at a table
 
@@ -147,17 +151,22 @@ fills in itself (an auto-increment key), and each empty field says what it will 
 default, NULL, the server's own number) or that it is required.
 
 **Relations** shows the table's foreign keys: the referencing column, the table and
-column it points to, the ON DELETE and ON UPDATE rules, the constraint name.
+column it points to, the ON DELETE and ON UPDATE rules, the constraint name. **+** adds
+one, its column picked from the table's own and the table it points to from a list, and
+**−** drops the selected one after asking; a SQLite file declares its keys only when a
+table is made, so neither works there. A table wider than its pane scrolls sideways.
 **Triggers** shows timing, event and body; **+** adds one and **−** drops the selected
 one. On PostgreSQL a trigger runs a trigger function that has to exist first, so one is
 added in the Query tab. **Table Info** shows the storage engine, row
-estimate, sizes, collation, comment, timestamps and the `CREATE TABLE` statement.
+estimate, sizes, collation, comment, timestamps and the `CREATE TABLE` statement: the
+server's own on MySQL and ClickHouse, the file's own on SQLite; PostgreSQL keeps none, so
+there it is rebuilt from the columns and indexes, and says so.
 **Routines** lists the database's stored procedures and functions with their
 definitions.
 
 ## Running a query on one server
 
-The editor highlights SQL and completes table and column names as you type (switch
+The editor highlights SQL and completes table and column names on Tab (switch
 it off in Settings); ⌘/ comments lines, ⌘] and ⌘[ indent them, ⌘F finds, and ⌘O and
 ⌘S open and save `.sql` files. **Run** (⌘↵) streams the result into the grid; select
 part of the text to run only that. **Run Current** (⌘R) runs the statement under the
@@ -165,7 +174,8 @@ cursor, as in Sequel Ace; ⌥⌘R runs them all, one after another. **Cancel** s
 server is already running finishes there on its own. **Format** tidies the statement.
 **Explain** shows the server's own plan for a statement that names one MySQL or
 PostgreSQL server, and typing `EXPLAIN …` does the same there; on ClickHouse a typed
-`EXPLAIN` runs as a normal statement, and on a SQLite file it shows DuckDB's plan.
+`EXPLAIN` runs as a normal statement, and on a SQLite file `EXPLAIN QUERY PLAN …` runs
+in SQLite and shows its plan.
 
 The bookmark button saves the statement under a name for later, and its Recent list
 holds the statements you ran, kept across restarts.
@@ -246,7 +256,8 @@ alone. **Import SQL file…** in the sidebar menu runs a `.sql` file's statement
 order, on one connection as mysql and psql do (so a mysqldump's `FOREIGN_KEY_CHECKS=0`
 and a pg_dump's settings hold for the whole file), with progress and **Stop**; the first
 that fails stops it and says which (MySQL and PostgreSQL). psql's own `\restrict` and
-`\connect` lines in a pg_dump file are left out. **Import CSV…** on a table's context menu loads a CSV into it (MySQL
+`\connect` lines in a pg_dump file are left out. A pg_dump made without `--inserts` (its
+`COPY … FROM stdin`) is refused before anything runs, with that advice. **Import CSV…** on a table's context menu loads a CSV into it (MySQL
 and PostgreSQL); on MySQL the sidebar menu also creates a new table from a CSV, with
 columns taken from the header.
 

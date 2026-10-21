@@ -257,6 +257,7 @@
           <a class="btn btn-primary" href="/download">Download for macOS</a>
           <a class="btn btn-ghost" href="https://github.com/wadekarg/SequelBridge">View on GitHub</a>
         </div>
+        <p class="meta-line">Or with Homebrew: <span style="font-family:var(--mono);font-size:.92em">brew install --cask wadekarg/tap/sequelbridge</span></p>
         <p class="meta-line">Universal · Apple Silicon &amp; Intel · macOS 14+ · Free forever</p>
       </div>
 
@@ -269,7 +270,7 @@
 <span class="kw">FROM</span>    <span class="my">mysql</span>.shop.orders          <span class="kw">AS</span> o
 <span class="kw">JOIN</span>    <span class="pg">postgres</span>.public.customers  <span class="kw">AS</span> c
           <span class="kw">ON</span> c.id = o.customer_id
-<span class="kw">JOIN</span>    <span class="sq">sqlite</span>.geo.regions         <span class="kw">AS</span> r
+<span class="kw">JOIN</span>    <span class="sq">sqlite</span>.regions             <span class="kw">AS</span> r
           <span class="kw">ON</span> r.code = c.region
 <span class="kw">WHERE</span>   o.total &gt; <span class="num">1000</span>;</pre>
         <div class="bridge-flow">
@@ -371,6 +372,7 @@
         <div class="fact"><b>MIT</b><span>Permissive license — use it anywhere, no strings</span></div>
         <div class="fact"><b>Universal</b><span>One build runs native on Apple Silicon and Intel</span></div>
         <div class="fact"><b>Notarized</b><span>Signed and notarized by Apple — opens with no warnings</span></div>
+        <div class="fact"><b>Updates</b><span>Checks once a day, with your OK, and installs only updates signed with the project's key</span></div>
       </div>
     </div>
   </section>
