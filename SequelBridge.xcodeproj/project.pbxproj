@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		B1F596EA2F9C440A007D8D8B /* DuckDB in Frameworks */ = {isa = PBXBuildFile; productRef = B1F596E92F9C440A007D8D8B /* DuckDB */; };
+		5B5A0E0A2F9C440A007D8D8B /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5B5A0E0B2F9C440A007D8D8B /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +58,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B1F596EA2F9C440A007D8D8B /* DuckDB in Frameworks */,
+				5B5A0E0A2F9C440A007D8D8B /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +120,7 @@
 			name = SequelBridge;
 			packageProductDependencies = (
 				B1F596E92F9C440A007D8D8B /* DuckDB */,
+				5B5A0E0B2F9C440A007D8D8B /* Sparkle */,
 			);
 			productName = SequelBridge;
 			productReference = B1F596DA2F9C43A2007D8D8B /* SequelBridge.app */;
@@ -203,6 +206,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				B1F596E82F9C440A007D8D8B /* XCLocalSwiftPackageReference "vendor/DuckDB" */,
+				5B5A0E0C2F9C440A007D8D8B /* XCLocalSwiftPackageReference "vendor/Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B1F596DB2F9C43A2007D8D8B /* Products */;
@@ -590,6 +594,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = vendor/DuckDB;
 		};
+		5B5A0E0C2F9C440A007D8D8B /* XCLocalSwiftPackageReference "vendor/Sparkle" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = vendor/Sparkle;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -597,6 +605,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B1F596E82F9C440A007D8D8B /* XCLocalSwiftPackageReference "vendor/DuckDB" */;
 			productName = DuckDB;
+		};
+		5B5A0E0B2F9C440A007D8D8B /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5B5A0E0C2F9C440A007D8D8B /* XCLocalSwiftPackageReference "vendor/Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -39,7 +39,15 @@ statement. No ETL, no staging tables, no exporting CSVs between systems.
 ## Install
 
 Download the signed, notarized build from the [Releases](../../releases) page, open the
-`.dmg` and drag SequelBridge to Applications.
+`.dmg` and drag SequelBridge to Applications. Or with Homebrew:
+
+```bash
+brew install --cask wadekarg/tap/sequelbridge
+```
+
+The app keeps itself up to date: it checks once a day (it asks you first) and offers
+each new version, which it installs only when the update is signed with the project's
+key. **SequelBridge → Check for Updates…** checks at once.
 
 On the first connection to a MySQL, PostgreSQL or SQLite server the app downloads the
 matching DuckDB scanner extension once and keeps it; that first connect needs internet.

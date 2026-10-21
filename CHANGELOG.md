@@ -247,6 +247,11 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   Table Info, Query), and ⌘7–⌘9 open Routines, Server and Console.
 
 ### Added
+- Updates: the app checks once a day for a new version (asking first) and installs it
+  when you say so, from the project's GitHub releases (Sparkle); an update not signed
+  with the project's key is refused. SequelBridge → Check for Updates… checks at once,
+  Settings → Updates turns the daily check off. And `brew install --cask
+  wadekarg/tap/sequelbridge`.
 - When an SSH tunnel closes on its own (the Mac slept, the network dropped, the server
   restarted), the workspace says so and offers Reconnect. Statements on it failed naming
   only an internal port until the next Connect from Home.

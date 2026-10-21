@@ -269,7 +269,10 @@ writes the log as a `.sql` file; **Clear** empties it.
 
 **Appearance** sets a light, dark or system theme. **Editor** sets the font size, tab
 width and whether Tab completes a word (off, it indents). **Connections** lists the saved
-connections with Edit and Delete, which asks first, since the saved password goes too. **Shortcuts** lists every key the app binds:
+connections with Edit and Delete, which asks first, since the saved password goes too.
+**Updates** turns the daily check for a new version on or off and checks now, as
+**SequelBridge → Check for Updates…** does; a new version is offered with its notes and
+installed only when it is signed with the project's key. **Shortcuts** lists every key the app binds:
 
 | Keys | Action |
 |---|---|

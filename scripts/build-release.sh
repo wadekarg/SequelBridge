@@ -1,13 +1,20 @@
 #!/bin/bash
 # build-release.sh — builds the distributable DMG from a clean working tree: a universal
 # (Apple Silicon + Intel) Release archive, exported with a Developer ID, the app and the
-# DMG each notarized by Apple and stapled, then checked by Gatekeeper. Nothing is
-# published; the DMG lands in .build/release/. The version and build number are the
-# project's (run scripts/sync-build-number.sh and set the version first).
+# DMG each notarized by Apple and stapled, then checked by Gatekeeper; then the DMG is
+# signed for the in-app updater (Sparkle) and the update feed and Homebrew cask written
+# beside it. Nothing is published: the DMG, appcast.xml and sequelbridge.rb land in
+# .build/release/. A release uploads the DMG and appcast.xml to the GitHub release
+# v<version> (the app reads releases/latest/download/appcast.xml) and the cask to the tap.
+# The version and build number are the project's (run scripts/sync-build-number.sh and
+# set the version first).
 #
-# Needs: a "Developer ID Application" certificate in the login keychain, and notarytool
+# Needs: a "Developer ID Application" certificate in the login keychain, notarytool
 # credentials stored once under a profile name:
 #   xcrun notarytool store-credentials sequelbridge-notary --apple-id … --team-id …
+# and the update signing key in the login keychain (vendor/Sparkle/bin/generate_keys, run
+# once; the Keychain may ask the first time sign_update uses it). Its public half must be
+# SequelBridge-Info.plist's SUPublicEDKey, or every update would be refused.
 # Overrides: SB_SIGN_IDENTITY (default: the first Developer ID Application identity),
 #            SB_NOTARY_PROFILE (default: sequelbridge-notary).
 set -euo pipefail
@@ -26,6 +33,11 @@ DMG="$WORK/SequelBridge-$VERSION.dmg"
 step() { printf '\n==> %s\n' "$*"; }
 
 [ -z "$(git status --porcelain)" ] || { echo "The working tree has changes; commit them first"; exit 1; }
+# The updater refuses an update not signed with the key whose public half the app carries.
+APP_KEY=$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' SequelBridge-Info.plist)
+KEYCHAIN_KEY=$(vendor/Sparkle/bin/generate_keys -p 2>/dev/null || true)
+[ -n "$KEYCHAIN_KEY" ] || { echo "No update signing key in the keychain: run vendor/Sparkle/bin/generate_keys once"; exit 1; }
+[ "$APP_KEY" = "$KEYCHAIN_KEY" ] || { echo "SUPublicEDKey ($APP_KEY) isn't the keychain key's public half ($KEYCHAIN_KEY)"; exit 1; }
 rm -rf "$OUT" "$WORK"; mkdir -p "$OUT" "$WORK"
 echo "SequelBridge $VERSION, signed by $IDENT, notary profile $PROFILE"
 
@@ -64,6 +76,10 @@ codesign --verify --deep --strict "$APP"
 sig=$(codesign -dv "$APP" 2>&1)
 grep -q "flags=.*runtime" <<<"$sig" || { echo "hardened runtime is off"; exit 1; }
 
+step "the updater, end to end (an older copy of this build updates itself to a newer one)"
+scripts/test-update-e2e.sh "$APP" > "$OUT/update-e2e.log" 2>&1 || { tail -20 "$OUT/update-e2e.log"; echo "the updater failed"; exit 1; }
+tail -1 "$OUT/update-e2e.log"
+
 notarize() { # $1 file: submit, wait, require Accepted
   xcrun notarytool submit "$1" --keychain-profile "$PROFILE" --wait > "$OUT/notary.log" 2>&1 || true
   grep -q "status: Accepted" "$OUT/notary.log" || { cat "$OUT/notary.log"; echo "notarization not accepted: $1"; exit 1; }
@@ -90,5 +106,10 @@ M=$(mktemp -d); hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$M" 
 spctl -a -t exec "$M/SequelBridge.app"
 sleep 2; hdiutil detach "$M" -quiet 2>/dev/null || hdiutil detach "$M" -force -quiet   # Spotlight can hold it briefly
 echo "accepted: the DMG and the app inside it (Notarized Developer ID)"
+
+step "update feed (Sparkle) and Homebrew cask"
+SPARKLE_SIG=$(vendor/Sparkle/bin/sign_update "$DMG")
+python3 scripts/release-feed.py --version "$VERSION" --build "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$P")" \
+  --dmg "$DMG" --signature "$SPARKLE_SIG" --changelog CHANGELOG.md --out "$OUT"
 echo "$DMG"
 shasum -a 256 "$DMG"

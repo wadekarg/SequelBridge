@@ -268,6 +268,10 @@ export_db_env() {
 run_tests() {
   local xcflags=(-scheme SequelBridge -configuration "$CONFIG" -destination "$DESTINATION" -parallel-testing-enabled NO)
   local f; for f in $ONLY; do xcflags+=(-only-testing:"$f"); done
+  if [ -z "$ONLY" ]; then
+    say "Release feed (the update feed and Homebrew cask a release writes)"
+    scripts/test-release-feed.sh || return 1
+  fi
   if [ "$NO_BUILD" = 0 ]; then
     say "Building ($CONFIG)"
     xcodebuild build "${xcflags[@]}" | tail -1

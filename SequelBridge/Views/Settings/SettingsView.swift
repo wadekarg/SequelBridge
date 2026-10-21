@@ -10,6 +10,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var appSettings: AppSettings
     @EnvironmentObject private var manager: ConnectionManager
+    @EnvironmentObject private var updater: AppUpdater
     @State private var editingConnection: Connection?
     /// The favorite Delete asks about.
     @State private var removing: Connection?
@@ -24,6 +25,8 @@ struct SettingsView: View {
                 .tabItem { Label("Connections", systemImage: "server.rack") }
             shortcutsTab
                 .tabItem { Label("Shortcuts", systemImage: "keyboard") }
+            updatesTab
+                .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
         }
         .frame(width: 480, height: 340)
     }
@@ -36,6 +39,30 @@ struct SettingsView: View {
                 }
             }
             .pickerStyle(.radioGroup)
+        }
+        .formStyle(.grouped)
+        .padding()
+    }
+
+    /// New versions (AppUpdater): checked for once a day when allowed, or now.
+    private var updatesTab: some View {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        return Form {
+            Toggle("Check for updates automatically", isOn: Binding(
+                get: { updater.automaticallyChecksForUpdates },
+                set: { updater.automaticallyChecksForUpdates = $0 }))
+                .disabled(!updater.isRunning)
+            HStack {
+                Text("SequelBridge \(version) (\(build))")
+                Spacer()
+                Button("Check Now") { updater.checkForUpdates() }
+                    .disabled(!updater.canCheckForUpdates)
+            }
+            Text("New versions come from the project's GitHub releases, signed with its key; an update "
+                 + "signed otherwise is refused. A check sends nothing about you or your databases.")
+                .font(.caption).foregroundColor(.secondary)
         }
         .formStyle(.grouped)
         .padding()

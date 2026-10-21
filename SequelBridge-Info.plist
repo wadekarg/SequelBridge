@@ -10,8 +10,17 @@
   ClickHouse HTTP interface is often reached by host name without TLS. App Transport
   Security would refuse every such http:// request (IP addresses are exempt), so a
   ClickHouse server by name could not connect at all. HTTPS is still verified as before.
+
+  SUFeedURL, SUPublicEDKey: where the updater (Sparkle, see AppUpdater) finds new
+  versions, and the public half of the key every update is signed with. The private half
+  is in the release Mac's login Keychain (Sparkle's generate_keys); a lost key means
+  existing installs can't be offered an update.
 -->
 <dict>
+	<key>SUFeedURL</key>
+	<string>https://github.com/wadekarg/SequelBridge/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>89AmS/5Uqod2P+K18tOdgQ2oyEpxAydMVIPgGpx7574=</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

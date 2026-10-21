@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 814 tests in 162 suites (about three minutes of tests after the build).
+at them, and runs all 817 tests in 163 suites (about three minutes of tests after the build).
 Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
 MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
@@ -105,7 +105,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-814 tests across 119 files.
+817 tests across 120 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -149,6 +149,7 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `QueryRouteTests` | always | which path a Query-tab statement takes (QueryRoute): refused on a read-only target only, Explain's path, USE and SET search_path (quoted, folded, not DEFAULT or a list), as typed, the app's own client, ClickHouse, the passthrough, SQLite itself, DuckDB's catalog; one server named among several; inside a Query-tab transaction nothing runs on a connection of its own (a `SET` joins it, a `CALL` is refused there); a script that leaves a transaction open isn't run on one that closes; MariaDB's `BEGIN NOT ATOMIC` opens no transaction; MySQL 8's `WITH … DELETE` runs as typed, a `WITH` whose strings or names say DELETE reads |
 | `DefaultContextTests` | always | DuckDB's one default database follows the connection a statement is for, after another connection's statement or a detach |
 | `ConnectionLifecycleTests` | always | a Connect that fails part-way leaves none of its connections attached; a server added in the workspace closes with the next Connect from Home; saving a SQLite connection writes nothing to the Keychain |
+| `AppUpdaterTests` | always | the updater (Sparkle): not started in a test run, a copy launched with files of its own (UI tests, screenshots) or a Debug build, unless `-SBUpdateFeed` names a feed; Info.plist's feed on GitHub Releases and its Ed25519 update key |
 | `ReadFallbackTests` | always | where a Query-tab read that failed through DuckDB runs again: two columns of one name and a value the MySQL driver can't convert on the app's own client, SQLite newer than DuckDB's in macOS's `sqlite3`; never a read the user stopped, nor one inside a Query-tab transaction |
 | `SQLiteToolScriptTests` | always | `sqlite3` reading a script on its standard input: a big script that fails early says which statement, and the app stays up |
 | `ContentPagingTests` | always | Content's pages, duplicating a row, and on MySQL its dates read as the server keeps them (invisible columns left out) and sorted on the table's own column |
@@ -170,6 +171,15 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `RenameDuplicateTableTests` | always | Rename and Duplicate Table on MySQL, PostgreSQL and SQLite |
 | `ResultEditingSourceTests`, `ResultEditTargetTests` | always | when a Query-tab result can be edited: one table's rows, each result column matched to a table column, the primary key in the result; the `UPDATE` keyed by the row |
 | `QueryResultEditTests` | always (SQLite) / `SB_PG_VERIFY`, `SB_MYSQL_VERIFY` | a Query-tab result edit end to end: the engine's check, the `UPDATE`, read back |
+
+**Releases and updates.** `scripts/test-release-feed.sh` (run by `run-all-tests.sh`)
+checks the files a release writes beside its DMG: the update feed (`appcast.xml`: build
+and version, the oldest macOS, the download and its signature, the release notes from
+this file's section) and the Homebrew cask. `scripts/test-update-e2e.sh APP` (run by
+`build-release.sh` on the build it is releasing) updates an older copy of the app to a
+newer one through Sparkle, headless, from a feed on 127.0.0.1, and checks that an update
+whose file doesn't match its signature is refused; it uses a throwaway key and a test
+bundle id, never the release key or the app's own settings.
 
 The headline features — the cross-server JOIN reduction and the ClickHouse bridge — each
 have a suite that proves the optimized plan returns **exactly** the same rows as the naive

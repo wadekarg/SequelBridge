@@ -11,6 +11,7 @@ import SwiftUI
 struct SequelBridgeApp: App {
     @StateObject private var connectionManager: ConnectionManager
     @StateObject private var appSettings = AppSettings(defaults: AppSettings.store())
+    @StateObject private var updater = AppUpdater()
 
     @MainActor
     init() {
@@ -35,6 +36,10 @@ struct SequelBridgeApp: App {
         }
         .defaultSize(width: 960, height: 680)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { updater.checkForUpdates() }
+                    .disabled(!updater.canCheckForUpdates)
+            }
             CommandGroup(replacing: .help) {}
         }
 
@@ -42,6 +47,7 @@ struct SequelBridgeApp: App {
             SettingsView()
                 .environmentObject(appSettings)
                 .environmentObject(connectionManager)
+                .environmentObject(updater)
         }
     }
 }
