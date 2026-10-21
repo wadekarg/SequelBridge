@@ -14,7 +14,7 @@ struct ResultsPanelView: View {
     let tab: QueryTab
     /// Runs a cell edit's UPDATE on its connection (sql, alias); the Query tab passes the
     /// engine's guarded write. Without it the grid only shows values.
-    var writeCell: ((String, String) async throws -> Void)? = nil
+    var writeCell: ((RowWrite, String) async throws -> Void)? = nil
     /// Puts a saved value into the tab's result: the unfiltered result's row, column, value.
     var applyCell: ((Int, Int, String?) -> Void)? = nil
     @State private var filterText = ""
@@ -59,10 +59,10 @@ struct ResultsPanelView: View {
             },
             revision: tab.editRevision,
             save: { row, col, value in
-                guard let target, let sql = target.update(row: row, column: col, value: value, in: shown) else {
+                guard let target, let write = target.write(row: row, column: col, value: value, in: shown) else {
                     return blocked ?? ResultEditing.computedColumn
                 }
-                do { try await writeCell(sql, target.alias) } catch { return QueryEngine.extractReason(from: error) }
+                do { try await writeCell(write, target.alias) } catch { return QueryEngine.extractReason(from: error) }
                 applyCell(shown.sourceRows?[row] ?? row, col, value)
                 return nil
             })

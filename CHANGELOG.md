@@ -5,6 +5,16 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 ## 1.2.2 — 2026-10-19
 
 ### Fixed
+- On MySQL, editing a cell, adding or deleting a row in Content, or editing a query
+  result went through DuckDB, which first read the column list of every table in the
+  database: on a database of thousands of tables the edit seemed to hang (16 s for
+  3,275 tables on a local MariaDB 10.0, minutes over a network), and the Content tab
+  loaded nothing meanwhile. It goes to the server as MySQL's own statement now, as
+  Sequel Ace sends it, at once; a TINYINT(1) or BIT(1) the grid shows as true or false
+  is written as 1 or 0 (sent as text, MariaDB stored true as 0 and MySQL 8 refused it).
+- A Query-tab result couldn't be edited when two connections were open and the
+  statement named no server ("isn't one table's rows"): it runs on the server picked
+  in the left panel, and is edited there now.
 - Editing a cell of a table made after connecting failed with "Catalog Error: Table …
   does not exist" until a reconnect: a table or schema made in the Query tab on
   PostgreSQL, or by another tool on MySQL or PostgreSQL. DuckDB's copy of the server's

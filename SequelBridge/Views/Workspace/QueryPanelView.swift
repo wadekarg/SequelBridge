@@ -51,7 +51,7 @@ struct QueryPanelView: View {
 
                     ResultsPanelView(
                         tab: session.tabs[idx],
-                        writeCell: { sql, alias in try await manager.queryEngine.executeWrite(sql, alias: alias) },
+                        writeCell: { write, alias in try await manager.queryEngine.writeRow(write, alias: alias) },
                         applyCell: { [tabID = session.tabs[idx].id] row, col, value in
                             applySavedCell(tabID: tabID, row: row, column: col, value: value)
                         })
@@ -818,6 +818,8 @@ struct QueryPanelView: View {
         // The database each alias's unqualified names mean for this run, for editing its result.
         let runDatabases = Dictionary(session.connections.map { ($0.alias, catalogDatabase(for: $0.alias)) },
                                       uniquingKeysWith: { first, _ in first })
+        // And the connection a statement naming no server runs on, to edit its result there.
+        let runActive = session.activeConnectionAlias
 
         startElapsedTimer()
 
@@ -843,7 +845,7 @@ struct QueryPanelView: View {
                     let result = try await manager.queryEngine.clickhouseQuery(alias: chAlias, sql: sql)
                     setTab { $0.result = runClock.stamped(result); $0.isRunning = false }
                     resolveResultEditing(tabID: tabID, runID: runID, sql: baseSQL,
-                                         columns: result.columns, databases: runDatabases)
+                                         columns: result.columns, databases: runDatabases, active: runActive)
                 } else {
                     // Progressive load: paint the first chunk instantly, then stream the
                     // remaining rows in the background so the whole result shows without a
@@ -922,7 +924,7 @@ struct QueryPanelView: View {
                     // it's what the status bar shows, and it must match the counter.
                     setTab { $0.result = runClock.stamped(first); $0.isRunning = false; $0.isStreaming = hasMore }
                     resolveResultEditing(tabID: tabID, runID: runID, sql: baseSQL,
-                                         columns: first.columns, databases: runDatabases)
+                                         columns: first.columns, databases: runDatabases, active: runActive)
                     // Buffer the streamed chunks and publish them in batches. Every publish
                     // re-renders the workspace, so publishing each 20k chunk made a
                     // million rows cost fifty workspace renders. StreamBatcher's size/time
@@ -1191,11 +1193,11 @@ struct QueryPanelView: View {
     /// After a run's first rows are on screen: can its result be edited, and where to.
     /// The answer is dropped if the tab has run something else meanwhile.
     private func resolveResultEditing(tabID: UUID, runID: UUID, sql: String, columns: [String],
-                                      databases: [String: String]) {
+                                      databases: [String: String], active: String?) {
         let connections = session.connections
         Task {
             let check = await manager.queryEngine.resultEditing(sql: sql, resultColumns: columns,
-                                                                connections: connections) { databases[$0] ?? "" }
+                                                                connections: connections, active: active) { databases[$0] ?? "" }
             guard let i = session.tabs.firstIndex(where: { $0.id == tabID }), session.tabs[i].runID == runID else { return }
             session.tabs[i].editTarget = check.target
             session.tabs[i].editBlockedReason = check.target == nil ? (check.reason ?? ResultEditing.notOneTable) : nil

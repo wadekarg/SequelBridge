@@ -286,6 +286,32 @@ final class QueryEngine {
         }
     }
 
+    /// A row write from the Content tab or an edited query result. On MySQL it goes to the
+    /// server as MySQL's own statement, as Sequel Ace sends it: through DuckDB the first
+    /// write waited while DuckDB read the column list of every table in the database (16 s
+    /// for 3,275 tables on a local MariaDB 10.0, minutes over a network), and the Content
+    /// tab's reads queued behind it. Elsewhere it goes through DuckDB.
+    func writeRow(_ write: RowWrite, alias: String) async throws {
+        guard engine(for: alias) == .mysql else {
+            try await executeWrite(SQLBuilder.duckWrite(write, alias: alias), alias: alias)
+            return
+        }
+        try ensureWritable(alias)
+        let columns = try await fetchColumns(alias: alias, database: write.database, table: write.table)
+        let types = Dictionary(columns.map { ($0.name, $0.dataType) }, uniquingKeysWith: { first, _ in first })
+        let sql = SQLBuilder.mysqlWrite(write, columnTypes: types)
+        let start = Date()
+        do {
+            // A row write changes no table, so DuckDB's copy of the catalog can stay.
+            try await serial(.content).execute("CALL mysql_execute(\(SQLBuilder.literal(alias)), \(SQLBuilder.literal(sql)))")
+            logStatement(sql, nil, nil, Date().timeIntervalSince(start))
+        } catch {
+            let reason = Self.extractReason(from: error)
+            logStatement(sql, nil, reason, Date().timeIntervalSince(start))
+            throw SequelBridgeError.attachFailed(reason)
+        }
+    }
+
     /// Drops the scanner's copy of `alias`'s catalog, so the next statement through DuckDB
     /// reads the server's tables and schemas again.
     func clearScannerCache(_ alias: String) async {

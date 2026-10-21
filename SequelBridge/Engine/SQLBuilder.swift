@@ -453,6 +453,63 @@ nonisolated enum SQLBuilder {
         return "UPDATE \(duckTable(alias: alias, database: database, table: table)) SET \(set) WHERE \(whereClause(primaryKey))"
     }
 
+    /// A row write in MySQL's own SQL, as Sequel Ace sends it. `columnTypes` gives each
+    /// column's type, for the values the grid shows otherwise than MySQL takes them.
+    static func mysqlWrite(_ write: RowWrite, columnTypes: [String: String]) -> String {
+        let table = mysqlTable(database: write.database, table: write.table)
+        func value(_ v: String?, _ column: String) -> String { mysqlValue(v, type: columnTypes[column] ?? "") }
+        let match = write.key.map { k in
+            k.value == nil ? "\(mysqlIdent(k.column)) IS NULL" : "\(mysqlIdent(k.column)) = \(value(k.value, k.column))"
+        }.joined(separator: " AND ")
+        switch write.change {
+        case .set(let column, let v):
+            return "UPDATE \(table) SET \(mysqlIdent(column)) = \(value(v, column)) WHERE \(match)"
+        case .insert(let values):
+            let columns = values.keys.sorted()
+            let given = columns.map { c -> String in
+                let v = values[c] ?? ""
+                switch v.uppercased() {
+                case "NULL", "CURRENT_TIMESTAMP": return v.uppercased()   // as the row sheet means them
+                default:                          return value(v, c)
+                }
+            }
+            return "INSERT INTO \(table) (\(columns.map(mysqlIdent).joined(separator: ", "))) VALUES (\(given.joined(separator: ", ")))"
+        case .delete:
+            return "DELETE FROM \(table) WHERE \(match)"
+        }
+    }
+
+    /// A value as MySQL takes it for a column of `type`. The grid shows TINYINT(1) and BIT(1)
+    /// as true and false (DuckDB reads them as BOOLEAN), which MySQL takes for them only as
+    /// 1 and 0 (MariaDB stored true as 0); a BIT given in digits is a number, since a quoted
+    /// one is bytes to MySQL. Anything else is a quoted string, its backslashes escaped.
+    static func mysqlValue(_ v: String?, type: String) -> String {
+        guard let v else { return "NULL" }
+        let t = type.lowercased()
+        if t.hasPrefix("tinyint(1)") || t.hasPrefix("bool") || t.hasPrefix("bit"),
+           let bit = ["true": "1", "false": "0"][v.lowercased()] { return bit }
+        if t.hasPrefix("bit"), !v.isEmpty, v.allSatisfy({ $0.isASCII && $0.isNumber }) { return v }
+        return mysqlLiteral(v)
+    }
+
+    /// A quoted MySQL string: a backslash is MySQL's escape character, so it is doubled too.
+    static func mysqlLiteral(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "''") + "'"
+    }
+
+    /// A row write in DuckDB's SQL: the statements above.
+    static func duckWrite(_ write: RowWrite, alias: String) -> String {
+        let key = write.key.map { (column: $0.column, value: $0.value) }
+        switch write.change {
+        case .set(let column, let value):
+            return update(alias: alias, database: write.database, table: write.table, column: column, newValue: value, primaryKey: key)
+        case .insert(let values):
+            return insert(alias: alias, database: write.database, table: write.table, values: values)
+        case .delete:
+            return delete(alias: alias, database: write.database, table: write.table, primaryKey: key)
+        }
+    }
+
     static func delete(alias: String, database: String, table: String,
                        primaryKey: [(column: String, value: String?)]) -> String {
         "DELETE FROM \(duckTable(alias: alias, database: database, table: table)) WHERE \(whereClause(primaryKey))"

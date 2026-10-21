@@ -410,7 +410,9 @@ Every panel reads schema through the engine, with one implementation per engine:
 Table metadata is cached per connection and dropped on detach. Writes made from the
 panels (column edits, Create Table, CSV import, dumps) are built per dialect by
 `SQLBuilder` and pass the same read-only guard as typed statements. A cell edit is an
-`UPDATE` keyed by the row's primary key, through the same guard (`executeWrite`). A
+`UPDATE` keyed by the row's primary key, through the same guard (`writeRow`): on MySQL
+it goes to the server as MySQL's own statement, since through DuckDB the first write
+waited while DuckDB read every table's columns in the database; elsewhere through DuckDB. A
 Query-tab result is edited only when it is one table's rows with that key in it:
 results reach the app through DuckDB without the column origins MySQL's protocol
 carries, so `ResultEditing` reads the origin from the statement and matches each result

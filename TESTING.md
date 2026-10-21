@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 746 tests in 149 suites (about three minutes of tests after the build).
+at them, and runs all 753 tests in 152 suites (about three minutes of tests after the build).
 Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
 MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
@@ -34,7 +34,9 @@ port 3312), which reports a timestamp's default as `current_timestamp()`; and My
 is `.build/run-all-tests-<server>.log`. `--mysql-port N --only "…"` points a targeted run
 at one of them. `--arch x86_64` builds and tests for Intel (under Rosetta on Apple
 Silicon); the database suites have run on Intel only so far. PostgreSQL 16 runs twice: `sb-postgres` (5433) without SSL, and
-`sb-postgres-ssl` (5434) with it, on the image's own snakeoil certificate.
+`sb-postgres-ssl` (5434) with it, on the image's own snakeoil certificate. MariaDB 10.0
+also holds `sbbig`, 3,275 MyISAM tables the size of a real production database
+(`scripts/fixtures/bigschema.py`), for timing a Content edit against it.
 
 Besides the database containers, the script runs an SSH server container (`sb-sshd`,
 `scripts/fixtures/ssh/sshd-setup.sh`) with a throwaway test key in `.build/ssh/`: port
@@ -83,7 +85,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-746 tests across 110 files.
+753 tests across 111 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -119,6 +121,8 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `SSHTunnelTests` | always (ports, arguments) / `SB_SSH_VERIFY` (tunnels) | port allocation, failure paths, MySQL through the tunnel on a current and an `ssh-rsa`-only server; the login prompts on a real ssh: a password (`pwuser`), a key with a passphrase, a one-time code from google-authenticator's PAM module answered with the TOTP an authenticator app shows (`otpuser`), Cancel stopping at once, a wrong password asked three times; a key in a private ssh-agent with no key file set |
 | `SSHLoginTests` | always | what ssh asks (password, passphrase, one-time code, also one that calls itself a "One-time password", while ssh's own `user@host's password:` stays a password whatever the host is called), when a saved answer is used, and the askpass script's round trip to the app: the answer back, a wrong token refused, Cancel failing the attempt |
 | `PostgresScannerCacheTests`, `MySQLScannerCacheTests` | `SB_PG_VERIFY`, `SB_MYSQL_VERIFY` | a Content edit of a table made after DuckDB read the server's catalog: a schema and table made in the app on PostgreSQL, and a table another connection made on either server, once the app lists it |
+| `MySQLRowWriteSQLTests`, `ResultEditingPickedConnectionTests` | always | a Content or result edit in MySQL's own SQL (true and false as 1 and 0 for TINYINT(1) and BIT, a BIT as a number, backslashes escaped, NULL and CURRENT_TIMESTAMP as the row sheet means them); a result edited on the connection picked in the left panel when two are open |
+| `MySQLRowWriteTests` | `SB_MYSQL_VERIFY` (`SB_MYSQL_BIG_DB` for the last) | those writes on the real servers, each type stored as meant, a row added with its key left to the server and deleted; an edit on a database of 3,275 tables (`sbbig`, MariaDB 10.0) done in under 2 s, where DuckDB took 16 |
 | `ExtensionCacheTests` | always | the scanner cache keeps one build per CPU, so an Apple Silicon Mac running the app natively and under Rosetta never loads the other CPU's build; a cached file from before is used only when its Mach-O header is this CPU's |
 | `ClickHouseContentTests` | `SB_CH_VERIFY` | ClickHouse's Content tab on the real server: pages sorted and paged, every filter operator on a number column with its value quoted, and a `%`, `_` or backslash matching as itself |
 | `ConnectionTypeTests` | always (what each engine offers) / `SB_SSH_VERIFY`, `SB_SOCKET_VERIFY` | every engine × connection type: PostgreSQL and ClickHouse over SSH, MySQL and PostgreSQL over sockets, EXPLAIN on both, ClickHouse socket refused, Test Connection and quitting close their tunnels |

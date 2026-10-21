@@ -31,15 +31,19 @@ nonisolated struct ResultEditTarget: Equatable {
         columns[i] == nil ? ResultEditing.computedColumn : nil
     }
 
-    /// The UPDATE that sets one cell of `result` (the rows as shown), keyed by that row's
+    /// The write that sets one cell of `result` (the rows as shown), keyed by that row's
     /// primary-key values. nil for a computed column.
-    func update(row: Int, column: Int, value: String?, in result: QueryResult) -> String? {
+    func write(row: Int, column: Int, value: String?, in result: QueryResult) -> RowWrite? {
         guard let name = columns[column] else { return nil }
-        let key = primaryKey.map { k -> (column: String, value: String?) in
-            (k.column, result.isNull(row, k.resultIndex) ? nil : result.cells.value(row, k.resultIndex))
+        let key = primaryKey.map { k in
+            RowWrite.Key(column: k.column, value: result.isNull(row, k.resultIndex) ? nil : result.cells.value(row, k.resultIndex))
         }
-        return SQLBuilder.update(alias: alias, database: database, table: table,
-                                 column: name, newValue: value, primaryKey: key)
+        return RowWrite(database: database, table: table, change: .set(column: name, value: value), key: key)
+    }
+
+    /// That write as DuckDB runs it.
+    func update(row: Int, column: Int, value: String?, in result: QueryResult) -> String? {
+        write(row: row, column: column, value: value, in: result).map { SQLBuilder.duckWrite($0, alias: alias) }
     }
 }
 
@@ -241,13 +245,15 @@ extension QueryEngine {
     /// Whether a Query-tab result can be edited, and where: ResultEditing's rule with the
     /// table's columns and key read from its server. `database` gives the database
     /// (schema) each alias's unqualified table names meant when the statement ran.
-    func resultEditing(sql: String, resultColumns: [String], connections: [Connection],
+    func resultEditing(sql: String, resultColumns: [String], connections: [Connection], active: String? = nil,
                        database: (String) -> String) async -> (target: ResultEditTarget?, reason: String?) {
         guard let source = ResultEditing.source(of: sql, aliases: connections.map(\.alias)) else {
             return (nil, ResultEditing.notOneTable)
         }
-        // A table named without an alias belongs to the only connection there is.
+        // A table named without an alias is the connection's the statement ran on: the one
+        // picked in the left panel (`active`), or the only one there is.
         let conn: Connection? = source.alias.map { a in connections.first { $0.alias.lowercased() == a.lowercased() } }
+            ?? connections.first { $0.alias == active }
             ?? (connections.count == 1 ? connections[0] : nil)
         guard let conn else { return (nil, ResultEditing.notOneTable) }
         if let reason = CellEditability.reason(engine: conn.engine, readOnly: conn.readOnly, hasPrimaryKey: true) {

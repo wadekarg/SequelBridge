@@ -195,6 +195,7 @@ seed() {
   need_docker
   say "Seeding fixtures"
   docker exec -i "$MARIA"  mysql -uroot -p"$MY_ROOT_PW" < "$FIX/mysql.sql";            ok "mariadb $MARIA_PORT  (sbtest/sbwrite/sbreal)"
+  python3 "$FIX/bigschema.py" | docker exec -i "$MARIA" mysql -uroot -p"$MY_ROOT_PW";    ok "mariadb $MARIA_PORT  (sbbig: 3,275 tables)"
   docker exec -i "$MARIA2" mysql -uroot -p"$MY_ROOT_PW" < "$FIX/mysql.sql";            ok "mariadb $MARIA2_PORT (second server for MultiServer)"
   docker exec -i "$PG" psql -U "$PG_USER" -d "$PG_DB" -v ON_ERROR_STOP=1 < "$FIX/postgres.sql" >/dev/null; ok "postgres $PG_PORT (sbtest)"
   docker exec -i "$CH" clickhouse-client -u "$CH_USER" --password "$CH_PW" --multiquery < "$FIX/clickhouse.sql"; ok "clickhouse $CH_HTTP (sbtest.fleet_meta, default.events)"
@@ -226,6 +227,7 @@ export_db_env() {
   export TEST_RUNNER_SB_MYSQL_PORT2=$MARIA2_PORT
   export TEST_RUNNER_SB_MYSQL_USER=root       TEST_RUNNER_SB_MYSQL_PASS=$MY_ROOT_PW
   export TEST_RUNNER_SB_MYSQL_DB=sbtest        TEST_RUNNER_SB_MYSQL_WRITE_DB=sbwrite  TEST_RUNNER_SB_MYSQL_REAL_DB=sbreal
+  export TEST_RUNNER_SB_MYSQL_BIG_DB=sbbig     # MariaDB 10.0 only: 3,275 tables
   # Destructive DDL (the MySQL-family server above, db sbwrite)
   export TEST_RUNNER_SB_DDL_VERIFY=1
   # Cross-server JOIN reduction
@@ -286,7 +288,7 @@ run_tests() {
 # The MySQL family suites again, with their server pointed at MySQL 8.4, MariaDB 11.4
 # and MySQL 8.0 in turn. MariaDB 10.0 stays the second server, so MultiServer joins
 # across versions.
-MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests ContentBrowseTests ServerToolsTests QueryTabAsTypedTests SSLConnectionTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests ReadOnlyMySQLTests MySQLNativeStatementTests MySQLScannerCacheTests
+MYSQL_SUITES=(MySQLIntegrationTests MySQLRelationsTests DatabaseSwitchTests ContentBrowseTests ServerToolsTests QueryTabAsTypedTests SSLConnectionTests QueryEngineDDLTests DatabaseDumpTests PanelWritePathTests ReadOnlyModeTests ReadOnlyMySQLTests MySQLNativeStatementTests MySQLScannerCacheTests MySQLRowWriteTests
               RealSchemaTests MultiServerTests DestructiveDDLVerifyTests QueryResultEditTests PostgresTests
               ClickHouseBridgeTests CrossEngineJoinTests CrossJoinReductionTests FallbackMaterializeDBTests
               QueryCancelTests PushdownDBTests)
@@ -298,6 +300,7 @@ run_mysql_pass() { # label port log-name
     export TEST_RUNNER_SB_MYSQL_PORT=$2  TEST_RUNNER_SB_MYSQL_PORT2=$MARIA_PORT
     export TEST_RUNNER_SB_XJOIN_PORT=$2  TEST_RUNNER_SB_CHB_MY_PORT=$2
     export TEST_RUNNER_SB_SSL_TLS_PORT=$2      # each of these servers offers TLS
+    export TEST_RUNNER_SB_MYSQL_BIG_DB=        # the 3,275-table database is MariaDB 10.0's
     set +e
     xcodebuild test "${xcflags[@]}" 2>&1 | tee "$ROOT/.build/run-all-tests-$3.log" | \
       grep -E "Test run with|✘|error:|\*\* TEST"
@@ -329,6 +332,7 @@ if [ -n "$MYSQL_PORT_OVERRIDE" ]; then
   export TEST_RUNNER_SB_CHB_MY_PORT=$MYSQL_PORT_OVERRIDE
   # Every server here but MariaDB 10.0 offers TLS: the SSL suite uses the one picked.
   [ "$MYSQL_PORT_OVERRIDE" != "$MARIA_PORT" ] && export TEST_RUNNER_SB_SSL_TLS_PORT=$MYSQL_PORT_OVERRIDE
+  [ "$MYSQL_PORT_OVERRIDE" != "$MARIA_PORT" ] && export TEST_RUNNER_SB_MYSQL_BIG_DB=
 fi
 rc=0
 run_tests || rc=1

@@ -504,9 +504,10 @@ struct ContentPanel: View {
             guard idx < rows.count else { continue }
             let key = primaryKeyValues(rowIndex: idx)
             guard !key.isEmpty else { continue }
-            let sql = SQLBuilder.delete(alias: conn.alias, database: db, table: table.name, primaryKey: key)
+            let write = RowWrite(database: db, table: table.name, change: .delete,
+                                 key: key.map { RowWrite.Key(column: $0.column, value: $0.value) })
             do {
-                try await manager.queryEngine.executeWrite(sql, alias: conn.alias)
+                try await manager.queryEngine.writeRow(write, alias: conn.alias)
             } catch {
                 if QueryEngine.isCancellation(error) { break }
                 opError = QueryEngine.extractReason(from: error)
@@ -568,10 +569,10 @@ struct ContentPanel: View {
 
     private func insertRow(_ values: [String: String]) async {
         let db = session.selectedDatabase[conn.alias] ?? conn.database
-        let sql = SQLBuilder.insert(alias: conn.alias, database: db, table: table.name, values: values)
         var opError: String? = nil
         do {
-            try await manager.queryEngine.executeWrite(sql, alias: conn.alias)
+            try await manager.queryEngine.writeRow(RowWrite(database: db, table: table.name, change: .insert(values)),
+                                                   alias: conn.alias)
         } catch {
             if !QueryEngine.isCancellation(error) { opError = QueryEngine.extractReason(from: error) }
         }
@@ -589,10 +590,10 @@ struct ContentPanel: View {
         let col = columns[colIndex]
         let key = primaryKeyValues(rowIndex: rowIndex)
         guard !key.isEmpty else { return "The row's primary key isn't on this page, so it can't be updated." }
-        let sql = SQLBuilder.update(alias: conn.alias, database: db, table: table.name,
-                                    column: col, newValue: newValue, primaryKey: key)
+        let write = RowWrite(database: db, table: table.name, change: .set(column: col, value: newValue),
+                             key: key.map { RowWrite.Key(column: $0.column, value: $0.value) })
         do {
-            try await manager.queryEngine.executeWrite(sql, alias: conn.alias)
+            try await manager.queryEngine.writeRow(write, alias: conn.alias)
         } catch {
             return QueryEngine.extractReason(from: error)
         }
