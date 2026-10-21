@@ -2,7 +2,7 @@
 
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## Unreleased
+## 1.2.3 — 2026-10-21
 
 ### Fixed
 - PostgreSQL, in a schema other than public picked in the left panel: inside a
