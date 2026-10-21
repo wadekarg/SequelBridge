@@ -35,6 +35,8 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   it; pg_dump's own \restrict and \connect lines are left out.
 - MySQL 8's WITH … UPDATE / DELETE runs on the server as typed.
 - Saving a SQLite connection left an empty item in the login Keychain.
+- Relations: Add Foreign Key asked for the column's name to be typed unless Structure
+  had been opened first; it offers the table's columns now.
 - MySQL and MariaDB: legacy dates broke Content. A zero date (0000-00-00) showed as
   NULL, and a date with a zero month or day (2026-00-15) failed the whole page. Content
   now shows them as the server keeps them. In the Query tab such a read runs on the
