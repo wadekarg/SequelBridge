@@ -9,6 +9,7 @@
 //  token, and the app answers. These need no SSH server.
 //
 
+import AppKit
 import Foundation
 import Testing
 @testable import SequelBridge
@@ -108,6 +109,19 @@ struct SSHLoginTests {
         #expect(r.stdout.isEmpty)
         #expect(r.status != 0)
         #expect(askpass.cancelled)
+    }
+
+    @MainActor @Test("the login dialog has a field wide enough to type in, and typing goes there: a password, a passphrase, a one-time code")
+    func dialogFieldIsUsable() {
+        for kind in [SSHLogin.Kind.password, .passphrase, .code] {
+            let request = SSHLoginRequest(prompt: "Enter PASSCODE:", kind: kind, timesAsked: 1,
+                                          user: "me", host: "203.0.113.7", connectionID: UUID())
+            let dialog = SSHLoginPrompt.loginAlert(request, saved: nil)
+            dialog.alert.layout()
+            #expect(dialog.field.frame.width >= 200, "\(kind): the field is \(dialog.field.frame.width) points wide")
+            #expect(dialog.field.frame.height >= 20, "\(kind): the field is \(dialog.field.frame.height) points high")
+            #expect(dialog.alert.window.initialFirstResponder === dialog.field, "\(kind): typing doesn't go to the field")
+        }
     }
 
     @MainActor @Test("ssh keeps BatchMode only when nothing can answer its questions")

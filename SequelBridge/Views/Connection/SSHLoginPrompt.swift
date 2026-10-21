@@ -32,6 +32,20 @@ enum SSHLoginPrompt {
             return value
         }
 
+        let dialog = loginAlert(request, saved: saved)
+        guard dialog.alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let value = dialog.field.stringValue
+        if let kind, let remember = dialog.remember {
+            if remember.state == .on { Keychain.save(value, for: request.connectionID, kind: kind) }
+            else { Keychain.delete(for: request.connectionID, kind: kind) }
+        }
+        return value
+    }
+
+    /// The dialog for a password, a key's passphrase or a one-time code: ssh's question, a
+    /// field for the answer and, for a password or passphrase, "Remember in Keychain".
+    static func loginAlert(_ request: SSHLoginRequest, saved: String?)
+        -> (alert: NSAlert, field: NSSecureTextField, remember: NSButton?) {
         let alert = NSAlert()
         alert.messageText = "SSH login to \(request.user)@\(request.host)"
         let question = request.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -39,28 +53,27 @@ enum SSHLoginPrompt {
         alert.addButton(withTitle: "Log In")
         alert.addButton(withTitle: "Cancel")
 
-        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
-        let stack = NSStackView(views: [field])
-        stack.orientation = .vertical
-        stack.alignment = .leading
+        // Laid out by frames: in a stack view the field took its own width, which for an
+        // empty field is none, so "Enter PASSCODE:" showed nowhere to type.
+        let width: CGFloat = 300, fieldHeight: CGFloat = 24
         var remember: NSButton?
-        if kind != nil {
+        if keychainKind(request.kind) != nil {
             let box = NSButton(checkboxWithTitle: "Remember in Keychain", target: nil, action: nil)
             box.state = saved == nil ? .off : .on
-            stack.addArrangedSubview(box)
+            box.sizeToFit()
             remember = box
         }
-        stack.frame = NSRect(x: 0, y: 0, width: 280, height: remember == nil ? 24 : 50)
-        alert.accessoryView = stack
-        alert.window.initialFirstResponder = field
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
-        let value = field.stringValue
-        if let kind, let remember {
-            if remember.state == .on { Keychain.save(value, for: request.connectionID, kind: kind) }
-            else { Keychain.delete(for: request.connectionID, kind: kind) }
+        let height = fieldHeight + (remember.map { 8 + $0.frame.height } ?? 0)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: height - fieldHeight, width: width, height: fieldHeight))
+        container.addSubview(field)
+        if let remember {
+            remember.frame.origin = .zero
+            container.addSubview(remember)
         }
-        return value
+        alert.accessoryView = container
+        alert.window.initialFirstResponder = field
+        return (alert, field, remember)
     }
 
     /// A server ssh hasn't met: its key's fingerprint, to trust it or not. "yes" is what

@@ -5,6 +5,9 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 ## 1.2.2 — 2026-10-19
 
 ### Fixed
+- The SSH login dialog had no field to type a one-time code in ("Enter PASSCODE:"):
+  it shrank to nothing, and a password's or passphrase's to half the dialog. It is
+  the dialog's width now, with the cursor in it.
 - An SSH server whose key had changed (a rebuilt server, or another machine on its
   address) failed with ssh's warning banner and advice to check the host and username.
   It says now which server, the key it sent and where the old one is remembered, and
