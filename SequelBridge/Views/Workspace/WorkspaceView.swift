@@ -52,15 +52,6 @@ struct WorkspaceView: View {
             manager.queryEngine.onAppStatement = { [weak session] sql, rows, error, duration in
                 session?.appendConsole(sql: sql, rowsAffected: rows, error: error, duration: duration, byApp: true)
             }
-            // Warm only the scanners this workspace will actually use — each is
-            // ~90MB, so preloading MySQL's for a Postgres-only workspace is a
-            // pointless download.
-            let needed = Set(manager.active.map(\.engine.extensionName)).filter { !$0.isEmpty }
-            Task {
-                for ext in needed {
-                    try? await manager.queryEngine.ensureExtensionLoaded(ext)
-                }
-            }
         }
     }
 

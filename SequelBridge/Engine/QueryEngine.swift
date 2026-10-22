@@ -336,7 +336,6 @@ final class QueryEngine {
 
     init() throws {
         let config = Database.Configuration()
-        try? config.setValue("true", forKey: "allow_unsigned_extensions")
         // The drivers are built in (scripts/build-duckdb.sh): DuckDB is never to fetch
         // an extension from the network, nor use one another DuckDB program installed in
         // the shared ~/.duckdb/extensions (one there was reported in place of the app's
@@ -368,7 +367,7 @@ final class QueryEngine {
         }
     }
 
-    // MARK: - MySQL Extension Loader
+    // MARK: - Drivers
 
     /// Loads a database driver (a DuckDB scanner extension, built into the app) and sets
     /// what it needs. Must be called before the corresponding ATTACH. Safe to call
@@ -389,154 +388,6 @@ final class QueryEngine {
         // grid had no way to show them and they read NULL. Set whether or not the driver was
         // just loaded: a built-in one is loaded when DuckDB starts.
         if name.hasPrefix("postgres") { try? await userSerial.execute("SET GLOBAL pg_array_as_varchar = true") }
-    }
-
-    func ensureMySQLExtensionLoaded() async throws {
-        try await ensureExtensionLoaded("mysql_scanner")
-    }
-
-    /// DuckDB version the app links (vendor/DuckDB, via scripts/fetch-duckdb.sh). DuckDB
-    /// extensions are built per exact version — the download URL AND the cache path are
-    /// scoped by it, so bumping the vendored DuckDB here auto-invalidates stale cached
-    /// extensions and fetches the matching builds. Keep in lockstep with the libs.
-    nonisolated static let duckDBVersion = "v1.5.6"
-
-    /// The DuckDB platform this process loads: an Apple Silicon Mac runs osx_arm64
-    /// natively and osx_amd64 under Rosetta.
-    nonisolated static var extensionPlatform: String {
-        #if arch(arm64)
-        "osx_arm64"
-        #else
-        "osx_amd64"
-        #endif
-    }
-
-    /// Where a download of `name` goes: a folder per CPU, since one Mac can run the app
-    /// natively and under Rosetta, which need different builds of a scanner.
-    nonisolated static func extensionFile(named name: String, in versionDir: URL) -> URL {
-        versionDir.appendingPathComponent(extensionPlatform, isDirectory: true)
-            .appendingPathComponent("\(name).duckdb_extension")
-    }
-
-    /// A cached build of `name` this process can load: the one in this CPU's folder, else
-    /// one from before the cache was split by CPU, if its Mach-O header is this CPU's.
-    nonisolated static func cachedExtension(named name: String, in versionDir: URL) -> URL? {
-        let scoped = extensionFile(named: name, in: versionDir)
-        if FileManager.default.fileExists(atPath: scoped.path) { return scoped }
-        let unsplit = versionDir.appendingPathComponent("\(name).duckdb_extension")
-        return isLibraryForThisCPU(unsplit) ? unsplit : nil
-    }
-
-    /// Whether `url` starts with a 64-bit Mach-O header for this process's CPU.
-    nonisolated static func isLibraryForThisCPU(_ url: URL) -> Bool {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
-        defer { try? handle.close() }
-        guard let head = try? handle.read(upToCount: 8), head.count == 8 else { return false }
-        let b = [UInt8](head)
-        func word(_ i: Int) -> UInt32 { UInt32(b[i]) | UInt32(b[i + 1]) << 8 | UInt32(b[i + 2]) << 16 | UInt32(b[i + 3]) << 24 }
-        guard word(0) == 0xFEED_FACF else { return false }                                   // MH_MAGIC_64
-        return word(4) == (extensionPlatform == "osx_arm64" ? 0x0100_000C : 0x0100_0007)     // CPU_TYPE_ARM64 / X86_64
-    }
-
-    /// Downloads (if needed) the extension binary, decompresses it, and ad-hoc signs it.
-    /// Returns the path to the ready-to-load `.duckdb_extension` file.
-    nonisolated private static func prepareExtension(named name: String) async throws -> String {
-        // Version-scoped cache dir so a DuckDB bump never loads a stale, incompatible build;
-        // inside it, one folder per CPU.
-        let versionDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("SequelBridge/duckdb/\(duckDBVersion)", isDirectory: true)
-        if let cached = cachedExtension(named: name, in: versionDir) {
-            Log.engine.info("Using cached extension at \(cached.path, privacy: .public)")
-            return cached.path
-        }
-        let extFile = extensionFile(named: name, in: versionDir)
-        let cacheDir = extFile.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-        let platform = extensionPlatform
-
-        let urlStr = "https://extensions.duckdb.org/\(duckDBVersion)/\(platform)/\(name).duckdb_extension.gz"
-        guard let url = URL(string: urlStr) else {
-            throw SequelBridgeError.attachFailed("Invalid extension URL")
-        }
-
-        Log.engine.info("Downloading \(name, privacy: .public) from \(urlStr, privacy: .public)…")
-        let (tmpURL, response) = try await URLSession.shared.download(from: url)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw SequelBridgeError.attachFailed("Extension download failed (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0))")
-        }
-
-        // Decompress to a UNIQUE temp file: concurrent first-launch / CI downloads must
-        // not collide on a shared name (a fixed name let two processes gunzip into the
-        // same file and corrupt it). Then atomically place it; if another process won the
-        // race and already created extFile, keep theirs.
-        let decompressed = cacheDir.appendingPathComponent("\(name)-\(UUID().uuidString).tmp")
-        try Self.gunzip(input: tmpURL, output: decompressed)
-        try? FileManager.default.removeItem(at: tmpURL)
-        if FileManager.default.fileExists(atPath: extFile.path) {
-            try? FileManager.default.removeItem(at: decompressed)
-            Log.engine.info("\(name, privacy: .public) already placed by a concurrent download")
-            return extFile.path
-        }
-        do {
-            try FileManager.default.moveItem(at: decompressed, to: extFile)
-        } catch {
-            try? FileManager.default.removeItem(at: decompressed)
-            if FileManager.default.fileExists(atPath: extFile.path) { return extFile.path }
-            throw error
-        }
-
-        // Ad-hoc sign only required on Apple Silicon; on Intel, disable-library-validation suffices
-        #if arch(arm64)
-        try? Self.adhocSign(extFile)
-        #endif
-        Log.engine.info("Extension ready at \(extFile.path, privacy: .public)")
-        return extFile.path
-    }
-
-    nonisolated static func gunzip(input: URL, output: URL) throws {
-        // The decompressed extension is ~90MB. Piping it to the parent and only
-        // draining the pipe *after* waitUntilExit() deadlocks: gunzip fills the
-        // 64KB pipe buffer, blocks on write, and never exits — so the wait never
-        // returns. Writing straight to the destination file removes the pipe
-        // entirely, and keeps the payload out of memory.
-        guard FileManager.default.createFile(atPath: output.path, contents: nil) else {
-            throw SequelBridgeError.attachFailed("Could not create \(output.lastPathComponent)")
-        }
-        let sink = try FileHandle(forWritingTo: output)
-        defer { try? sink.close() }
-
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/gunzip")
-        p.arguments = ["-c", input.path]
-        p.standardOutput = sink
-        let errPipe = Pipe()
-        p.standardError = errPipe
-        try p.run()
-
-        // stderr stays a pipe: it is small, and reading to EOF completes when the
-        // child exits. Read before waiting so a chatty failure cannot block either.
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-
-        guard p.terminationStatus == 0 else {
-            try? FileManager.default.removeItem(at: output)
-            let msg = String(data: errData, encoding: .utf8) ?? ""
-            throw SequelBridgeError.attachFailed("gunzip failed: \(msg)")
-        }
-    }
-
-    nonisolated private static func adhocSign(_ url: URL) throws {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-        p.arguments = ["-s", "-", "-f", url.path]
-        let errPipe = Pipe()
-        p.standardError = errPipe
-        try p.run(); p.waitUntilExit()
-        if p.terminationStatus != 0 {
-            let msg = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw SequelBridgeError.attachFailed("codesign failed: \(msg)")
-        }
-        Log.engine.info("Ad-hoc signed \(url.lastPathComponent, privacy: .public)")
     }
 
     // MARK: - Connection management

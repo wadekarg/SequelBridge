@@ -35,4 +35,17 @@ struct BuiltInDriversTests {
         let path = try #require(folder.rows.first?.first)
         #expect(path.hasSuffix("SequelBridge/duckdb-extensions") && !path.contains("/.duckdb/"), "\(path)")
     }
+
+    /// The downloaded drivers were unsigned: DuckDB had to allow unsigned extensions, and
+    /// macOS had to let the app load code no one had signed (an entitlement). Neither is
+    /// needed now, and each would let a file put on the Mac run inside the app.
+    @Test("no unsigned extension loads, and the app keeps macOS's library validation")
+    func noUnsignedCode() async throws {
+        let engine = try QueryEngine()
+        let unsigned = try await engine.query("SELECT current_setting('allow_unsigned_extensions')")
+        #expect(unsigned.rows.first?.first == "false")
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let entitlements = try String(contentsOf: repo.appendingPathComponent("SequelBridge/SequelBridge.entitlements"), encoding: .utf8)
+        #expect(!entitlements.contains("com.apple.security.cs.disable-library-validation"))
+    }
 }
