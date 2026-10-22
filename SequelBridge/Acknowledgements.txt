@@ -2,9 +2,12 @@ SequelBridge includes code from the projects below, built into the app. Their
 licenses follow, each with its project.
 
 MariaDB Connector/C is linked into the app statically, under the GNU Lesser General
-Public License 2.1. To use a modified version of it: SequelBridge's source, and the recipe
-that builds its DuckDB with the database drivers (scripts/build-duckdb.sh, with the
-versions and patches it uses), are at
+Public License 2.1. Its source, as compiled for the app (with the patches vcpkg
+applies), is in the sources folder of each release of the app's DuckDB package:
+https://github.com/wadekarg/sequelbridge-duckdb/releases
+To use a modified version of it: SequelBridge's source, and the recipe that builds its
+DuckDB with the database drivers (scripts/build-duckdb.sh, with the versions and
+patches it uses), are at
 https://github.com/wadekarg/SequelBridge
 Build DuckDB with your version of the library, then the app (CONTRIBUTING.md says how).
 

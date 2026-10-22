@@ -1,8 +1,8 @@
 #!/bin/bash
 # build-duckdb.sh ARCH — DuckDB with the MySQL, PostgreSQL and SQLite drivers built in, for
 # one CPU (arm64 or x86_64): its static libraries, the drivers' libraries (MariaDB
-# Connector/C, libpq, OpenSSL, curl, zlib, lz4), duckdb.h and their license files, in
-# $SB_DUCKDB_WORK/out/ARCH. scripts/package-duckdb.sh combines both CPUs into the zip
+# Connector/C, libpq, OpenSSL, curl, zlib, lz4), duckdb.h, their license files and
+# MariaDB Connector/C's source (LGPL), in $SB_DUCKDB_WORK/out/ARCH. scripts/package-duckdb.sh combines both CPUs into the zip
 # scripts/fetch-duckdb.sh installs.
 #
 # DuckDB's own prebuilt libraries leave the drivers out: the app downloaded them from
@@ -108,6 +108,16 @@ for d in "$WORK/duckdb-$ARCH"/third_party/*/; do
   f=$(ls "$d" | grep -i -E '^(LICENSE|COPYING)' | head -1 || true)
   if [ -n "$f" ]; then cp "$d$f" "$OUT/licenses/duckdb-third-party-$(basename "$d").txt"; fi
 done
+# MariaDB Connector/C is LGPL and linked in statically: the package carries the source
+# vcpkg compiled (its release, with the port's patches applied) and the port, which says
+# how it was built.
+VER=$(sed -n 's/.*"version[a-z-]*": *"\([^"]*\)".*/\1/p' "$WORK/vcpkg/ports/libmariadb/vcpkg.json" | head -1)
+SRCS=("$WORK"/vcpkg/buildtrees/libmariadb/src/v"$VER"-*.clean)
+[ ${#SRCS[@]} = 1 ] && [ -d "${SRCS[0]}" ] || { echo "MariaDB Connector/C $VER's source isn't in vcpkg's buildtrees"; exit 1; }
+mkdir -p "$OUT/sources"
+tar -czf "$OUT/sources/mariadb-connector-c-$VER.tar.gz" --exclude .git -C "$(dirname "${SRCS[0]}")" \
+  -s "#^$(basename "${SRCS[0]}")#mariadb-connector-c-$VER#" "$(basename "${SRCS[0]}")"
+cp -R "$WORK/vcpkg/ports/libmariadb" "$OUT/sources/vcpkg-port-libmariadb"
 for lib in mysql_scanner_extension postgres_scanner_extension sqlite_scanner_extension; do
   [ -f "$OUT/libs/lib$lib.a" ] || { echo "lib$lib.a is missing: the driver wasn't built in"; exit 1; }
 done

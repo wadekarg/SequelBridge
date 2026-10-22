@@ -25,6 +25,8 @@ LZ4) linked in, and `scripts/package-duckdb.sh` combines both CPUs into the zip 
 - `libs/`, `Sources/Cduckdb/include/duckdb.h` and `licenses/` — **NOT in git**. Fetched
   by `scripts/fetch-duckdb.sh`; `licenses/` holds the license file of each library in
   the package, which `scripts/acknowledgements.py` puts in the app's Acknowledgements.
+  The zip also carries `sources/`, not installed here: MariaDB Connector/C's source as
+  compiled (it is LGPL, and linked in statically) and the vcpkg port that built it.
 - `recipe/` — what `scripts/build-duckdb.sh` builds with: patches to the MySQL and
   PostgreSQL scanners (each marked `SequelBridge`) so they link statically, vcpkg
   triplets for macOS 14, and the list of extensions built in.

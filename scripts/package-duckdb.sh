@@ -1,8 +1,8 @@
 #!/bin/bash
 # package-duckdb.sh [--single ARCH] — the zip scripts/fetch-duckdb.sh installs: each static
 # library of out/arm64 and out/x86_64 (scripts/build-duckdb.sh) combined into one universal
-# archive with lipo, duckdb.h and the license files; and its SHA-256, which
-# fetch-duckdb.sh pins. --single packages one CPU's build, for a local try.
+# archive with lipo, duckdb.h, the license files and MariaDB Connector/C's source; and its
+# SHA-256, which fetch-duckdb.sh pins. --single packages one CPU's build, for a local try.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 WORK="${SB_DUCKDB_WORK:-$HOME/Library/Caches/SequelBridge-duckdb-build}"
@@ -26,5 +26,6 @@ else
 fi
 cp "$SRC/include/duckdb.h" "$STAGE/include/"
 cp -R "$SRC/licenses" "$STAGE/licenses"
-rm -f "$ZIP" && (cd "$STAGE" && zip -qr "$ZIP" libs include licenses)
+cp -R "$SRC/sources" "$STAGE/sources"
+rm -f "$ZIP" && (cd "$STAGE" && zip -qr "$ZIP" libs include licenses sources)
 (cd "$WORK" && shasum -a 256 "$(basename "$ZIP")" | tee "$ZIP.sha256")

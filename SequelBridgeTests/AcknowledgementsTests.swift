@@ -34,11 +34,12 @@ struct AcknowledgementsTests {
         }
     }
 
-    @Test("MariaDB Connector/C, linked statically under the LGPL, says how to relink it")
+    @Test("MariaDB Connector/C, linked statically under the LGPL, says where its source is and how to relink it")
     func relinking() throws {
         let t = try text()
+        #expect(t.contains("https://github.com/wadekarg/sequelbridge-duckdb/releases"), "doesn't say where its source is")
         #expect(t.contains("scripts/build-duckdb.sh"))
-        #expect(t.contains("https://github.com/wadekarg/SequelBridge"))
+        #expect(t.contains("https://github.com/wadekarg/SequelBridge\n"))
     }
 
     @MainActor
