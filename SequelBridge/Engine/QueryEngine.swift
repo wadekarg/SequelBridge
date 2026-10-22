@@ -337,6 +337,14 @@ final class QueryEngine {
     init() throws {
         let config = Database.Configuration()
         try? config.setValue("true", forKey: "allow_unsigned_extensions")
+        // The drivers are built in (scripts/build-duckdb.sh): DuckDB is never to fetch
+        // an extension from the network, nor use one another DuckDB program installed in
+        // the shared ~/.duckdb/extensions (one there was reported in place of the app's
+        // own). The app's own folder stays empty.
+        try? config.setValue("false", forKey: "autoinstall_known_extensions")
+        let extensions = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("SequelBridge/duckdb-extensions", isDirectory: true)
+        try? config.setValue(extensions.path, forKey: "extension_directory")
         db = try Database(store: .inMemory, configuration: config)
         conn = try db.connect()
         let contentConn = try db.connect()
@@ -362,25 +370,24 @@ final class QueryEngine {
 
     // MARK: - MySQL Extension Loader
 
-    /// Downloads, decompresses, ad-hoc signs, and loads a DuckDB scanner extension.
-    /// Must be called before the corresponding ATTACH. Safe to call multiple times.
+    /// Loads a database driver (a DuckDB scanner extension, built into the app) and sets
+    /// what it needs. Must be called before the corresponding ATTACH. Safe to call
+    /// multiple times.
     func ensureExtensionLoaded(_ name: String) async throws {
         // All access to the primary connection must go through userSerial — the
         // same actor user queries run on — or a LOAD/check here can execute on the
         // main thread while a user query runs conn.query() on the actor's thread,
         // and DuckDB's connection is not thread-safe (heap corruption / crash).
-        if let check = try? await userSerial.query(
-            "SELECT extension_name FROM duckdb_extensions() WHERE extension_name=\(SQLBuilder.literal(name)) AND loaded=true"),
-           check.rowCount > 0 {
-            Log.engine.info("\(name, privacy: .public) already loaded")
-            return
+        let check = try? await userSerial.query(
+            "SELECT extension_name FROM duckdb_extensions() WHERE extension_name=\(SQLBuilder.literal(name)) AND loaded=true")
+        if (check?.rowCount ?? 0) == 0 {
+            // Built into the app (scripts/build-duckdb.sh): loaded by its name, nothing fetched.
+            try await userSerial.execute("LOAD \(name)")
+            Log.engine.info("\(name, privacy: .public) loaded")
         }
-
-        let extPath = try await Self.prepareExtension(named: name)
-        try await userSerial.execute("LOAD '\(extPath)'")
-        Log.engine.info("\(name, privacy: .public) loaded from \(extPath, privacy: .public)")
         // PostgreSQL arrays as PostgreSQL writes them ({math,engines}): read as lists, the
-        // grid had no way to show them and they read NULL.
+        // grid had no way to show them and they read NULL. Set whether or not the driver was
+        // just loaded: a built-in one is loaded when DuckDB starts.
         if name.hasPrefix("postgres") { try? await userSerial.execute("SET GLOBAL pg_array_as_varchar = true") }
     }
 

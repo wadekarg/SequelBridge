@@ -38,9 +38,10 @@ connections.json
 *.dmg
 dist/
 
-# DuckDB prebuilt static libs + header — fetched by scripts/fetch-duckdb.sh (not committed)
+# DuckDB's static libs (drivers built in), header and licenses — fetched by scripts/fetch-duckdb.sh (not committed)
 vendor/DuckDB/libs/
 vendor/DuckDB/Sources/Cduckdb/include/duckdb.h
+vendor/DuckDB/licenses/
 
 # demo SQLite file written by scripts/seed-demo.sh
 scripts/fixtures/demo/ref.sqlite

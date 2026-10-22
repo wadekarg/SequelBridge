@@ -2,14 +2,13 @@
 import PackageDescription
 import Foundation
 
-// Local DuckDB package: the duckdb-swift Swift wrapper (1.5.x) over DuckDB 1.5.6's
-// PREBUILT static libraries. No compiling DuckDB from source, no bundled dylib — the
-// app stays statically linked (notarized-DMG model intact), on a genuine v1.5.6 so the
-// mysql/postgres/sqlite scanner extensions (built per DuckDB version) load.
+// Local DuckDB package: the duckdb-swift Swift wrapper (1.5.x) over DuckDB 1.5.6's static
+// libraries, built with the MySQL, PostgreSQL and SQLite drivers in them
+// (scripts/build-duckdb.sh): the app downloads no driver. No bundled dylib — the app stays
+// statically linked (notarized-DMG model intact).
 //
-// The ~60MB of static libs + duckdb.h are NOT in git; `scripts/fetch-duckdb.sh`
-// downloads them from DuckDB's release CDN into Sources/Cduckdb/include + libs/.
-// Run that script once before building.
+// The ~70MB of static libs + duckdb.h are NOT in git; `scripts/fetch-duckdb.sh` installs
+// them into Sources/Cduckdb/include + libs/. Run that script once before building.
 
 // Self-locate the package so the linker search path is absolute yet portable.
 let pkgDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
@@ -46,8 +45,27 @@ let package = Package(
           "-lduckdb_yyjson",
           "-lduckdb_zstd",
           "-lduckdb_skiplistlib",
+          // The database drivers, built in (scripts/build-duckdb.sh), and the libraries
+          // they use: MariaDB Connector/C, libpq, curl, OpenSSL, lz4, zlib. A library
+          // comes before the ones it uses.
+          "-lmysql_scanner_extension",
+          "-lpostgres_scanner_extension",
+          "-lsqlite_scanner_extension",
+          "-lmariadbclient",
+          "-lpq",
+          "-lpgcommon",
+          "-lpgport",
+          "-lcurl",
+          "-lssl",
+          "-lcrypto",
+          "-llz4",
+          "-lz",
         ]),
         .linkedLibrary("c++"),
+        .linkedLibrary("iconv"),
+        .linkedFramework("CoreFoundation"),
+        .linkedFramework("Security"),
+        .linkedFramework("SystemConfiguration"),
       ]
     ),
   ]
