@@ -1,0 +1,11 @@
+# What DuckDB is built with for SequelBridge (scripts/build-duckdb.sh fills in @WORK@):
+# the extensions the app has always linked, plus the MySQL, PostgreSQL and SQLite drivers
+# built in, each from its checkout at the commit DuckDB 1.5.6 pins.
+duckdb_extension_load(core_functions)
+duckdb_extension_load(parquet)
+duckdb_extension_load(json)
+duckdb_extension_load(icu)
+duckdb_extension_load(autocomplete)
+duckdb_extension_load(sqlite_scanner SOURCE_DIR @WORK@/duckdb-sqlite)
+duckdb_extension_load(postgres_scanner SOURCE_DIR @WORK@/duckdb-postgres)
+duckdb_extension_load(mysql_scanner SOURCE_DIR @WORK@/duckdb-mysql)
