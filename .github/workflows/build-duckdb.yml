@@ -3,7 +3,8 @@
 # to combine them into the universal zip scripts/fetch-duckdb.sh installs. The zip and its
 # SHA-256 are the run's artifact; a release of wadekarg/sequelbridge-duckdb publishes
 # them. Then the app's tests (test.yml) run on that zip, and the unit tests once more as
-# the Intel slice under Rosetta, which carries its own drivers.
+# the Intel slice under Rosetta, which carries its own drivers. Built with Xcode 26.5,
+# as the release is.
 name: DuckDB with built-in drivers
 
 on:
@@ -21,10 +22,10 @@ jobs:
       fail-fast: false
       matrix:
         arch: [arm64, x86_64]
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 240
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
 
@@ -55,7 +56,7 @@ jobs:
   package:
     name: Package (universal)
     needs: build
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -97,10 +98,10 @@ jobs:
   rosetta:
     name: Unit tests as Intel, under Rosetta
     needs: package
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
       SIGNING: CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
     steps:
       - uses: actions/checkout@v4
