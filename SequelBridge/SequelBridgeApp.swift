@@ -43,6 +43,15 @@ struct SequelBridgeApp: App {
             CommandGroup(replacing: .help) { HelpMenu(appSettings: appSettings) }
         }
 
+        // Opened from Help → Acknowledgements, so not listed in the Window menu as well.
+        Window("Acknowledgements", id: AcknowledgementsView.windowID) {
+            AcknowledgementsView()
+                .frame(minWidth: 480, minHeight: 320)
+                .preferredColorScheme(appSettings.colorScheme)
+        }
+        .defaultSize(width: 680, height: 600)
+        .commandsRemoved()
+
         Settings {
             SettingsView()
                 .environmentObject(appSettings)

@@ -33,6 +33,8 @@ DMG="$WORK/SequelBridge-$VERSION.dmg"
 step() { printf '\n==> %s\n' "$*"; }
 
 [ -z "$(git status --porcelain)" ] || { echo "The working tree has changes; commit them first"; exit 1; }
+# Help → Acknowledgements lists the licenses of the DuckDB package being built in.
+python3 scripts/acknowledgements.py --check
 # The updater refuses an update not signed with the key whose public half the app carries.
 APP_KEY=$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' SequelBridge-Info.plist)
 KEYCHAIN_KEY=$(vendor/Sparkle/bin/generate_keys -p 2>/dev/null || true)

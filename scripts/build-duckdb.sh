@@ -102,6 +102,12 @@ for port in libmariadb libpq openssl curl zlib lz4; do
 done
 cp "$WORK/duckdb-$ARCH/LICENSE" "$OUT/licenses/duckdb.txt"
 for e in mysql postgres sqlite; do cp "$WORK/duckdb-$e/LICENSE" "$OUT/licenses/duckdb-$e.txt"; done
+# The libraries DuckDB carries in its own source (fmt, RE2, Zstandard, Mbed TLS…): every
+# one with a license file, whether or not this build compiles it in.
+for d in "$WORK/duckdb-$ARCH"/third_party/*/; do
+  f=$(ls "$d" | grep -i -E '^(LICENSE|COPYING)' | head -1 || true)
+  if [ -n "$f" ]; then cp "$d$f" "$OUT/licenses/duckdb-third-party-$(basename "$d").txt"; fi
+done
 for lib in mysql_scanner_extension postgres_scanner_extension sqlite_scanner_extension; do
   [ -f "$OUT/libs/lib$lib.a" ] || { echo "lib$lib.a is missing: the driver wasn't built in"; exit 1; }
 done

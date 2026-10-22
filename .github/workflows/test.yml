@@ -37,6 +37,9 @@ jobs:
       - name: Fetch DuckDB's static libraries
         run: ./scripts/fetch-duckdb.sh
 
+      - name: Acknowledgements list the package's licenses
+        run: python3 scripts/acknowledgements.py --check
+
       - name: Unit tests
         run: |
           set +e
