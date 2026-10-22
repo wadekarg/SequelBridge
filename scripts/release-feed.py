@@ -23,14 +23,16 @@ CASK_MACOS = ":sonoma"      # macOS 14 or later, as Homebrew writes it
 
 
 def inline(text):
-    """A line of a note, escaped for HTML, with `code` kept as code."""
+    """A line of a note, escaped for HTML, with `code` kept as code and **bold** as bold
+    (the update window showed the asterisks)."""
     out = html.escape(text, quote=False)
-    return re.sub(r"`([^`]+)`", r"<code>\1</code>", out)
+    out = re.sub(r"`([^`]+)`", r"<code>\1</code>", out)
+    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", out)
 
 
 def release_notes(changelog, version):
     """The version's section of the changelog as HTML: ### headings, - items (an item
-    goes on over the indented lines after it)."""
+    goes on over the indented lines after it), and an item's own list, "  - " items."""
     lines = open(changelog, encoding="utf-8").read().splitlines()
     start = next((i for i, l in enumerate(lines) if re.match(rf"^##\s+{re.escape(version)}\b", l)), None)
     if start is None:
@@ -40,11 +42,14 @@ def release_notes(changelog, version):
         if line.startswith("## "):
             break
         body.append(line)
-    parts, items = [], []
+    parts, items = [], []   # each item: [its text, its own list's items]
+
+    def sublist(children):
+        return "<ul>" + "".join(f"<li>{inline(c)}</li>" for c in children) + "</ul>" if children else ""
 
     def close_list():
         if items:
-            parts.append("<ul>" + "".join(f"<li>{inline(i)}</li>" for i in items) + "</ul>")
+            parts.append("<ul>" + "".join(f"<li>{inline(text)}{sublist(children)}</li>" for text, children in items) + "</ul>")
             items.clear()
 
     for line in body:
@@ -52,9 +57,15 @@ def release_notes(changelog, version):
             close_list()
             parts.append(f"<h3>{inline(line[4:].strip())}</h3>")
         elif line.startswith("- "):
-            items.append(line[2:].strip())
+            items.append([line[2:].strip(), []])
+        elif re.match(r" +- ", line) and items:
+            items[-1][1].append(line.strip()[2:].strip())
         elif line.startswith(" ") and line.strip() and items:
-            items[-1] += " " + line.strip()
+            # The line goes on the item it follows: its own list's last item, if it has one.
+            if items[-1][1]:
+                items[-1][1][-1] += " " + line.strip()
+            else:
+                items[-1][0] += " " + line.strip()
         elif line.strip():
             close_list()
             parts.append(f"<p>{inline(line.strip())}</p>")

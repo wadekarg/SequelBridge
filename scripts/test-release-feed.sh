@@ -21,6 +21,10 @@ cat > "$T/CHANGELOG.md" <<'EOF'
 
 ### Added
 - Something new.
+- With **bold** words and a list:
+  - **First** item
+  - Second item
+    across two lines.
 
 ## 9.8.6 — 2026-10-01
 
@@ -41,6 +45,9 @@ grep -q 'sparkle:edSignature="c2lnbmF0dXJl" length="16"' "$F" || fail "the signa
 grep -q '<li>A thing that was broken and the line after it.</li>' "$F" || fail "a release note across two lines"
 grep -q '<li>Another one with &lt;tags&gt; &amp; <code>code</code>.</li>' "$F" || fail "a note's < & and code"
 grep -q '<h3>Added</h3>' "$F" || fail "a section heading"
+grep -q '<li>With <b>bold</b> words and a list:<ul><li><b>First</b> item</li><li>Second item across two lines.</li></ul></li>' "$F" \
+  || fail "**bold** and a nested list (the update window showed the asterisks)"
+! grep -q '\*\*' "$F" || fail "asterisks left in the notes"
 ! grep -q 'Older' "$F" || fail "the previous version's notes came along"
 
 C="$T/out/sequelbridge.rb"
