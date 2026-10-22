@@ -21,14 +21,15 @@ mitigation as soon as one is ready. The latest release is the supported version.
   connection before anything is sent.
 - A connection marked read-only is enforced by the query engine, not just the
   interface: every write path refuses to run against it.
-- The app sends nothing anywhere except to the database servers you configure; to
-  extensions.duckdb.org, once, for the DuckDB scanner extension a first MySQL,
-  PostgreSQL or SQLite connection needs; and, when you allow it, a once-a-day check for
-  a new version: it reads the update feed on the project's GitHub releases
-  (appcast.xml) and sends nothing about you or your databases. An update is installed
-  only when its EdDSA signature matches the key the app carries (Sparkle,
-  `SUPublicEDKey`), and its code signature matches the installed app's. There is no
-  telemetry and no crash reporting.
+- The app sends nothing anywhere except to the database servers you configure and,
+  when you allow it, a once-a-day check for a new version: it reads the update feed on
+  the project's GitHub releases (appcast.xml) and sends nothing about you or your
+  databases. An update is installed only when its EdDSA signature matches the key the
+  app carries (Sparkle, `SUPublicEDKey`), and its code signature matches the installed
+  app's. There is no telemetry and no crash reporting.
+- The app downloads no code. The MySQL, PostgreSQL and SQLite drivers are built into it
+  and signed with it; DuckDB installs no extension and loads no unsigned one, and macOS
+  loads only code signed by Apple or the app's developer into it (library validation).
 
 ## In scope
 

@@ -8,12 +8,34 @@ fix, open an issue first so we can agree on the approach before you spend time o
 ```bash
 git clone https://github.com/wadekarg/SequelBridge.git
 cd SequelBridge
-scripts/fetch-duckdb.sh        # the DuckDB static libraries (once, ~60 MB, not in git)
+scripts/fetch-duckdb.sh        # DuckDB with its drivers built in (once, not in git)
 open SequelBridge.xcodeproj    # Build & Run in Xcode
 ```
 
-The app links DuckDB statically; the scanner extensions are downloaded by the app on
-first use. Nothing else to install.
+The app links DuckDB statically, with the MySQL, PostgreSQL and SQLite drivers built in.
+Nothing else to install.
+
+### DuckDB from source
+
+`scripts/fetch-duckdb.sh` installs a published build of DuckDB with the drivers, from
+[sequelbridge-duckdb](https://github.com/wadekarg/sequelbridge-duckdb)'s releases. To
+build it yourself (another version of DuckDB or of a library it links, such as MariaDB
+Connector/C), you need Xcode's command-line tools, CMake and Ninja:
+
+```bash
+scripts/build-duckdb.sh arm64        # about 40 minutes a CPU the first time
+scripts/build-duckdb.sh x86_64
+scripts/package-duckdb.sh            # both CPUs in one zip, and its SHA-256
+SB_DUCKDB_ZIP=~/Library/Caches/SequelBridge-duckdb-build/duckdb-v1.5.6-sb1-macos-universal.zip \
+  scripts/fetch-duckdb.sh
+python3 scripts/acknowledgements.py  # Help → Acknowledgements, if a license changed
+```
+
+`scripts/package-duckdb.sh --single x86_64` packages one CPU's build, to try it on that
+Mac. The versions are pinned in `build-duckdb.sh`, and its patches, vcpkg triplets and
+extension list are in `vendor/DuckDB/recipe/`. vcpkg builds the drivers' libraries from
+its ports: to use your own version of one, give vcpkg an overlay port
+(`VCPKG_OVERLAY_PORTS=/path/to/ports scripts/build-duckdb.sh …`).
 
 ## Test
 

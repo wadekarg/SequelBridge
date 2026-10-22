@@ -42,8 +42,7 @@ final class WorkspaceControlsUITests: XCTestCase {
                                "-ApplePersistenceIgnoreState", "YES", "-theme", "Light"]
         app.launch()
 
-        // Home: tick both connections, Connect. The first connect downloads DuckDB's
-        // SQLite driver, so allow for that.
+        // Home: tick both connections, Connect.
         XCTAssertTrue(app.buttons["home.select.litea"].waitForExistence(timeout: 30), "Home didn't show the connections")
         app.buttons["home.select.litea"].click()
         app.buttons["home.select.liteb"].click()

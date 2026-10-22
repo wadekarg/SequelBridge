@@ -49,8 +49,8 @@ The app keeps itself up to date: it checks once a day (it asks you first) and of
 each new version, which it installs only when the update is signed with the project's
 key. **SequelBridge → Check for Updates…** checks at once.
 
-On the first connection to a MySQL, PostgreSQL or SQLite server the app downloads the
-matching DuckDB scanner extension once and keeps it; that first connect needs internet.
+The MySQL, PostgreSQL and SQLite drivers are built into the app: connecting downloads
+nothing.
 
 ## Compatibility
 
@@ -79,9 +79,12 @@ Newer versions are expected to work. If yours does not, please open an issue.
 ```bash
 git clone https://github.com/wadekarg/SequelBridge.git
 cd SequelBridge
-scripts/fetch-duckdb.sh          # the DuckDB static libraries (once)
+scripts/fetch-duckdb.sh          # DuckDB with its drivers built in, as static libraries (once)
 open SequelBridge.xcodeproj      # Build & Run in Xcode
 ```
+
+`scripts/build-duckdb.sh` builds those libraries from source instead (CONTRIBUTING.md
+says how).
 
 `scripts/run-all-tests.sh --hermetic` runs the unit tests; the full matrix against local
 containers is in [TESTING.md](TESTING.md). [CONTRIBUTING.md](CONTRIBUTING.md) has the
@@ -90,4 +93,5 @@ rest.
 ## License
 
 [MIT](LICENSE) © 2026 Gajanan Wadekar. Built with [DuckDB](https://duckdb.org) and its
-MySQL, PostgreSQL and SQLite scanner extensions.
+MySQL, PostgreSQL and SQLite scanner extensions. The licenses of the code built into the
+app are in **Help → Acknowledgements** ([Acknowledgements.txt](SequelBridge/Acknowledgements.txt)).

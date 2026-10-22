@@ -51,7 +51,6 @@ class PostgresWorkflowUITests: XCTestCase {
         app.buttons["home.connect"].click()
         // Through SSH, a server met for the first time is trusted (SSHHostKeyUITests covers that question).
         dialogButton("Trust and Connect", timeout: 8)?.click()
-        // The first connect downloads DuckDB's PostgreSQL driver.
         XCTAssertTrue(app.buttons["query.newTab"].waitForExistence(timeout: 180), "the workspace didn't open")
         XCTAssertTrue(table("customers").waitForExistence(timeout: 60), "public's tables weren't listed")
     }

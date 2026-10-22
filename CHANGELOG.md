@@ -2,6 +2,22 @@
 
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## 1.3.0 — unreleased
+
+### Changed
+- **The MySQL, PostgreSQL and SQLite drivers are built into the app.** The first
+  connection to each kind of server no longer downloads its driver (about 30 MB, from
+  DuckDB's site): it needs no internet beyond the server, and doesn't wait.
+
+### Security
+- **Only signed code runs in the app.** The downloaded drivers were unsigned, so the app
+  let macOS load unsigned code into it. It doesn't any more, and DuckDB can't install or
+  load an extension on its own.
+
+### Added
+- **Help → Acknowledgements**: the projects whose code is built into the app, with their
+  licenses.
+
 ## 1.2.4 — 2026-10-22
 
 ### Added

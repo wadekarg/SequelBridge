@@ -57,8 +57,8 @@ app tells you exactly what it sent to each server.
 | Results | `Models/QueryResult.swift`, `CellTable.swift`, `StreamBatcher.swift`, `RunClock.swift`, `ChartData.swift`, `Engine/ResultExporter.swift` | The result's columnar storage, when streamed chunks reach the screen, one clock per run, chart series, CSV/JSON/Markdown/SQL export. |
 | Views | `Views/Home/*`, `Views/Workspace/*`, `Views/Settings/*`, `Views/Connection/*` | Home and the connection form; the workspace: toolbar tabs (`WorkspaceView`), sidebar, the Query tab (`QueryPanelView`, which carries out each statement's route), editor, results grid and chart, and one file per panel; Settings; the SSH login dialog. |
 | Stores | `Utilities/HistoryStore.swift`, `SavedQueryStore.swift`, `CSVParser.swift`, `ConsoleExporter.swift` | Statement history (`history.jsonl`, append-only, compacted at 1,000 entries), saved queries (`saved_queries.json`), an RFC 4180 CSV reader, the console's `.sql` export. |
-| Scripts | `scripts/` | `fetch-duckdb.sh` (the static libraries), `run-all-tests.sh` (containers, fixtures, the whole matrix), `seed-demo.sh` and `capture-screenshots.sh` (the demo data and the guide's images), `check-docs.sh`, `build-release.sh` (the notarized DMG, `appcast.xml` and the Homebrew cask). |
-| Vendored DuckDB | `vendor/DuckDB/` | The Swift wrapper with three local patches; the libraries themselves are fetched, not committed. |
+| Scripts | `scripts/` | `fetch-duckdb.sh` (DuckDB with its scanners built in, as static libraries), `build-duckdb.sh` and `package-duckdb.sh` (that package, built from source), `run-all-tests.sh` (containers, fixtures, the whole matrix), `seed-demo.sh` and `capture-screenshots.sh` (the demo data and the guide's images), `check-docs.sh`, `acknowledgements.py` (the licenses Help → Acknowledgements shows), `build-release.sh` (the notarized DMG, `appcast.xml` and the Homebrew cask). |
+| Vendored DuckDB | `vendor/DuckDB/` | The Swift wrapper with three local patches, and the recipe that builds DuckDB with its scanners (`recipe/`); the libraries themselves are fetched, not committed. |
 | Updates | `Utilities/AppUpdater.swift`, `vendor/Sparkle/` | Sparkle 2.10, vendored: the daily check for a new version (asked first), **SequelBridge → Check for Updates…** and Settings → Updates; the feed is `appcast.xml` on the latest GitHub release. |
 
 ## A connection's life
@@ -68,12 +68,9 @@ app tells you exactly what it sent to each server.
    password: a fixture's inline password if the app was launched on one, else the
    Keychain item for that connection id, else an empty string for a SQLite file.
 2. `QueryEngine.attach` does the engine-specific work:
-   - **MySQL / MariaDB, PostgreSQL.** The scanner extension is loaded once per launch
-     (`ensureExtensionLoaded`): if it is not in
-     `~/Library/Caches/SequelBridge/duckdb/v1.5.6/<platform>/` (`osx_arm64`, or
-     `osx_amd64` on Intel and under Rosetta), it is downloaded from
-     `extensions.duckdb.org` for the CPU the app runs on, ad-hoc signed on Apple
-     Silicon, then `LOAD`ed. A DSN is built for TCP/IP, a local
+   - **MySQL / MariaDB, PostgreSQL.** The scanner extension is built into the app and
+     loaded when DuckDB starts (`ensureExtensionLoaded` checks, and `LOAD`s it if it
+     isn't). A DSN is built for TCP/IP, a local
      socket, or SSH. A MySQL socket is the DSN's `socket=` file; a PostgreSQL socket
      becomes libpq's `host=<directory> port=<n>`, taken from the directory or from the
      `.s.PGSQL.<n>` file the user gave. For SSH, `startTunnel` opens an `SSHTunnel`
@@ -478,7 +475,6 @@ column to the table's columns before anything is written.
 | Statement history | `history.jsonl` beside the connections, append-only, compacted to the newest 1,000 |
 | Saved queries | `saved_queries.json` beside the connections |
 | Settings | UserDefaults: theme, editor font size, tab width, auto-complete, Content's rows per page, whether the conventions note is expanded, and Sparkle's own (whether to check for updates, when it last did) |
-| Scanner extensions | `~/Library/Caches/SequelBridge/duckdb/<version>/<platform>/`, a folder per CPU (`osx_arm64`, `osx_amd64`) |
 | SSH host keys | `~/.ssh/known_hosts`, shared with Terminal: ssh adds a server you trust there; forgetting a changed server's old key runs `ssh-keygen -R`, which keeps the old file as `known_hosts.old` |
 
 Launch arguments change this for a demo or screenshot instance: `-SBConnectionsFile
@@ -487,9 +483,25 @@ back; `-SBSupportDir <dir>` moves the three files above into that folder.
 
 ## The DuckDB the app ships
 
-DuckDB 1.5.6 is linked statically from prebuilt universal libraries fetched by
-`scripts/fetch-duckdb.sh`, behind the thin Swift wrapper vendored in `vendor/DuckDB`.
-Three local patches, each marked in the source and listed in that folder's README:
+DuckDB 1.5.6 is linked statically, with its MySQL, PostgreSQL and SQLite scanner
+extensions built in, behind the thin Swift wrapper vendored in `vendor/DuckDB`.
+DuckDB's own prebuilt libraries leave the scanners out, to be downloaded at run time, so
+`scripts/build-duckdb.sh` builds DuckDB from source for each CPU, at pinned versions
+(DuckDB's tag, the scanners' commits DuckDB 1.5.6 names, vcpkg's tag), with the
+scanners and their libraries: MariaDB Connector/C, libpq, OpenSSL, curl, zlib and LZ4,
+all static. `scripts/package-duckdb.sh` combines both CPUs into one zip, published as a
+release of [sequelbridge-duckdb](https://github.com/wadekarg/sequelbridge-duckdb), and
+`scripts/fetch-duckdb.sh` installs it, checked against the SHA-256 it pins. The recipe's
+patches, vcpkg triplets and extension list are in `vendor/DuckDB/recipe/`.
+
+The scanners load when DuckDB starts. DuckDB installs nothing (`autoinstall_known_extensions`
+off, its extension folder the app's own) and loads no unsigned extension, and the app
+keeps the hardened runtime's library validation. **Help → Acknowledgements** shows the
+licenses of all this code (`Acknowledgements.txt`, written by `scripts/acknowledgements.py`
+from the package's license files).
+
+The wrapper carries three local patches, each marked in the source and listed in that
+folder's README:
 
 - a streaming result type over `duckdb_fetch_chunk`, so a large result is never
   materialized inside DuckDB;
@@ -497,10 +509,6 @@ Three local patches, each marked in the source and listed in that folder's READM
   allocated three objects per cell;
 - a chunk index for the result set, where the stock lookup walked every chunk from the
   first on each access (quadratic in rows).
-
-The scanner extensions are loadable modules downloaded once per DuckDB version and CPU from
-`extensions.duckdb.org`, ad-hoc signed on Apple Silicon so the system will load them,
-and loaded with `allow_unsigned_extensions`.
 
 ## Security model
 
@@ -528,10 +536,12 @@ and loaded with `allow_unsigned_extensions`.
   writes into it is refused by DuckDB, which attached it `READ_ONLY`.
 - A demo or screenshot instance never shows or touches the owner's connections,
   Keychain items or history.
-- Besides your servers, the app reaches only extensions.duckdb.org, for a scanner
-  extension it doesn't have yet, and, when you allow it, the project's GitHub releases,
-  for the update feed (`appcast.xml`) and an update you choose to install. Neither
-  carries anything about you or your databases.
+- Besides your servers, the app reaches only, when you allow it, the project's GitHub
+  releases, for the update feed (`appcast.xml`) and an update you choose to install,
+  which carry nothing about you or your databases.
+- No code is downloaded: the scanners are built in and signed with the app. DuckDB's
+  extension installs are off and unsigned extensions refused, and library validation
+  lets macOS load only code signed by Apple or with the app's own team ID.
 
 ## Known limits
 
@@ -560,12 +570,12 @@ arrive well before a transfer ends. [TESTING.md](../TESTING.md) lists every suit
 
 ## Distribution
 
-SequelBridge ships as a signed, notarized DMG, not through the App Store. The scanner
-extensions are loadable modules DuckDB downloads at first use, and the App Store
-forbids downloaded executable code. Shipping them inside the app instead is not
-possible either: the MySQL scanner cannot be linked statically, and a loadable
-extension carries DuckDB's metadata after its Mach-O, which the strict signature
-validation of an app bundle rejects.
+SequelBridge ships as a signed, notarized DMG, not through the App Store. With the
+scanners built in, nothing executable is downloaded, which the App Store forbids; what
+stands in the way now is its App Sandbox, in which ssh can't read your keys in `~/.ssh`
+or reach ssh-agent, the app can't run the helper that asks for ssh's passwords, and a
+server's Unix socket and a SQLite file named by path, rather than picked in a dialog,
+are out of reach.
 
 It also installs with Homebrew (`brew install --cask wadekarg/tap/sequelbridge`), and an
 installed copy updates itself with Sparkle (`AppUpdater`). `scripts/build-release.sh`

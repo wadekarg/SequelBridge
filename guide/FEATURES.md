@@ -285,8 +285,9 @@ connections with Edit and Delete, which asks first, since the saved password goe
 **SequelBridge → Check for Updates…** does; a new version is offered with its notes and
 installed only when it is signed with the project's key. The **Help** menu opens the
 guide (⌘?), how queries run, the release notes, GitHub's form to report an issue, the
-website and the source, each in your browser; the About window links the website and
-GitHub. **Shortcuts** lists every key the app binds (**Help → Keyboard Shortcuts** opens
+website and the source, each in your browser, and **Acknowledgements**, the licenses of
+the code built into the app; the About window links the website and GitHub.
+**Shortcuts** lists every key the app binds (**Help → Keyboard Shortcuts** opens
 it):
 
 | Keys | Action |

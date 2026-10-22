@@ -509,7 +509,7 @@ final class QueryEngine {
             dsnParts = Self.buildDSN(for: tunneled, password: password)
         }
         do {
-            // Ensure this engine's scanner extension is loaded (downloads on first run)
+            // This engine's driver: built in, and loaded when DuckDB starts
             try await ensureExtensionLoaded(c.engine.extensionName)
             engines[c.alias] = c.engine
             attachedDSN[c.alias] = c.database

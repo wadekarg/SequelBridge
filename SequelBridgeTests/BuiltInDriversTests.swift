@@ -4,7 +4,7 @@
 //
 //  The MySQL, PostgreSQL and SQLite drivers (DuckDB's scanner extensions) are built into
 //  the app (scripts/build-duckdb.sh): nothing is downloaded at the first connection, as
-//  it was (~90 MB a driver, from extensions.duckdb.org, loaded unsigned), and DuckDB can't
+//  it was (~30 MB a driver, from extensions.duckdb.org, loaded unsigned), and DuckDB can't
 //  install anything either.
 //
 
@@ -34,6 +34,25 @@ struct BuiltInDriversTests {
         let folder = try await engine.query("SELECT current_setting('extension_directory')")
         let path = try #require(folder.rows.first?.first)
         #expect(path.hasSuffix("SequelBridge/duckdb-extensions") && !path.contains("/.duckdb/"), "\(path)")
+    }
+
+    @Test("attaching a SQLite file installs nothing: the driver is the built-in one")
+    func attachInstallsNothing() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-builtin-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("lite.sqlite")
+        FileManager.default.createFile(atPath: file.path, contents: nil)
+        var c = Connection(name: "lite", alias: "lite", host: "", port: 0, username: "", database: file.path)
+        c.engine = .sqlite
+        let engine = try QueryEngine()
+        try await engine.attach(c, password: "")
+        let folder = try await engine.query("SELECT current_setting('extension_directory')")
+        let path = try #require(folder.rows.first?.first)
+        let installed = (try? FileManager.default.subpathsOfDirectory(atPath: path)) ?? []
+        #expect(installed.isEmpty, "installed in \(path): \(installed)")
+        let sqlite = try await engine.query("SELECT install_mode FROM duckdb_extensions() WHERE extension_name = 'sqlite_scanner'")
+        #expect(sqlite.rows.first?.first == "STATICALLY_LINKED")
     }
 
     /// The downloaded drivers were unsigned: DuckDB had to allow unsigned extensions, and

@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 824 tests in 165 suites (about three minutes of tests after the build).
+at them, and runs all 824 tests in 164 suites (about three minutes of tests after the build).
 Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
 MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
@@ -92,8 +92,8 @@ server, so they are skipped there;
 the button, by ⇧⌘R and by ⌃⌘R, and checks ⌘R (the statement under the cursor) against
 ⌥⌘R (all). `UpdatesUITests` finds **Check for Updates…** in the SequelBridge menu and
 Settings → Updates (both off in a copy launched for the tests); `HelpMenuUITests` finds
-the Help menu's seven items and opens Settings on its Shortcuts tab from **Keyboard
-Shortcuts**. `VisualTourUITests` takes a screenshot of every screen and sheet in light and
+the Help menu's eight items, opens Settings on its Shortcuts tab from **Keyboard
+Shortcuts** and the licenses' window from **Acknowledgements**. `VisualTourUITests` takes a screenshot of every screen and sheet in light and
 dark mode, of the app's window only, for a person to look over. A copy launched for the
 UI tests keeps its settings apart from the owner's. The UI tests take over the screen
 while they run, so `scripts/run-all-tests.sh` leaves them out.
@@ -106,7 +106,7 @@ classifier**, and **CSV type inference**), the **SQL formatter** (`SQLFormatterT
 result streaming and caps (`RowCapTests` — the "big query" coverage), the **result text
 filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`), result
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
-extension bundling/download, sort order, write-path SQL, panel logic, stores, the
+the built-in drivers, the acknowledgements, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
 824 tests across 122 files.
 
@@ -147,7 +147,8 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `PostgresScannerCacheTests`, `MySQLScannerCacheTests` | `SB_PG_VERIFY`, `SB_MYSQL_VERIFY` | a Content edit of a table made after DuckDB read the server's catalog: a schema and table made in the app on PostgreSQL, and a table another connection made on either server, once the app lists it |
 | `MySQLRowWriteSQLTests`, `ResultEditingPickedConnectionTests` | always | a Content or result edit in MySQL's own SQL (true and false as 1 and 0 for TINYINT(1) and BIT, a BIT as a number, backslashes escaped, NULL and CURRENT_TIMESTAMP as the row sheet means them); a result edited on the connection picked in the left panel when two are open |
 | `MySQLRowWriteTests` | `SB_MYSQL_VERIFY` (`SB_MYSQL_BIG_DB` for the last) | those writes on the real servers, each type stored as meant, a row added with its key left to the server and deleted; an edit on a database of 3,275 tables (`sbbig`, MariaDB 10.0) done in under 2 s, where DuckDB took 16 |
-| `ExtensionCacheTests` | always | the scanner cache keeps one build per CPU, so an Apple Silicon Mac running the app natively and under Rosetta never loads the other CPU's build; a cached file from before is used only when its Mach-O header is this CPU's |
+| `BuiltInDriversTests` | always | the MySQL, PostgreSQL and SQLite drivers are built in and loaded when DuckDB starts; DuckDB installs nothing (auto-install off, its extension folder the app's own, still empty after a SQLite file is attached) and loads no unsigned extension; the app keeps library validation |
+| `AcknowledgementsTests` | always | Help → Acknowledgements: every component built into the app is named with its license, MariaDB Connector/C's LGPL section says how to relink it, and the window shows the whole file, to read and copy, not to edit |
 | `ClickHouseContentTests` | `SB_CH_VERIFY` | ClickHouse's Content tab on the real server: pages sorted and paged, every filter operator on a number column with its value quoted, and a `%`, `_` or backslash matching as itself |
 | `QueryRouteTests` | always | which path a Query-tab statement takes (QueryRoute): refused on a read-only target only, Explain's path, USE and SET search_path (quoted, folded, not DEFAULT or a list), as typed, the app's own client, ClickHouse, the passthrough, SQLite itself, DuckDB's catalog; one server named among several; inside a Query-tab transaction nothing runs on a connection of its own (a `SET` joins it, a `CALL` is refused there, a PostgreSQL read in another schema joins it too, the schema first on the transaction's `search_path`); a script that leaves a transaction open isn't run on one that closes; MariaDB's `BEGIN NOT ATOMIC` opens no transaction; MySQL 8's `WITH … DELETE` runs as typed, a `WITH` whose strings or names say DELETE reads |
 | `DefaultContextTests` | always | DuckDB's one default database follows the connection a statement is for, after another connection's statement or a detach |
@@ -180,7 +181,9 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 **Releases and updates.** `scripts/test-release-feed.sh` (run by `run-all-tests.sh`)
 checks the files a release writes beside its DMG: the update feed (`appcast.xml`: build
 and version, the oldest macOS, the download and its signature, the release notes from
-this file's section) and the Homebrew cask. `scripts/test-update-e2e.sh APP` (run by
+this file's section) and the Homebrew cask. `scripts/acknowledgements.py --check` (run by
+`run-all-tests.sh`, `build-release.sh` and CI) fails when `Acknowledgements.txt` isn't
+what the installed DuckDB package's license files give. `scripts/test-update-e2e.sh APP` (run by
 `build-release.sh` on the build it is releasing) updates an older copy of the app to a
 newer one through Sparkle, headless, from a feed on 127.0.0.1, and checks that an update
 whose file doesn't match its signature is refused; it uses a throwaway key and a test

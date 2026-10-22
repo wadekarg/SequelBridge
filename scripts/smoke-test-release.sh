@@ -6,9 +6,8 @@
 # streamed two-server join, and a ClickHouse-only statement. Each query is judged by the
 # app's own statement history (row count, error), kept in a throwaway support folder.
 # Everything addresses the test app by PID, since an installed SequelBridge has the same
-# process name; clicks only while the test app is frontmost, and no keystrokes.
-# FRESH_EXTENSIONS=1 moves the scanner cache aside first, so the app downloads and loads
-# the scanners like a first install (the old cache comes back if the test fails).
+# process name; clicks only while the test app is frontmost, and no keystrokes. The
+# drivers are built in: connecting must install nothing in DuckDB's extension folder.
 set -u
 DMG="$1"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,7 +16,7 @@ W="$REPO/.build/release"; mkdir -p "$W"
 FIX=/tmp/sb-release-fixture.json
 SUP=/tmp/sb-release-support
 REF_COPY=/tmp/sb-release-ref/ref.sqlite   # the demo SQLite file, outside the protected Desktop folder
-CACHE="$HOME/Library/Caches/SequelBridge/duckdb"
+EXT="$HOME/Library/Caches/SequelBridge/duckdb-extensions"   # DuckDB's extension folder, the app's own
 fail() { echo "FAIL: $*"
   if [ -n "${PID:-}" ]; then   # a picture of the test window for diagnosis (frontmost, so first in z-order)
     ax "set frontmost to true" >/dev/null; sleep 0.8
@@ -26,9 +25,7 @@ fail() { echo "FAIL: $*"
     kill "$PID" 2>/dev/null; sleep 2
   fi
   [ -n "${M:-}" ] && { hdiutil detach "$M" -quiet 2>/dev/null || hdiutil detach "$M" -force -quiet; }
-  restore_cache; exit 1; }
-restore_cache() { if [ -n "${CACHE_BAK:-}" ] && [ -d "$CACHE_BAK" ]; then
-  if [ "${KEEP_NEW_CACHE:-0}" = 1 ]; then rm -rf "$CACHE_BAK"; else rm -rf "$CACHE"; mv "$CACHE_BAK" "$CACHE"; fi; fi; }
+  exit 1; }
 ax() { osascript -e "with timeout of 30 seconds
 tell application \"System Events\" to tell (first process whose unix id is $PID)
 $1
@@ -89,9 +86,6 @@ sed -e "s#__REPO__/scripts/fixtures/demo/ref.sqlite#$REF_COPY#" -e "s#__REPO__#$
   "$REPO/scripts/fixtures/demo-connections.json" > "$FIX"
 grep -qE "$HOME/(Desktop|Documents|Downloads)/" "$FIX" && fail "the fixture opens a file in a folder macOS asks permission for"
 rm -rf "$SUP"; mkdir -p "$SUP"
-if [ "${FRESH_EXTENSIONS:-0}" = 1 ] && [ -d "$CACHE" ]; then
-  CACHE_BAK="$CACHE.bak-smoke-$$"; mv "$CACHE" "$CACHE_BAK"; echo "extension cache moved aside: the app must download the scanners"
-fi
 M=$(cd "$(mktemp -d)" && pwd -P)   # the real path (/private/var/…): the process list shows that one, not /var/…
 hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$M" "$DMG" >/dev/null || fail "mount"
 BIN="$M/SequelBridge.app/Contents/MacOS/SequelBridge"
@@ -122,12 +116,13 @@ echo "PASS launch: Home shows the demo list ($(echo "$texts" | tr '\n' ' '))"
 
 for y in 302 351 398 446; do click 213 "$y"; sleep 0.3; done
 click 496 945
-# Connecting downloads the scanner drivers on a first install, so wait for the workspace
-# itself: its toolbar carries the nine feature tabs.
+# Wait for the workspace itself: its toolbar carries the nine feature tabs.
 t0=$(date +%s)
-for i in $(seq 1 300); do sleep 1; [ "$(ax 'count of buttons of group 1 of toolbar 1 of window 1')" = "9" ] && break; done
-[ "$(ax 'count of buttons of group 1 of toolbar 1 of window 1')" = "9" ] || fail "the workspace did not open within 300 s of Connect"
+for i in $(seq 1 120); do sleep 1; [ "$(ax 'count of buttons of group 1 of toolbar 1 of window 1')" = "9" ] && break; done
+[ "$(ax 'count of buttons of group 1 of toolbar 1 of window 1')" = "9" ] || fail "the workspace did not open within 120 s of Connect"
 echo "PASS connect: workspace open after $(( $(date +%s) - t0 )) s"
+[ -z "$(ls -A "$EXT" 2>/dev/null)" ] || fail "connecting installed into $EXT: $(ls "$EXT" | tr '\n' ' ')"
+echo "PASS built-in drivers: connecting installed nothing"
 sleep 2; ax 'click button 8 of group 1 of toolbar 1 of window 1' >/dev/null; sleep 1.5
 
 run_sql "$(cat "$REPO/scripts/screenshots/hero.sql")" "MySQL x PostgreSQL x SQLite" 180
@@ -136,6 +131,5 @@ run_sql "SELECT event, count() AS n FROM analytics.events GROUP BY event ORDER B
 
 WID=$("$UI" wins 2>/dev/null | awk '$2 == "SequelBridge" && $(NF-1) == "176,131" && $NF == "1440x840" {print $1; exit}')
 [ -n "$WID" ] && screencapture -x -l "$WID" "$W/smoke.png" && echo "screenshot: $W/smoke.png"
-if [ -n "${CACHE_BAK:-}" ]; then echo "extensions downloaded: $(ls "$CACHE"/*/ 2>/dev/null | tr '\n' ' ')"; KEEP_NEW_CACHE=1; fi
-kill "$PID"; sleep 1; hdiutil detach "$M" -quiet; restore_cache
+kill "$PID"; sleep 1; hdiutil detach "$M" -quiet
 echo "SMOKE TEST PASSED"

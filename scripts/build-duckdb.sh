@@ -6,7 +6,7 @@
 # scripts/fetch-duckdb.sh installs.
 #
 # DuckDB's own prebuilt libraries leave the drivers out: the app downloaded them from
-# extensions.duckdb.org at the first connection (~90 MB each), loaded unsigned. Built in,
+# extensions.duckdb.org at the first connection (~30 MB each), loaded unsigned. Built in,
 # nothing is downloaded, and the App Store's rule against code downloaded at run time is
 # met. Every input is pinned: DuckDB's tag, the drivers' commits (the ones DuckDB 1.5.6
 # pins), vcpkg's tag (the one DuckDB's Makefile names), the GNU tools' checksums; the

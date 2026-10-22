@@ -42,7 +42,6 @@ final class MySQLWorkflowUITests: XCTestCase {
         XCTAssertTrue(app.buttons["home.select.\(alias)"].waitForExistence(timeout: 30), "Home didn't show the connection")
         app.buttons["home.select.\(alias)"].click()
         app.buttons["home.connect"].click()
-        // The first connect downloads DuckDB's MySQL driver.
         XCTAssertTrue(app.buttons["query.newTab"].waitForExistence(timeout: 180), "the workspace didn't open")
         XCTAssertTrue(table("orders").waitForExistence(timeout: 60), "sbtest's tables weren't listed")
     }

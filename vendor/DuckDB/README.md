@@ -1,26 +1,33 @@
 # vendor/DuckDB — local DuckDB 1.5.6 SwiftPM package
 
-This replaces the remote `duckdb-swift` SwiftPM dependency so the app can run on a
-**modern, stable DuckDB (1.5.6)** while keeping the app statically linked (no bundled
-dylib) — which the notarized-DMG distribution relies on.
+DuckDB 1.5.6, linked statically, with its MySQL, PostgreSQL and SQLite scanner
+extensions built in, behind duckdb-swift's thin Swift wrapper. Nothing is downloaded at
+run time and there is no bundled dylib, which the notarized-DMG distribution relies on.
 
 ## Why it exists
 
 `duckdb-swift` has no stable release past 1.1.3, and its newer dev tags vendor DuckDB's
-*main* branch (dev versions), for which the mysql/postgres/sqlite **scanner extensions
-are not published** on the CDN. A meaningful upgrade therefore needs a *stable* DuckDB
-version. DuckDB 1.5.6 ships **prebuilt static libraries**, so we link those and pair them
-with duckdb-swift's thin Swift wrapper.
+*main* branch. DuckDB's own prebuilt static libraries leave the scanner extensions out:
+the app downloaded them at the first connection (~30 MB each) and loaded them unsigned.
+So `scripts/build-duckdb.sh` builds DuckDB 1.5.6 from source, for each CPU, with the
+three scanners and their libraries (MariaDB Connector/C, libpq, OpenSSL, curl, zlib,
+LZ4) linked in, and `scripts/package-duckdb.sh` combines both CPUs into the zip that
+`scripts/fetch-duckdb.sh` installs here.
 
 ## Layout
 
 - `Sources/DuckDB/` — duckdb-swift's Swift wrapper (MIT, see `LICENSE`), vendored with the
   local patches listed below.
 - `Sources/Cduckdb/` — the C module: `include/duckdb.h` (fetched) + a shim; links the
-  prebuilt static libs.
-- `Package.swift` — links `libs/*.a`, self-locating so there are no absolute paths.
-- `libs/` + `Sources/Cduckdb/include/duckdb.h` — **NOT in git** (~60MB). Fetched by
-  `scripts/fetch-duckdb.sh`.
+  static libs.
+- `Package.swift` — links `libs/*.a`: DuckDB, the three scanners and their libraries,
+  and the system frameworks they need; self-locating so there are no absolute paths.
+- `libs/`, `Sources/Cduckdb/include/duckdb.h` and `licenses/` — **NOT in git**. Fetched
+  by `scripts/fetch-duckdb.sh`; `licenses/` holds the license file of each library in
+  the package, which `scripts/acknowledgements.py` puts in the app's Acknowledgements.
+- `recipe/` — what `scripts/build-duckdb.sh` builds with: patches to the MySQL and
+  PostgreSQL scanners (each marked `SequelBridge`) so they link statically, vcpkg
+  triplets for macOS 14, and the list of extensions built in.
 
 ## Local patches (re-apply when refreshing the wrapper)
 
@@ -51,13 +58,16 @@ marked `SequelBridge patch` in the source:
 
 ## Setup / upgrading
 
-Run from the repo root before building (and after changing the DuckDB version):
+Run from the repo root before building (and after the package changes):
 
 ```sh
-./scripts/fetch-duckdb.sh          # downloads universal (arm64+amd64) static libs for v1.5.6
+./scripts/fetch-duckdb.sh          # the universal (arm64 + x86_64) package, checked against its SHA-256
 ```
 
-To move to a new DuckDB version: set `DUCKDB_VERSION` in `scripts/fetch-duckdb.sh`, bump
-`QueryEngine.duckDBVersion` (so the runtime scanner-extension downloads match), re-run the
-script, and re-verify the suite. The scanner extensions must have CDN builds for that exact
-version (stable releases only).
+To move to a new DuckDB version: in `scripts/build-duckdb.sh` set `DUCKDB_TAG`, the
+scanners' commits (DuckDB names them in `.github/config/extensions/<name>.cmake`) and
+vcpkg's tag (DuckDB's `Makefile`); check that `recipe/patches` still apply; build both
+CPUs and package them (CONTRIBUTING.md), with the new name in `package-duckdb.sh`;
+publish the zip as a new release of `wadekarg/sequelbridge-duckdb`
+(`duckdb-v<version>-sb<n>`) and set `PACKAGE` and `SHA256` in `scripts/fetch-duckdb.sh`;
+update the versions in `scripts/acknowledgements.py` and run it; re-verify the suite.
