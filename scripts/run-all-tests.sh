@@ -313,10 +313,15 @@ run_mysql_pass() { # label port log-name
   )
 }
 
+# The apps a run built aren't left for Spotlight and Finder to open in place of the
+# installed one (see forget-builds.sh).
+forget_builds() { "$ROOT/scripts/forget-builds.sh" "$HOME"/Library/Developer/Xcode/DerivedData/SequelBridge-*/Build/Products; }
+
 mkdir -p "$ROOT/.build"
 case "$MODE" in
   down)      teardown; exit 0 ;;
-  hermetic)  say "Hermetic unit tests only (no Docker, no gated suites)"; run_tests; exit $? ;;
+  hermetic)  say "Hermetic unit tests only (no Docker, no gated suites)"; hrc=0; run_tests || hrc=$?
+             forget_builds; exit $hrc ;;
   provision) provision ;;
   seed)      seed ;;
   run)       need_docker
@@ -346,6 +351,7 @@ if [ -z "$ONLY" ]; then
   run_mysql_pass "MariaDB 11.4" "$MARIA11_PORT" mariadb11 || rc=1
   run_mysql_pass "MySQL 8.0" "$MYSQL80_PORT" mysql80 || rc=1
 fi
+forget_builds
 if [ $rc = 0 ]; then
   say "ALL TESTS PASSED ($CONFIG, $DESTINATION, full matrix, MySQL suites on MariaDB 10.0 and 11.4, MySQL 8.4 and 8.0)"
 else

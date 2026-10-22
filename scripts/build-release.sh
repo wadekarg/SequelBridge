@@ -113,3 +113,6 @@ python3 scripts/release-feed.py --version "$VERSION" --build "$(/usr/libexec/Pli
   --dmg "$DMG" --signature "$SPARKLE_SIG" --changelog CHANGELOG.md --out "$OUT"
 echo "$DMG"
 shasum -a 256 "$DMG"
+# The archive's and the export's copies of the app aren't left for Spotlight and Finder to
+# open in place of the installed one (see forget-builds.sh).
+scripts/forget-builds.sh "$WORK"
