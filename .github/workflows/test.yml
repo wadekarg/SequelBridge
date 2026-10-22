@@ -14,6 +14,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # build-duckdb.yml, on the DuckDB package it has just built (before it is published).
+  workflow_call:
+    inputs:
+      duckdb-artifact:
+        type: string
+        default: ""
 
 jobs:
   test:
@@ -34,8 +40,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: The DuckDB package this run built
+        if: inputs.duckdb-artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.duckdb-artifact }}
+          path: duckdb-package
+
       - name: Fetch DuckDB's static libraries
-        run: ./scripts/fetch-duckdb.sh
+        run: |
+          zip=$(ls "$PWD"/duckdb-package/*.zip 2>/dev/null | head -1)
+          SB_DUCKDB_ZIP="$zip" ./scripts/fetch-duckdb.sh
 
       - name: Acknowledgements list the package's licenses
         run: python3 scripts/acknowledgements.py --check
@@ -98,8 +113,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: The DuckDB package this run built
+        if: inputs.duckdb-artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.duckdb-artifact }}
+          path: duckdb-package
+
       - name: Fetch DuckDB's static libraries
-        run: ./scripts/fetch-duckdb.sh
+        run: |
+          zip=$(ls "$PWD"/duckdb-package/*.zip 2>/dev/null | head -1)
+          SB_DUCKDB_ZIP="$zip" ./scripts/fetch-duckdb.sh
 
       - name: Build the app (Release)
         run: |

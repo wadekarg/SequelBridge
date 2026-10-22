@@ -1,0 +1,130 @@
+# DuckDB with the MySQL, PostgreSQL and SQLite drivers built in, for both CPUs, on Apple
+# Silicon: scripts/build-duckdb.sh for each CPU (in parallel), scripts/package-duckdb.sh
+# to combine them into the universal zip scripts/fetch-duckdb.sh installs. The zip and its
+# SHA-256 are the run's artifact; a release of wadekarg/sequelbridge-duckdb publishes
+# them. Then the app's tests (test.yml) run on that zip, and the unit tests once more as
+# the Intel slice under Rosetta, which carries its own drivers.
+name: DuckDB with built-in drivers
+
+on:
+  push:
+    branches: [built-in-drivers]
+  workflow_dispatch:
+
+env:
+  PACKAGE: duckdb-v1.5.6-sb1
+
+jobs:
+  build:
+    name: Build for ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
+    runs-on: macos-15
+    timeout-minutes: 240
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work folder, outside the checkout
+        run: echo "SB_DUCKDB_WORK=$RUNNER_TEMP/duckdb-build" >> "$GITHUB_ENV"
+
+      - name: CMake and Ninja
+        run: |
+          command -v cmake >/dev/null || brew install cmake
+          command -v ninja >/dev/null || brew install ninja
+          cmake --version | head -1; ninja --version
+
+      - name: Build
+        run: scripts/build-duckdb.sh ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: out-${{ matrix.arch }}
+          path: ${{ runner.temp }}/duckdb-build/out/${{ matrix.arch }}
+
+      - name: Keep the build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ matrix.arch }}
+          path: ${{ runner.temp }}/duckdb-build/build-${{ matrix.arch }}.log
+
+  package:
+    name: Package (universal)
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work folder, outside the checkout
+        run: echo "SB_DUCKDB_WORK=$RUNNER_TEMP/duckdb-build" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: out-*
+          path: ${{ runner.temp }}/duckdb-build/out
+
+      - name: Package
+        run: |
+          mv "$SB_DUCKDB_WORK/out/out-arm64" "$SB_DUCKDB_WORK/out/arm64"
+          mv "$SB_DUCKDB_WORK/out/out-x86_64" "$SB_DUCKDB_WORK/out/x86_64"
+          scripts/package-duckdb.sh
+          # Every archive carries both CPUs.
+          for a in "$SB_DUCKDB_WORK"/out/package/libs/*.a; do
+            info=$(lipo -info "$a")
+            [[ "$info" == *x86_64* && "$info" == *arm64* ]] || { echo "$(basename "$a") isn't universal: $info"; exit 1; }
+          done
+          echo "$(ls "$SB_DUCKDB_WORK"/out/package/libs | wc -l | tr -d ' ') universal archives"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE }}-macos-universal
+          path: |
+            ${{ runner.temp }}/duckdb-build/${{ env.PACKAGE }}-macos-universal.zip
+            ${{ runner.temp }}/duckdb-build/${{ env.PACKAGE }}-macos-universal.zip.sha256
+
+  test:
+    name: App tests
+    needs: package
+    uses: ./.github/workflows/test.yml
+    with:
+      duckdb-artifact: duckdb-v1.5.6-sb1-macos-universal
+
+  rosetta:
+    name: Unit tests as Intel, under Rosetta
+    needs: package
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      SIGNING: CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PACKAGE }}-macos-universal
+          path: duckdb-package
+
+      - name: Install the package
+        run: SB_DUCKDB_ZIP="$PWD/duckdb-package/$PACKAGE-macos-universal.zip" ./scripts/fetch-duckdb.sh
+
+      - name: Unit tests (x86_64)
+        run: |
+          set +e
+          xcodebuild test -scheme SequelBridge -destination 'platform=macOS,arch=x86_64' \
+            -parallel-testing-enabled NO $SIGNING > unit-x86_64.log 2>&1
+          status=$?
+          grep -E "Test run with|✘|error:|\*\* (TEST|BUILD)" unit-x86_64.log
+          exit $status
+
+      - name: Keep the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-rosetta
+          path: unit-x86_64.log
