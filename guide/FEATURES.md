@@ -283,7 +283,11 @@ width and whether Tab completes a word (off, it indents). **Connections** lists 
 connections with Edit and Delete, which asks first, since the saved password goes too.
 **Updates** turns the daily check for a new version on or off and checks now, as
 **SequelBridge → Check for Updates…** does; a new version is offered with its notes and
-installed only when it is signed with the project's key. **Shortcuts** lists every key the app binds:
+installed only when it is signed with the project's key. The **Help** menu opens the
+guide (⌘?), how queries run, the release notes, GitHub's form to report an issue, the
+website and the source, each in your browser; the About window links the website and
+GitHub. **Shortcuts** lists every key the app binds (**Help → Keyboard Shortcuts** opens
+it):
 
 | Keys | Action |
 |---|---|
@@ -308,5 +312,6 @@ installed only when it is signed with the project's key. **Shortcuts** lists eve
 | ⌘J | Jump to a page, or set the rows a page shows (Content) |
 | ⌘D | Duplicate the selected row (Content) |
 | ⌘, | Settings |
+| ⌘? | SequelBridge Help: the guide |
 | Click a table | Open it |
 | Double-click a table | Copy its name |

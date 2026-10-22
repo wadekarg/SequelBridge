@@ -34,6 +34,7 @@ nonisolated enum Shortcuts {
         .init(keys: "⌘J", action: "Jump to a page, or set the rows a page shows (Content)"),
         .init(keys: "⌘D", action: "Duplicate the selected row (Content)"),
         .init(keys: "⌘,", action: "Settings"),
+        .init(keys: "⌘?", action: "SequelBridge Help: the guide"),
         .init(keys: "Click a table", action: "Open it"),
         .init(keys: "Double-click a table", action: "Copy its name"),
     ]

@@ -2,6 +2,14 @@
 
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## 1.2.4 — 2026-10-22
+
+### Added
+- A Help menu, which was empty: **SequelBridge Help** (the guide, ⌘?), **How Queries
+  Run**, **Keyboard Shortcuts** (Settings → Shortcuts), **Release Notes**, **Report an
+  Issue…** (GitHub's form), the website and the source on GitHub. The About window links
+  the website and GitHub.
+
 ## 1.2.3 — 2026-10-21
 
 ### Fixed

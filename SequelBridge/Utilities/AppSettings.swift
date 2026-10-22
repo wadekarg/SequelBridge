@@ -41,6 +41,12 @@ class AppSettings: ObservableObject {
 
     private static let isolatedSuite = "SequelBridge.launchedApart"
 
+    /// The tab the Settings window shows: Help → Keyboard Shortcuts opens it on Shortcuts.
+    /// Not saved: Settings opens on Appearance at each launch.
+    var settingsTab: SettingsTab = .appearance {
+        willSet { objectWillChange.send() }
+    }
+
     private enum Key {
         static let theme = "theme"
         static let editorFontSize = "editorFontSize"

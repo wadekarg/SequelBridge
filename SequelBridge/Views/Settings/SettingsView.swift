@@ -7,6 +7,11 @@
 
 import SwiftUI
 
+/// The Settings window's tabs.
+enum SettingsTab: Hashable {
+    case appearance, editor, connections, shortcuts, updates
+}
+
 struct SettingsView: View {
     @EnvironmentObject private var appSettings: AppSettings
     @EnvironmentObject private var manager: ConnectionManager
@@ -16,17 +21,22 @@ struct SettingsView: View {
     @State private var removing: Connection?
 
     var body: some View {
-        TabView {
+        TabView(selection: $appSettings.settingsTab) {
             appearanceTab
                 .tabItem { Label("Appearance", systemImage: "paintbrush") }
+                .tag(SettingsTab.appearance)
             editorTab
                 .tabItem { Label("Editor", systemImage: "text.cursor") }
+                .tag(SettingsTab.editor)
             connectionsTab
                 .tabItem { Label("Connections", systemImage: "server.rack") }
+                .tag(SettingsTab.connections)
             shortcutsTab
                 .tabItem { Label("Shortcuts", systemImage: "keyboard") }
+                .tag(SettingsTab.shortcuts)
             updatesTab
                 .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
+                .tag(SettingsTab.updates)
         }
         .frame(width: 480, height: 340)
     }

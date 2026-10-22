@@ -40,7 +40,7 @@ struct SequelBridgeApp: App {
                 Button("Check for Updates…") { updater.checkForUpdates() }
                     .disabled(!updater.canCheckForUpdates)
             }
-            CommandGroup(replacing: .help) {}
+            CommandGroup(replacing: .help) { HelpMenu(appSettings: appSettings) }
         }
 
         Settings {

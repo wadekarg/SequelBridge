@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 821 tests in 164 suites (about three minutes of tests after the build).
+at them, and runs all 824 tests in 165 suites (about three minutes of tests after the build).
 Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
 MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
@@ -90,7 +90,10 @@ then confirmed, from Home and from Test Connection). On GitHub none of the three
 server, so they are skipped there;
 `MySQLRefreshUITests` refreshes one connection after a change through another, by
 the button, by ⇧⌘R and by ⌃⌘R, and checks ⌘R (the statement under the cursor) against
-⌥⌘R (all). `VisualTourUITests` takes a screenshot of every screen and sheet in light and
+⌥⌘R (all). `UpdatesUITests` finds **Check for Updates…** in the SequelBridge menu and
+Settings → Updates (both off in a copy launched for the tests); `HelpMenuUITests` finds
+the Help menu's seven items and opens Settings on its Shortcuts tab from **Keyboard
+Shortcuts**. `VisualTourUITests` takes a screenshot of every screen and sheet in light and
 dark mode, of the app's window only, for a person to look over. A copy launched for the
 UI tests keeps its settings apart from the owner's. The UI tests take over the screen
 while they run, so `scripts/run-all-tests.sh` leaves them out.
@@ -105,7 +108,7 @@ filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 extension bundling/download, sort order, write-path SQL, panel logic, stores, the
 query-conventions note, the demo fixture store. Together with the gated suites below:
-821 tests across 121 files.
+824 tests across 122 files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -149,6 +152,7 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `QueryRouteTests` | always | which path a Query-tab statement takes (QueryRoute): refused on a read-only target only, Explain's path, USE and SET search_path (quoted, folded, not DEFAULT or a list), as typed, the app's own client, ClickHouse, the passthrough, SQLite itself, DuckDB's catalog; one server named among several; inside a Query-tab transaction nothing runs on a connection of its own (a `SET` joins it, a `CALL` is refused there, a PostgreSQL read in another schema joins it too, the schema first on the transaction's `search_path`); a script that leaves a transaction open isn't run on one that closes; MariaDB's `BEGIN NOT ATOMIC` opens no transaction; MySQL 8's `WITH … DELETE` runs as typed, a `WITH` whose strings or names say DELETE reads |
 | `DefaultContextTests` | always | DuckDB's one default database follows the connection a statement is for, after another connection's statement or a detach |
 | `ConnectionLifecycleTests` | always | a Connect that fails part-way leaves none of its connections attached; a server added in the workspace closes with the next Connect from Home; saving a SQLite connection writes nothing to the Keychain |
+| `HelpLinksTests` | always | where the Help menu and the About window point: the guide's pages (which must exist in the repo), the releases, the issue form, the website and the source; the About window's credits link the website and GitHub, in the window's own text color |
 | `AppUpdaterTests` | always | the updater (Sparkle): not started in a test run, a copy launched with files of its own (UI tests, screenshots) or a Debug build, unless `-SBUpdateFeed` names a feed; Info.plist's feed on GitHub Releases and its Ed25519 update key |
 | `ReadFallbackTests` | always | where a Query-tab read that failed through DuckDB runs again: two columns of one name and a value the MySQL driver can't convert on the app's own client, SQLite newer than DuckDB's in macOS's `sqlite3`; never a read the user stopped, nor one inside a Query-tab transaction |
 | `SQLiteToolScriptTests` | always | `sqlite3` reading a script on its standard input: a big script that fails early says which statement, and the app stays up; it runs without copying its log records to stderr (a run from Xcode or a test), where macOS 15's sqlite3 logged each error |
