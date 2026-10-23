@@ -44,6 +44,22 @@ struct SQLiteSandboxTests {
         #expect(engine.attachedDatabase("lite") == "")
     }
 
+    @Test("a file that isn't there (moved, renamed) says so, and no folder is asked for")
+    func missingFile() async throws {
+        var asked: [String] = []
+        QueryEngine.fileGrant = { p in asked.append(p); return nil }
+        defer { QueryEngine.fileGrant = nil }
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("sb-lite-gone-\(UUID().uuidString)/a.sqlite").path
+        let engine = try QueryEngine()
+        do {
+            try await engine.attach(lite(path), password: "")
+            Issue.record("attached")
+        } catch {
+            #expect(error.localizedDescription == "No SQLite database at \(path)", "\(error)")
+        }
+        #expect(asked.isEmpty)
+    }
+
     @Test("the folder granted: the file is opened and written, after the grant was asked for that file")
     func granted() async throws {
         let path = file()

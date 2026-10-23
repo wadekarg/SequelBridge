@@ -591,11 +591,13 @@ final class QueryEngine {
     /// ATTACHes a local SQLite file under the connection's alias; the file must exist.
     private func attachSQLite(_ c: Connection) async throws {
         let path = Self.sqliteFile(c)
-        if let grant = Self.fileGrant, grant(path) == nil {
-            throw SequelBridgeError.attachFailed(Self.sqliteFolderMissing(path))
-        }
+        // Before the grant: the sandbox lets a file's existence through, and a file moved or
+        // renamed must say so, not ask for a folder that no longer holds it.
         guard FileManager.default.fileExists(atPath: path) else {
             throw SequelBridgeError.attachFailed("No SQLite database at \(path)")
+        }
+        if let grant = Self.fileGrant, grant(path) == nil {
+            throw SequelBridgeError.attachFailed(Self.sqliteFolderMissing(path))
         }
         try await ensureExtensionLoaded(c.engine.extensionName)
         do {

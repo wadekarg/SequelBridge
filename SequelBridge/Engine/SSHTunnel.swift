@@ -111,8 +111,16 @@ final class SSHTunnel {
 
     func start(conn: Connection) async throws {
         let expandedKey = Self.keyPath(conn)
-        // The App Store build: ssh reads only what the user granted. Asked before the key's
-        // existence check, as a key the sandbox can't read looks missing.
+        // A key path the user typed but that does not exist must fail loudly.
+        // Otherwise ssh silently falls back to the agent or a default key, and a
+        // misconfigured connection "works" until the day that fallback is gone. Before any
+        // grant: the sandbox lets a file's existence through, and a key moved or renamed
+        // must say so, not ask for a file that isn't there.
+        if let key = expandedKey, !FileManager.default.fileExists(atPath: key) {
+            throw SequelBridgeError.attachFailed("SSH key not found at \(key)")
+        }
+
+        // The App Store build: ssh reads only what the user granted.
         var sshFolder: String?
         if let grant = Self.sshFolderGrant {
             guard let folder = grant() else { throw SequelBridgeError.attachFailed(Self.sshFolderMissing) }
@@ -120,13 +128,6 @@ final class SSHTunnel {
         }
         if let key = expandedKey, let canRead = Self.keyGrant, !canRead(key) {
             throw SequelBridgeError.attachFailed("SequelBridge can't read the SSH key at \(key): choose it in the connection's SSH Key field.")
-        }
-
-        // A key path the user typed but that does not exist must fail loudly.
-        // Otherwise ssh silently falls back to the agent or a default key, and a
-        // misconfigured connection "works" until the day that fallback is gone.
-        if let key = expandedKey, !FileManager.default.fileExists(atPath: key) {
-            throw SequelBridgeError.attachFailed("SSH key not found at \(key)")
         }
 
         let p = Process()

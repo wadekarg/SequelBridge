@@ -41,7 +41,7 @@ struct GrantsTests {
         Grants(defaults: UserDefaults(suiteName: suite)!).add(dir)
         let later = Grants(defaults: UserDefaults(suiteName: suite)!)
         #expect(later.covering(dir.appendingPathComponent("x").path) != nil)
-        #expect(later.grantedPaths == [dir.standardizedFileURL.path])
+        #expect(later.grantedPaths == [Grants.canonical(dir.path)])
     }
 
     @Test("a moved or renamed folder is forgotten, and asked for again, never used for the old path")
@@ -71,6 +71,55 @@ struct GrantsTests {
         try! FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
         #expect(grants.accept(other, for: needed) == nil)
         #expect(grants.accept(dir, for: needed) != nil)
+    }
+
+    @Test("a folder reached through a symbolic link is the folder itself, whichever way round it was granted")
+    func symlinkedFolder() throws {
+        let (grants, dir) = fresh()
+        let link = URL(fileURLWithPath: dir.path + "-link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: dir)
+        grants.add(link)
+        #expect(grants.covering(link.appendingPathComponent("inner/x.sqlite").path) != nil)
+        #expect(grants.covering(dir.appendingPathComponent("inner/x.sqlite").path) != nil)
+        let (other, otherDir) = fresh()
+        let otherLink = URL(fileURLWithPath: otherDir.path + "-link")
+        try FileManager.default.createSymbolicLink(at: otherLink, withDestinationURL: otherDir)
+        other.add(otherDir)
+        #expect(other.covering(otherLink.appendingPathComponent("inner").path) != nil)
+    }
+
+    @Test("SSH gets ~/.ssh itself when a folder holding it (the home) is granted, and nothing is asked")
+    func sshFolderInGrantedHome() throws {
+        let (grants, home) = fresh()
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".ssh"), withIntermediateDirectories: true)
+        grants.add(home)
+        var asked: [String] = []
+        grants.ask = { path, _, _ in asked.append(path); return nil }
+        let ssh = grants.sshFolder(home: home.path, own: home.appendingPathComponent("own"))
+        #expect(ssh?.path == home.appendingPathComponent(".ssh").path)
+        #expect(asked.isEmpty)
+    }
+
+    @Test("no ~/.ssh (ssh never ran here): SSH gets a folder of the app's own, made for it, and nothing is asked")
+    func noSSHFolder() {
+        let (grants, home) = fresh()
+        var asked: [String] = []
+        grants.ask = { path, _, _ in asked.append(path); return nil }
+        let own = home.appendingPathComponent("own")
+        #expect(grants.sshFolder(home: home.path, own: own) == own)
+        #expect(FileManager.default.fileExists(atPath: own.path))
+        #expect(asked.isEmpty)
+    }
+
+    @Test("~/.ssh not granted: it is asked for, and the folder picked is used")
+    func sshFolderAsked() throws {
+        let (grants, home) = fresh()
+        let ssh = home.appendingPathComponent(".ssh")
+        try FileManager.default.createDirectory(at: ssh, withIntermediateDirectories: true)
+        var asked: [String] = []
+        grants.ask = { path, _, folder in asked.append(path); return folder ? URL(fileURLWithPath: path) : nil }
+        #expect(grants.sshFolder(home: home.path, own: home.appendingPathComponent("own"))?.path == ssh.path)
+        #expect(asked == [ssh.path])
     }
 
     @Test("a path with ~ is looked up in the user's home")

@@ -63,19 +63,41 @@ struct SSHSandboxTests {
     }
 
     @Test("a key ssh can't read: the connection says which, before ssh runs")
-    func keyMissing() async {
+    func keyMissing() async throws {
         let dir = folder(config: nil)
+        let elsewhere = FileManager.default.temporaryDirectory.appendingPathComponent("sb-elsewhere-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        let key = elsewhere.appendingPathComponent("id_ed25519").path
+        FileManager.default.createFile(atPath: key, contents: Data("key".utf8))
         SSHTunnel.sshFolderGrant = { dir }
         SSHTunnel.keyGrant = { _ in false }
         defer { SSHTunnel.sshFolderGrant = nil; SSHTunnel.keyGrant = nil }
         var c = conn()
-        c.sshKeyPath = "/private/tmp/sb-elsewhere/id_ed25519"
+        c.sshKeyPath = key
         do {
             try await SSHTunnel().start(conn: c)
             Issue.record("started")
         } catch {
-            #expect(error.localizedDescription.contains("/private/tmp/sb-elsewhere/id_ed25519"), "\(error)")
+            #expect(error.localizedDescription.contains("can't read the SSH key at \(key)"), "\(error)")
         }
+    }
+
+    @Test("a key that isn't there (moved, renamed) says so, and isn't asked for")
+    func keyNotThere() async {
+        let dir = folder(config: nil)
+        var asked: [String] = []
+        SSHTunnel.sshFolderGrant = { dir }
+        SSHTunnel.keyGrant = { asked.append($0); return false }
+        defer { SSHTunnel.sshFolderGrant = nil; SSHTunnel.keyGrant = nil }
+        var c = conn()
+        c.sshKeyPath = "/private/tmp/sb-gone-\(UUID().uuidString)/id_ed25519"
+        do {
+            try await SSHTunnel().start(conn: c)
+            Issue.record("started")
+        } catch {
+            #expect(error.localizedDescription == "SSH key not found at \(c.sshKeyPath)", "\(error)")
+        }
+        #expect(asked.isEmpty)
     }
 
     @Test("a config ssh can't use: its own reason reaches the user")
