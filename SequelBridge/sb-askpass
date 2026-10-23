@@ -1,0 +1,8 @@
+#!/bin/bash
+# SequelBridge: ssh runs this for each question it would ask at a terminal (SSH_ASKPASS).
+# The question goes to the app on 127.0.0.1 with this login's token; the app asks you and
+# sends the answer back. No answer (Cancel) fails that login attempt.
+exec 3<>"/dev/tcp/127.0.0.1/$SB_ASKPASS_PORT" || exit 1
+printf '%s\n%s\n' "$SB_ASKPASS_TOKEN" "$(printf '%s' "$1" | /usr/bin/base64)" >&3
+IFS= read -r answer <&3 || exit 1
+printf '%s\n' "$answer"

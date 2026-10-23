@@ -7,8 +7,8 @@
 //  a terminal, so ssh runs `scriptURL` for each question (SSH_ASKPASS, forced). The
 //  script sends the question with this login's one-time token to a listener on
 //  127.0.0.1 and prints the answer `ask` returns; no answer (the dialog's Cancel) fails
-//  that login attempt. The script lives in a folder only the user can read, removed by
-//  stop().
+//  that login attempt. The script ships inside the app (sb-askpass): the sandbox won't run
+//  a file the app wrote.
 //
 
 import Foundation
@@ -23,19 +23,16 @@ final class SSHAskpass {
     /// A question is waiting for its answer; the tunnel's connect timeout pauses meanwhile.
     private(set) var isAsking = false
 
-    private let folder: URL
     private let token = UUID().uuidString + UUID().uuidString
     private let listener: NWListener
     private let ask: @MainActor (String) async -> String?
 
     init(ask: @escaping @MainActor (String) async -> String?) async throws {
         self.ask = ask
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("sb-askpass-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false,
-                                                attributes: [.posixPermissions: 0o700])
-        scriptURL = folder.appendingPathComponent("askpass")
-        try Self.script.write(to: scriptURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+        guard let helper = Self.helperURL else {
+            throw SequelBridgeError.attachFailed("The app's askpass helper (sb-askpass) is missing: reinstall SequelBridge.")
+        }
+        scriptURL = helper
 
         let params = NWParameters.tcp
         params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
@@ -68,9 +65,11 @@ final class SSHAskpass {
         ]
     }
 
+    /// The askpass program inside the app (Resources/sb-askpass).
+    nonisolated static var helperURL: URL? { Bundle.main.url(forResource: "sb-askpass", withExtension: nil) }
+
     func stop() {
         listener.cancel()
-        try? FileManager.default.removeItem(at: folder)
     }
 
     // MARK: - One question per connection: the token line, the question in base64
@@ -111,19 +110,6 @@ final class SSHAskpass {
                             completion: .contentProcessed { _ in connection.cancel() })
         }
     }
-
-    /// The SSH_ASKPASS script: ssh's question as $1, the answer on stdout. /bin/bash
-    /// reaches 127.0.0.1 through /dev/tcp; base64 keeps a question's newlines on one line.
-    private static let script = """
-    #!/bin/bash
-    # SequelBridge: ssh runs this for each question it would ask at a terminal. The
-    # question goes to the app on 127.0.0.1 with this login's token; the app asks you.
-    exec 3<>"/dev/tcp/127.0.0.1/$SB_ASKPASS_PORT" || exit 1
-    printf '%s\\n%s\\n' "$SB_ASKPASS_TOKEN" "$(printf '%s' "$1" | /usr/bin/base64)" >&3
-    IFS= read -r answer <&3 || exit 1
-    printf '%s\\n' "$answer"
-
-    """
 }
 
 /// Settles a continuation once, whichever listener state arrives first.
