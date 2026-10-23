@@ -89,8 +89,10 @@ DuckDB. Use it for production servers.
 
 The version from the Mac App Store is the same app in macOS's App Sandbox, which lets it
 reach only what you pick in an open panel. It asks for your `~/.ssh` folder at the first
-SSH connection (ssh reads its config, keys and known_hosts there), and for a SQLite file's
-folder when you choose the file (SQLite writes its journal beside it). A key kept outside
+SSH connection (ssh reads its config, keys and known_hosts there; on a Mac where ssh has
+never run there is none, and ssh keeps the servers it meets in a folder of the app's own),
+and for a SQLite file's folder when you choose the file (SQLite writes its journal beside
+it). A key kept outside
 `~/.ssh` is asked for when you connect, or picked with **Choose…** beside the SSH Key field.
 macOS keeps each grant, so the app asks once, and again only if the folder is moved or
 renamed.

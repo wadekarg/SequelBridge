@@ -57,7 +57,7 @@ app tells you exactly what it sent to each server.
 | Results | `Models/QueryResult.swift`, `CellTable.swift`, `StreamBatcher.swift`, `RunClock.swift`, `ChartData.swift`, `Engine/ResultExporter.swift` | The result's columnar storage, when streamed chunks reach the screen, one clock per run, chart series, CSV/JSON/Markdown/SQL export. |
 | Views | `Views/Home/*`, `Views/Workspace/*`, `Views/Settings/*`, `Views/Connection/*` | Home and the connection form; the workspace: toolbar tabs (`WorkspaceView`), sidebar, the Query tab (`QueryPanelView`, which carries out each statement's route), editor, results grid and chart, and one file per panel; Settings; the SSH login dialog. |
 | Stores | `Utilities/HistoryStore.swift`, `SavedQueryStore.swift`, `CSVParser.swift`, `ConsoleExporter.swift` | Statement history (`history.jsonl`, append-only, compacted at 1,000 entries), saved queries (`saved_queries.json`), an RFC 4180 CSV reader, the console's `.sql` export. |
-| Scripts | `scripts/` | `fetch-duckdb.sh` (DuckDB with its scanners built in, as static libraries), `build-duckdb.sh` and `package-duckdb.sh` (that package, built from source), `run-all-tests.sh` (containers, fixtures, the whole matrix), `seed-demo.sh` and `capture-screenshots.sh` (the demo data and the guide's images), `check-docs.sh`, `acknowledgements.py` (the licenses Help → Acknowledgements shows), `build-release.sh` (the notarized DMG, `appcast.xml` and the Homebrew cask), `build-appstore.sh` and `appstore-screenshots.sh` (the App Store package and screenshots), `test-appstore-build.sh` and `check-appstore-sandbox.sh` (the App Store build checked, and run in its sandbox). |
+| Scripts | `scripts/` | `fetch-duckdb.sh` (DuckDB with its scanners built in, as static libraries), `build-duckdb.sh` and `package-duckdb.sh` (that package, built from source), `run-all-tests.sh` (containers, fixtures, the whole matrix), `seed-demo.sh` and `capture-screenshots.sh` (the demo data and the guide's images), `check-docs.sh`, `acknowledgements.py` (the licenses Help → Acknowledgements shows), `build-release.sh` (the notarized DMG, `appcast.xml` and the Homebrew cask), `build-appstore.sh` and `appstore-screenshots.sh` (the App Store package and screenshots), `test-appstore-build.sh` and `check-appstore-sandbox.sh` (the App Store build checked, and run in its sandbox), `project-version.sh` (the one version every target carries). |
 | Vendored DuckDB | `vendor/DuckDB/` | The Swift wrapper with three local patches, and the recipe that builds DuckDB with its scanners (`recipe/`); the libraries themselves are fetched, not committed. |
 | Updates | `Utilities/AppUpdater.swift`, `vendor/Sparkle/` | Sparkle 2.10, vendored: the daily check for a new version (asked first), **SequelBridge → Check for Updates…** and Settings → Updates; the feed is `appcast.xml` on the latest GitHub release. The DMG build only: the App Store updates its own. |
 | The App Store build | `Utilities/Distribution.swift`, `Grants.swift`, `Paths.swift`, `SandboxCheck.swift`, `sb-askpass` | Which build this is and what it offers, what the user granted the sandbox (security-scoped bookmarks), `~` as the user's home, the sandbox self-check; the askpass helper both builds ship. See [Two builds](#two-builds). |
@@ -590,14 +590,17 @@ whether a path needs a grant.
 In the sandbox the app reaches only what the user granted. `Grants` keeps each folder or
 file picked in an open panel as a security-scoped bookmark, starts its access when a path
 under it is needed, and forgets one whose bookmark no longer leads to the path it was
-given for (moved, renamed, deleted), so the app asks again. The engine knows none of
+given for (moved, renamed, deleted), so the app asks again. Paths are matched as the file
+system names them, links resolved (`Grants.canonical`), so a symlinked `~/.ssh` is its
+target. The sandbox lets a path's existence and links through without a grant, so a key
+or SQLite file that isn't there says so before anything is asked for. The engine knows none of
 this: the App Store build sets the first three hooks below at launch
 (`SequelBridgeApp.init`), which the DMG build leaves unset, and the fourth follows
 `Distribution.current`.
 
 | Hook | In the App Store build |
 |---|---|
-| `SSHTunnel.sshFolderGrant` | `~/.ssh`, granted or asked for: ssh runs with `-F <folder>/config` (or `/dev/null`), `UserKnownHostsFile=<folder>/known_hosts` and `IdentityAgent=none`, as ssh-agent's socket is out of the sandbox's reach |
+| `SSHTunnel.sshFolderGrant` | `~/.ssh` itself, granted (a grant of a folder holding it counts) or asked for, or, on a Mac without one, a folder of the app's own: ssh runs with `-F <folder>/config` (or `/dev/null`), `UserKnownHostsFile=<folder>/known_hosts` and `IdentityAgent=none`, as ssh-agent's socket is out of the sandbox's reach |
 | `SSHTunnel.keyGrant` | a key file outside `~/.ssh`, granted or asked for |
 | `QueryEngine.fileGrant` | a SQLite file's folder: SQLite writes its journal beside the file, and a grant of the file alone lets only reads through |
 | `QueryEngine.socketsAllowed` | false: a socket connection is refused, saying to use TCP/IP to 127.0.0.1 (the sandbox refuses a Unix socket even in a granted folder) |
