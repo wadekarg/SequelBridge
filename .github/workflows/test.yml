@@ -7,6 +7,8 @@
 # And it starts the app on macOS 14, the oldest it supports. Xcode 26, which the app
 # needs, doesn't run on macOS 14, so the app is built on macOS 15 and only launched
 # there (scripts/launch-smoke.sh): it starts, shows its window, and stays up.
+# And the App Store build: sandboxed and without Sparkle (scripts/test-appstore-build.sh),
+# its own SSH and SQLite code run in the sandbox (scripts/check-appstore-sandbox.sh --ci).
 name: Tests
 
 on:
@@ -102,6 +104,33 @@ jobs:
             unit.log
             ui.log
             ui.xcresult
+
+  app-store:
+    name: App Store build, sandboxed
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The DuckDB package this run built
+        if: inputs.duckdb-artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.duckdb-artifact }}
+          path: duckdb-package
+
+      - name: Fetch DuckDB's static libraries
+        run: |
+          zip=$(ls "$PWD"/duckdb-package/*.zip 2>/dev/null | head -1)
+          SB_DUCKDB_ZIP="$zip" ./scripts/fetch-duckdb.sh
+
+      - name: The App Store build (sandboxed, no Sparkle)
+        run: scripts/test-appstore-build.sh
+
+      - name: The sandbox check
+        run: scripts/check-appstore-sandbox.sh --ci
 
   build-for-macos-14:
     name: Build for macOS 14

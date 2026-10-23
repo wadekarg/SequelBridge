@@ -12,6 +12,9 @@ struct SequelBridgeApp: App {
     @StateObject private var connectionManager: ConnectionManager
     @StateObject private var appSettings = AppSettings(defaults: AppSettings.store())
     @StateObject private var updater = AppUpdater()
+    #if APP_STORE
+    @NSApplicationDelegateAdaptor(AppStoreDelegate.self) private var appStoreDelegate
+    #endif
 
     @MainActor
     init() {
@@ -69,3 +72,17 @@ struct SequelBridgeApp: App {
         }
     }
 }
+
+#if APP_STORE
+/// The App Store build: items opened with the app (the sandbox check's folders) and the check.
+final class AppStoreDelegate: NSObject, NSApplicationDelegate {
+    private var opened: [URL] = []
+    func application(_ application: NSApplication, open urls: [URL]) { opened += urls }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard CommandLine.arguments.contains("-SBSandboxCheck") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            Task { @MainActor in await SandboxCheck.run(arguments: CommandLine.arguments, opened: self.opened) }
+        }
+    }
+}
+#endif

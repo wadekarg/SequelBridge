@@ -275,6 +275,10 @@ run_tests() {
     python3 scripts/acknowledgements.py --check || return 1
     say "App Store build (sandboxed, no Sparkle; scripts/test-appstore-build.sh)"
     scripts/test-appstore-build.sh || return 1
+    if [ "$MODE" != hermetic ]; then
+      say "Sandbox check (the App Store build's SSH and SQLite code, sandboxed, through sb-sshd)"
+      scripts/check-appstore-sandbox.sh || return 1
+    fi
   fi
   if [ "$NO_BUILD" = 0 ]; then
     say "Building ($CONFIG)"
