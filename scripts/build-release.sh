@@ -28,7 +28,7 @@ PROFILE="${SB_NOTARY_PROFILE:-sequelbridge-notary}"
 IDENT="${SB_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | grep -m1 -o '"Developer ID Application: [^"]*"' | tr -d '"')}"
 [ -n "$IDENT" ] || { echo "No Developer ID Application identity in the keychain"; exit 1; }
 TEAM=$(echo "$IDENT" | sed -E 's/.*\(([A-Z0-9]+)\)$/\1/')
-VERSION=$(grep -m1 -o 'MARKETING_VERSION = [0-9.]*' SequelBridge.xcodeproj/project.pbxproj | awk '{print $3}')
+VERSION=$(scripts/project-version.sh)   # every target's, the App Store build's too: one version, or stop
 DMG="$WORK/SequelBridge-$VERSION.dmg"
 step() { printf '\n==> %s\n' "$*"; }
 

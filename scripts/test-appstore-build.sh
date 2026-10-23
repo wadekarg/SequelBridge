@@ -39,5 +39,10 @@ M="$APP/Contents/Resources/PrivacyInfo.xcprivacy"
 echo "App Store build: sandboxed, no Sparkle, App Store keys, privacy manifest ($CONFIG)"
 build SequelBridge "$DD-direct" "$DD-direct.log"
 [ -e "$DD-direct/Build/Products/$CONFIG/SequelBridge.app/Contents/Frameworks/Sparkle.framework" ] || fail "the DMG build lost Sparkle"
-echo "DMG build: Sparkle as before"
+D="$DD-direct/Build/Products/$CONFIG/SequelBridge.app/Contents/Info.plist"
+for k in CFBundleShortVersionString CFBundleVersion; do   # one release, both channels
+  a=$(/usr/libexec/PlistBuddy -c "Print :$k" "$P"); b=$(/usr/libexec/PlistBuddy -c "Print :$k" "$D")
+  [ "$a" = "$b" ] || fail "$k: the App Store build's is $a, the DMG build's $b"
+done
+echo "DMG build: Sparkle as before, the App Store build's version and build"
 "$PWD/scripts/forget-builds.sh" "$DD/Build/Products" "$DD-direct/Build/Products"
