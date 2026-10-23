@@ -440,6 +440,8 @@ struct AddConnectionSheet: View {
                     panel.allowsMultipleSelection = false
                     if panel.runModal() == .OK, let url = panel.url {
                         database = url.path
+                        // The App Store build: its folder too, asked now rather than at the first connect.
+                        if Distribution.current.needsGrants { _ = Grants.shared.folder(holding: url.path) }
                         if name.isEmpty  { name  = url.deletingPathExtension().lastPathComponent }
                         if alias.isEmpty { alias = url.deletingPathExtension().lastPathComponent }
                     }

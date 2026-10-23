@@ -29,6 +29,8 @@ struct SequelBridgeApp: App {
         // The sandbox: SSH reads the ~/.ssh and key files the user granted.
         SSHTunnel.sshFolderGrant = { Grants.shared.sshFolder() }
         SSHTunnel.keyGrant = { Grants.shared.file($0) != nil }
+        // A SQLite file's folder (SQLite writes its journal beside the file).
+        QueryEngine.fileGrant = { Grants.shared.folder(holding: $0) }
         #endif
     }
 

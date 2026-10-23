@@ -569,9 +569,22 @@ final class QueryEngine {
     /// The connection's SQLite file, "~" as the user's home.
     nonisolated static func sqliteFile(_ c: Connection) -> String { Paths.expandingTilde(c.database) }
 
+    /// The App Store build: the folder holding a SQLite file, granted (Grants) or asked for
+    /// now, its access started; nil when the user didn't. SQLite writes its journal beside
+    /// the file, so a grant of the file alone isn't enough. Unset in the DMG build.
+    static var fileGrant: ((String) -> URL?)?
+
+    nonisolated static func sqliteFolderMissing(_ path: String) -> String {
+        "SequelBridge needs the folder holding \((path as NSString).lastPathComponent): SQLite writes beside the file. "
+            + "Connect again and allow the folder when asked."
+    }
+
     /// ATTACHes a local SQLite file under the connection's alias; the file must exist.
     private func attachSQLite(_ c: Connection) async throws {
         let path = Self.sqliteFile(c)
+        if let grant = Self.fileGrant, grant(path) == nil {
+            throw SequelBridgeError.attachFailed(Self.sqliteFolderMissing(path))
+        }
         guard FileManager.default.fileExists(atPath: path) else {
             throw SequelBridgeError.attachFailed("No SQLite database at \(path)")
         }
