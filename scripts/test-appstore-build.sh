@@ -2,7 +2,8 @@
 # test-appstore-build.sh [Debug|Release] — builds the App Store target (SequelBridgeAppStore)
 # in derived data of its own and checks the product: sandboxed, with the App Store
 # entitlements and no exception; no Sparkle (framework, code or Info.plist keys); the App
-# Store Info.plist keys; macOS 14. And that the DMG build still carries Sparkle.
+# Store Info.plist keys; the privacy manifest; macOS 14. And that the DMG build still
+# carries Sparkle.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 CONFIG="${1:-Debug}"
@@ -30,7 +31,10 @@ P="$APP/Contents/Info.plist"
 [ "$(/usr/libexec/PlistBuddy -c 'Print :LSApplicationCategoryType' "$P")" = "public.app-category.developer-tools" ] || fail "category"
 [ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$P")" = "14.0" ] || fail "minimum macOS"
 [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$P")" = "gwadekar.SequelBridge" ] || fail "bundle id"
-echo "App Store build: sandboxed, no Sparkle, App Store keys ($CONFIG)"
+M="$APP/Contents/Resources/PrivacyInfo.xcprivacy"
+[ -f "$M" ] && [ "$(plutil -convert json -o - "$M")" = "$(plutil -convert json -o - SequelBridge/PrivacyInfo.xcprivacy)" ] \
+  || fail "the privacy manifest isn't in the App Store build"
+echo "App Store build: sandboxed, no Sparkle, App Store keys, privacy manifest ($CONFIG)"
 build SequelBridge "$DD-direct" "$DD-direct.log"
 [ -e "$DD-direct/Build/Products/$CONFIG/SequelBridge.app/Contents/Frameworks/Sparkle.framework" ] || fail "the DMG build lost Sparkle"
 echo "DMG build: Sparkle as before"
