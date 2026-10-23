@@ -41,13 +41,17 @@ nonisolated enum DatabaseEngine: String, Codable, CaseIterable, Identifiable {
 
     /// The ways the app can reach this engine, in the order the connection form lists them.
     /// ClickHouse is reached over HTTP, so a Unix socket is not one of them; a SQLite
-    /// connection is a file.
-    var connectionTypes: [ConnectionType] {
+    /// connection is a file; the App Store build's sandbox refuses sockets.
+    var connectionTypes: [ConnectionType] { connectionTypes(in: .current) }
+
+    func connectionTypes(in distribution: Distribution) -> [ConnectionType] {
+        let all: [ConnectionType]
         switch self {
-        case .mysql, .postgres: return [.tcpip, .ssh, .socket]
-        case .clickhouse:       return [.tcpip, .ssh]
-        case .sqlite:           return []
+        case .mysql, .postgres: all = [.tcpip, .ssh, .socket]
+        case .clickhouse:       all = [.tcpip, .ssh]
+        case .sqlite:           all = []
         }
+        return distribution.offersSockets ? all : all.filter { $0 != .socket }
     }
 
     /// The socket path the connection form starts from: MySQL's usual socket file,

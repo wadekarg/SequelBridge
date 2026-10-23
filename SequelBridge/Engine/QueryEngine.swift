@@ -474,9 +474,18 @@ final class QueryEngine {
         return (try await startTunnel(for: c), true)
     }
 
+    /// Whether this build connects by Unix socket: not the App Store build, whose sandbox
+    /// refuses sockets.
+    static var socketsAllowed = Distribution.current.offersSockets
+
+    static let noSockets = "Sockets aren't available in the App Store version (macOS's sandbox blocks them): use TCP/IP to 127.0.0.1 instead."
+
     func attach(_ c: Connection, password: String) async throws {
         // Track safe mode for every engine, before the per-engine early returns below.
         if c.readOnly { readOnlyAliases.insert(c.alias) } else { readOnlyAliases.remove(c.alias) }
+        if c.connectionType == .socket && !c.engine.isFileBased && !Self.socketsAllowed {
+            throw SequelBridgeError.attachFailed(Self.noSockets)
+        }
         // SQLite is a file: no DSN, no credentials, and the path is the database.
         if c.engine.isFileBased {
             try await attachSQLite(c)

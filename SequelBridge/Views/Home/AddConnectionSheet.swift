@@ -191,6 +191,10 @@ struct AddConnectionSheet: View {
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()
+                        if !Distribution.current.offersSockets, engine == .mysql || engine == .postgres {
+                            Text("Connecting by socket isn't available in the App Store version: use TCP/IP to 127.0.0.1.")
+                                .font(.caption).foregroundColor(.secondary)
+                        }
                     }
 
                     }
