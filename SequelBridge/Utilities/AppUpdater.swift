@@ -2,13 +2,15 @@
 //  AppUpdater.swift
 //  SequelBridge
 //
-//  New versions, checked for and installed by Sparkle (https://sparkle-project.org): the
-//  app isn't on the App Store, so nothing else would tell its users there is one. The
-//  feed is appcast.xml on the latest GitHub release (Info.plist's SUFeedURL), and an
-//  update whose signature doesn't match the project's key (SUPublicEDKey) is refused.
-//  Sparkle asks once, at the second launch, whether to check automatically.
+//  New versions, checked for and installed by Sparkle (https://sparkle-project.org), in the
+//  DMG/Homebrew build: nothing else would tell its users there is one. The feed is
+//  appcast.xml on the latest GitHub release (Info.plist's SUFeedURL), and an update whose
+//  signature doesn't match the project's key (SUPublicEDKey) is refused. Sparkle asks once,
+//  at the second launch, whether to check automatically. The App Store build has no updater
+//  and no Sparkle: the App Store updates it.
 //
 
+#if !APP_STORE
 import Combine
 import Foundation
 import Sparkle
@@ -73,3 +75,24 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     /// test's own.
     nonisolated func updaterShouldPromptForPermissionToCheck(forUpdates updater: SPUUpdater) -> Bool { feedOverride == nil }
 }
+#endif
+
+#if APP_STORE
+import Combine
+import Foundation
+
+/// The App Store build: the App Store updates the app, so it has no updater of its own and
+/// no Sparkle. The same face as the DMG build's, so the views that use it compile unchanged.
+@MainActor
+final class AppUpdater: ObservableObject {
+    @Published private(set) var canCheckForUpdates = false
+    init(arguments: [String] = CommandLine.arguments,
+         environment: [String: String] = ProcessInfo.processInfo.environment) {}
+    var isRunning: Bool { false }
+    func checkForUpdates() {}
+    var automaticallyChecksForUpdates: Bool {
+        get { false }
+        set {}
+    }
+}
+#endif

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A5A0E0012F9C440A007D8D8B /* DuckDB in Frameworks */ = {isa = PBXBuildFile; productRef = A5A0E0022F9C440A007D8D8B /* DuckDB */; };
 		B1F596EA2F9C440A007D8D8B /* DuckDB in Frameworks */ = {isa = PBXBuildFile; productRef = B1F596E92F9C440A007D8D8B /* DuckDB */; };
 		5B5A0E0A2F9C440A007D8D8B /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5B5A0E0B2F9C440A007D8D8B /* Sparkle */; };
 /* End PBXBuildFile section */
@@ -29,6 +30,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A5A0E0032F9C440A007D8D8B /* SequelBridge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SequelBridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B1F596DA2F9C43A2007D8D8B /* SequelBridge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SequelBridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B1F596F62F9C4FBD007D8D8B /* SequelBridgeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SequelBridgeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B1F597112F9C4FBD007D8D8B /* SequelBridgeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SequelBridgeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -53,6 +55,14 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A5A0E0052F9C440A007D8D8B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A5A0E0012F9C440A007D8D8B /* DuckDB in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B1F596D72F9C43A2007D8D8B /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -95,6 +105,7 @@
 				B1F596DA2F9C43A2007D8D8B /* SequelBridge.app */,
 				B1F596F62F9C4FBD007D8D8B /* SequelBridgeTests.xctest */,
 				B1F597112F9C4FBD007D8D8B /* SequelBridgeUITests.xctest */,
+				A5A0E0032F9C440A007D8D8B /* SequelBridge.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -102,6 +113,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A5A0E0072F9C440A007D8D8B /* SequelBridgeAppStore */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A5A0E0082F9C440A007D8D8B /* Build configuration list for PBXNativeTarget "SequelBridgeAppStore" */;
+			buildPhases = (
+				A5A0E0042F9C440A007D8D8B /* Sources */,
+				A5A0E0052F9C440A007D8D8B /* Frameworks */,
+				A5A0E0062F9C440A007D8D8B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B1F596DC2F9C43A2007D8D8B /* SequelBridge */,
+			);
+			name = SequelBridgeAppStore;
+			packageProductDependencies = (
+				A5A0E0022F9C440A007D8D8B /* DuckDB */,
+			);
+			productName = SequelBridge;
+			productReference = A5A0E0032F9C440A007D8D8B /* SequelBridge.app */;
+			productType = "com.apple.product-type.application";
+		};
 		B1F596D92F9C43A2007D8D8B /* SequelBridge */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = B1F596E52F9C43A5007D8D8B /* Build configuration list for PBXNativeTarget "SequelBridge" */;
@@ -182,6 +216,9 @@
 				LastSwiftUpdateCheck = 2640;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
+					A5A0E0072F9C440A007D8D8B = {
+						CreatedOnToolsVersion = 26.5;
+					};
 					B1F596D92F9C43A2007D8D8B = {
 						CreatedOnToolsVersion = 26.4.1;
 					};
@@ -216,11 +253,19 @@
 				B1F596D92F9C43A2007D8D8B /* SequelBridge */,
 				B1F596F52F9C4FBD007D8D8B /* SequelBridgeTests */,
 				B1F597162F9C4FBD007D8D8B /* SequelBridgeUITests */,
+				A5A0E0072F9C440A007D8D8B /* SequelBridgeAppStore */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A5A0E0062F9C440A007D8D8B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B1F596D82F9C43A2007D8D8B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -245,6 +290,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A5A0E0042F9C440A007D8D8B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B1F596D62F9C43A2007D8D8B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -282,6 +334,82 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		A5A0E0092F9C440A007D8D8B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "SequelBridge/SequelBridge-AppStore.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 150;
+				DEVELOPMENT_TEAM = 4NJA57K54Y;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "SequelBridge-AppStore-Info.plist";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.4;
+				PRODUCT_BUNDLE_IDENTIFIER = gwadekar.SequelBridge;
+				PRODUCT_NAME = SequelBridge;
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "APP_STORE $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A5A0E00A2F9C440A007D8D8B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "SequelBridge/SequelBridge-AppStore.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 150;
+				DEVELOPMENT_TEAM = 4NJA57K54Y;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "SequelBridge-AppStore-Info.plist";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.4;
+				PRODUCT_BUNDLE_IDENTIFIER = gwadekar.SequelBridge;
+				PRODUCT_NAME = SequelBridge;
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "APP_STORE $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 		B1F596E32F9C43A5007D8D8B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -551,6 +679,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A5A0E0082F9C440A007D8D8B /* Build configuration list for PBXNativeTarget "SequelBridgeAppStore" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A5A0E0092F9C440A007D8D8B /* Debug */,
+				A5A0E00A2F9C440A007D8D8B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		B1F596D52F9C43A2007D8D8B /* Build configuration list for PBXProject "SequelBridge" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -601,6 +738,11 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		A5A0E0022F9C440A007D8D8B /* DuckDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B1F596E82F9C440A007D8D8B /* XCLocalSwiftPackageReference "vendor/DuckDB" */;
+			productName = DuckDB;
+		};
 		B1F596E92F9C440A007D8D8B /* DuckDB */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = B1F596E82F9C440A007D8D8B /* XCLocalSwiftPackageReference "vendor/DuckDB" */;

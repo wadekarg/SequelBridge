@@ -36,10 +36,12 @@ struct SequelBridgeApp: App {
         }
         .defaultSize(width: 960, height: 680)
         .commands {
+            #if !APP_STORE
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { updater.checkForUpdates() }
                     .disabled(!updater.canCheckForUpdates)
             }
+            #endif
             CommandGroup(replacing: .help) { HelpMenu(appSettings: appSettings) }
         }
 

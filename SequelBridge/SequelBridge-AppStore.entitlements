@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  The App Store build (SequelBridgeAppStore). network.client: the database servers;
+  network.server: ssh's local port forward on 127.0.0.1; files.user-selected.read-write and
+  files.bookmarks.app-scope: what the user grants in an open panel, kept for later launches.
+  No temporary exceptions.
+-->
+<dict>
+	<key>com.apple.security.app-sandbox</key><true/>
+	<key>com.apple.security.network.client</key><true/>
+	<key>com.apple.security.network.server</key><true/>
+	<key>com.apple.security.files.user-selected.read-write</key><true/>
+	<key>com.apple.security.files.bookmarks.app-scope</key><true/>
+</dict>
+</plist>

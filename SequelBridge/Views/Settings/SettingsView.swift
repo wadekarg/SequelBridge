@@ -34,9 +34,11 @@ struct SettingsView: View {
             shortcutsTab
                 .tabItem { Label("Shortcuts", systemImage: "keyboard") }
                 .tag(SettingsTab.shortcuts)
+            #if !APP_STORE
             updatesTab
                 .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
                 .tag(SettingsTab.updates)
+            #endif
         }
         .frame(width: 480, height: 340)
     }

@@ -273,6 +273,8 @@ run_tests() {
     scripts/test-release-feed.sh || return 1
     say "Acknowledgements (the licenses of the DuckDB package, as Help → Acknowledgements lists them)"
     python3 scripts/acknowledgements.py --check || return 1
+    say "App Store build (sandboxed, no Sparkle; scripts/test-appstore-build.sh)"
+    scripts/test-appstore-build.sh || return 1
   fi
   if [ "$NO_BUILD" = 0 ]; then
     say "Building ($CONFIG)"

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  The App Store build's, merged with the keys Xcode generates. As SequelBridge-Info.plist,
+  without Sparkle's keys (the App Store updates the app).
+
+  NSAllowsArbitraryLoads: the app connects to servers the user names, and a ClickHouse HTTP
+  interface is often reached by host name without TLS (see SequelBridge-Info.plist).
+  ITSAppUsesNonExemptEncryption: the app's encryption is standard protocols only (TLS to
+  database servers, SSH through macOS's ssh).
+-->
+<dict>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+</dict>
+</plist>
