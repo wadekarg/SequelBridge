@@ -29,9 +29,14 @@ if [[ -f "$STAMP" && "$(cat "$STAMP" 2>/dev/null)" == "$WANT" && -f "$LIBS/libmy
 fi
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+# Fails unless the script got to its end: after a set -u error, macOS's bash 3.2 exits
+# with the EXIT trap's status, 0, which hid a failed install on CI.
+finished=0
+trap 'rm -rf "$TMP"; [ "$finished" = 1 ] || exit 1' EXIT
 if [ -n "$LOCAL" ]; then
-  echo "Installing DuckDB from $LOCAL…"
+  # ${LOCAL}, braced: in a UTF-8 locale bash 3.2 reads the "…" after a bare name as
+  # part of it.
+  echo "Installing DuckDB from ${LOCAL}…"
   cp "$LOCAL" "$TMP/duckdb.zip"
   if [ -f "$LOCAL.sha256" ]; then
     echo "$(awk '{print $1}' "$LOCAL.sha256")  $TMP/duckdb.zip" | shasum -a 256 -c --quiet
@@ -51,3 +56,4 @@ cp "$TMP/include/duckdb.h" "$INCLUDE/duckdb.h"
 rm -rf "$LICENSES" && cp -R "$TMP/licenses" "$LICENSES"
 echo "$WANT" > "$STAMP"
 echo "Done: $(ls "$LIBS"/*.a | wc -l | tr -d ' ') libs ($(lipo -archs "$LIBS/libduckdb_static.a")) + duckdb.h in vendor/DuckDB."
+finished=1
