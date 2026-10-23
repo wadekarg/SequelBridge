@@ -566,9 +566,12 @@ final class QueryEngine {
         c.readOnly ? "(TYPE \(c.engine.attachType), READ_ONLY)" : "(TYPE \(c.engine.attachType))"
     }
 
+    /// The connection's SQLite file, "~" as the user's home.
+    nonisolated static func sqliteFile(_ c: Connection) -> String { Paths.expandingTilde(c.database) }
+
     /// ATTACHes a local SQLite file under the connection's alias; the file must exist.
     private func attachSQLite(_ c: Connection) async throws {
-        let path = (c.database as NSString).expandingTildeInPath
+        let path = Self.sqliteFile(c)
         guard FileManager.default.fileExists(atPath: path) else {
             throw SequelBridgeError.attachFailed("No SQLite database at \(path)")
         }

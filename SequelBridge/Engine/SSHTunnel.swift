@@ -93,10 +93,13 @@ final class SSHTunnel {
 
     // MARK: - Lifecycle
 
+    /// The connection's key file, "~" as the user's home; nil when none is set.
+    nonisolated static func keyPath(_ conn: Connection) -> String? {
+        conn.sshKeyPath.isEmpty ? nil : Paths.expandingTilde(conn.sshKeyPath)
+    }
+
     func start(conn: Connection) async throws {
-        let expandedKey = conn.sshKeyPath.isEmpty
-            ? nil
-            : (conn.sshKeyPath as NSString).expandingTildeInPath
+        let expandedKey = Self.keyPath(conn)
 
         // A key path the user typed but that does not exist must fail loudly.
         // Otherwise ssh silently falls back to the agent or a default key, and a
