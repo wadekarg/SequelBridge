@@ -352,8 +352,24 @@ struct AddConnectionSheet: View {
             row("SSH Host",     field: TextField("ssh.example.com", text: $sshHost))
             row("SSH Port",     field: TextField("22", text: $sshPort).frame(width: 80))
             row("SSH Username", field: TextField("ubuntu", text: $sshUsername))
-            row("SSH Key",      field: TextField("optional, e.g. ~/.ssh/id_rsa", text: $sshKeyPath)
-                                    .help("Leave it empty to log in with a password. A password, a key's passphrase or a one-time code is asked when you connect."))
+            row("SSH Key", field: HStack(spacing: 6) {
+                TextField("optional, e.g. ~/.ssh/id_rsa", text: $sshKeyPath)
+                    .help("Leave it empty to log in with a password. A password, a key's passphrase or a one-time code is asked when you connect.")
+                if Distribution.current.needsGrants {
+                    // The App Store build: picking the key grants it to the sandbox.
+                    Button("Choose…") {
+                        let panel = NSOpenPanel()
+                        panel.directoryURL = URL(fileURLWithPath: Paths.realHome + "/.ssh", isDirectory: true)
+                        panel.showsHiddenFiles = true
+                        panel.canChooseDirectories = false
+                        if panel.runModal() == .OK, let url = panel.url {
+                            Grants.shared.add(url)
+                            sshKeyPath = url.path
+                        }
+                    }
+                    .controlSize(.small)
+                }
+            })
         }
         formGroup("\(engine.displayName) Server") {
             row("Host",     field: TextField("127.0.0.1", text: $host))
@@ -367,8 +383,11 @@ struct AddConnectionSheet: View {
         }
         HStack {
             Image(systemName: "info.circle").foregroundColor(.secondary)
-            Text("With SSH Key blank, ssh uses your usual keys and ssh-agent, or a password. Whatever the server asks "
-                 + "(a password, a key's passphrase, a one-time code) is asked when you connect.")
+            Text(Distribution.current.offersSSHAgent
+                 ? "With SSH Key blank, ssh uses your usual keys and ssh-agent, or a password. Whatever the server asks "
+                   + "(a password, a key's passphrase, a one-time code) is asked when you connect."
+                 : "With SSH Key blank, ssh uses your usual keys in ~/.ssh, or a password (the App Store version can't use "
+                   + "ssh-agent). Whatever the server asks (a password, a key's passphrase, a one-time code) is asked when you connect.")
                 .font(.caption).foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

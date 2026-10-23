@@ -25,6 +25,11 @@ struct SequelBridgeApp: App {
         // is asked in a dialog. Tests set their own answerer.
         SSHTunnel.prompter = { await SSHLoginPrompt.answer($0) }
         SSHTunnel.knownHostsFile = SSHTunnel.knownHostsFile(from: CommandLine.arguments)
+        #if APP_STORE
+        // The sandbox: SSH reads the ~/.ssh and key files the user granted.
+        SSHTunnel.sshFolderGrant = { Grants.shared.sshFolder() }
+        SSHTunnel.keyGrant = { Grants.shared.file($0) != nil }
+        #endif
     }
 
     var body: some Scene {

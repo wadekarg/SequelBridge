@@ -27,6 +27,17 @@ final class SSHTunnel {
     /// Terminal. A test or UI test passes a throwaway file (-SBKnownHostsFile).
     static var knownHostsFile: String?
 
+    /// The App Store build's ~/.ssh: the folder the user granted (Grants), asked for at the
+    /// first SSH connection; nil when they didn't. Unset in the DMG build, whose ssh reads
+    /// ~/.ssh itself.
+    static var sshFolderGrant: (() -> URL?)?
+
+    /// The App Store build: whether ssh can read the key file at a path (granted, or asked for
+    /// now). Unset in the DMG build.
+    static var keyGrant: ((String) -> Bool)?
+
+    static let sshFolderMissing = "SSH needs your ~/.ssh folder (its config, keys and known_hosts): connect again and allow it when asked."
+
     /// The -SBKnownHostsFile path among the launch arguments, if there is one.
     static func knownHostsFile(from arguments: [String]) -> String? {
         guard let i = arguments.firstIndex(of: "-SBKnownHostsFile"), i + 1 < arguments.count else { return nil }
@@ -100,6 +111,16 @@ final class SSHTunnel {
 
     func start(conn: Connection) async throws {
         let expandedKey = Self.keyPath(conn)
+        // The App Store build: ssh reads only what the user granted. Asked before the key's
+        // existence check, as a key the sandbox can't read looks missing.
+        var sshFolder: String?
+        if let grant = Self.sshFolderGrant {
+            guard let folder = grant() else { throw SequelBridgeError.attachFailed(Self.sshFolderMissing) }
+            sshFolder = folder.path
+        }
+        if let key = expandedKey, let canRead = Self.keyGrant, !canRead(key) {
+            throw SequelBridgeError.attachFailed("SequelBridge can't read the SSH key at \(key): choose it in the connection's SSH Key field.")
+        }
 
         // A key path the user typed but that does not exist must fail loudly.
         // Otherwise ssh silently falls back to the agent or a default key, and a
@@ -133,7 +154,8 @@ final class SSHTunnel {
         }
 
         p.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        p.arguments = Self.arguments(for: conn, localPort: localPort, keyPath: expandedKey, interactive: askpass != nil)
+        p.arguments = Self.arguments(for: conn, localPort: localPort, keyPath: expandedKey, interactive: askpass != nil,
+                                     sshFolder: sshFolder)
         if let askpass {
             // No terminal: ssh asks every question through the askpass script.
             p.environment = ProcessInfo.processInfo.environment.merging(askpass.environment) { $1 }
@@ -201,7 +223,8 @@ final class SSHTunnel {
     /// host key only as ssh-rsa ("no matching host key type found. Their offer: ssh-rsa")
     /// and accept only ssh-rsa signatures. Appended, it is used only when the server
     /// offers nothing newer.
-    static func arguments(for conn: Connection, localPort: Int, keyPath: String?, interactive: Bool = false) -> [String] {
+    static func arguments(for conn: Connection, localPort: Int, keyPath: String?, interactive: Bool = false,
+                          sshFolder: String? = nil) -> [String] {
         // An IPv6 address is bracketed, or ssh reads its colons as the forward's own.
         let target = conn.host.contains(":") && !conn.host.hasPrefix("[") ? "[\(conn.host)]" : conn.host
         var args: [String] = [
@@ -225,6 +248,15 @@ final class SSHTunnel {
         // With nothing to answer them, ssh must not wait on questions (a password, a
         // key's passphrase, a one-time code); with SSHAskpass, the app answers.
         if !interactive { args += ["-o", "BatchMode=yes"] }
+        if let sshFolder {
+            // The App Store build: ssh's ~/.ssh is the folder the user granted, read through
+            // its own paths; ssh-agent's socket is outside the sandbox.
+            let config = (sshFolder as NSString).appendingPathComponent("config")
+            args += ["-F", FileManager.default.fileExists(atPath: config) ? config : "/dev/null", "-o", "IdentityAgent=none"]
+            if knownHostsFile == nil {
+                args += ["-o", "UserKnownHostsFile=\((sshFolder as NSString).appendingPathComponent("known_hosts"))"]
+            }
+        }
         if let file = knownHostsFile { args += ["-o", "UserKnownHostsFile=\(file)"] }
         if let keyPath {
             // IdentitiesOnly=yes: use ONLY this key, never the agent or defaults,
