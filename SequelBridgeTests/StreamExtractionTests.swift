@@ -75,8 +75,18 @@ struct StreamExtractionTests {
         // Before the chunk-sequential reader this took ~49s (per-cell Vector/LogicalType
         // allocation in the library); ~11s now on a Debug build, pulled through DuckDB's
         // streaming execution. A generous bound — the machine may be building at the
-        // same time — that still can't let that regression creep back.
-        #expect(secs < 20, "500k×12 should stream in seconds; took \(secs)s")
+        // same time — that still can't let that regression creep back. Twice that as Intel
+        // code under Rosetta, slower and more uneven: on CI it took 14 s, then 23 s.
+        let bound: Double = Self.underRosetta ? 40 : 20
+        #expect(secs < bound, "500k×12 should stream in seconds; took \(secs)s")
         await engine.closeStream(stream)
+    }
+
+    /// Whether this process is Intel code translated by Rosetta (the Intel slice on Apple
+    /// Silicon). On an Intel Mac the setting doesn't exist: not translated.
+    private static var underRosetta: Bool {
+        var translated: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        return sysctlbyname("sysctl.proc_translated", &translated, &size, nil, 0) == 0 && translated == 1
     }
 }

@@ -7,9 +7,23 @@
 # as the release is.
 name: DuckDB with built-in drivers
 
+# When the recipe changes (a push to main or this branch, a pull request), or by hand.
 on:
   push:
-    branches: [built-in-drivers]
+    branches: [main, built-in-drivers]
+    paths:
+      - vendor/DuckDB/recipe/**
+      - scripts/build-duckdb.sh
+      - scripts/package-duckdb.sh
+      - scripts/check-driver-symbols.sh
+      - .github/workflows/build-duckdb.yml
+  pull_request:
+    paths:
+      - vendor/DuckDB/recipe/**
+      - scripts/build-duckdb.sh
+      - scripts/package-duckdb.sh
+      - scripts/check-driver-symbols.sh
+      - .github/workflows/build-duckdb.yml
   workflow_dispatch:
 
 env:
