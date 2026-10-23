@@ -3,11 +3,12 @@
 # SequelBridgeAppStore scheme under a bundle id of its own (its own container, removed after)
 # with folders openable (scripts/fixtures/sandbox-check-Info.plist), it is opened with an
 # ~/.ssh stand-in and a folder holding a SQLite file, which grants them as an open panel
-# would, and runs its own SSH and SQLite code there (-SBSandboxCheck): a key login and a
-# passphrase key answered through the shipped askpass helper, through to the server, with
-# the server's key remembered in the granted folder; a SQLite write in-process and by
-# macOS's sqlite3; no socket offered; no Sparkle. Then a second launch, from the saved
-# grants only. Local: the test SSH server (sb-sshd, :2224) and the repo's test keys.
+# would, and runs its own SSH and SQLite code there (-SBSandboxCheck, on those paths only,
+# never the user's ~/.ssh): a key login and a passphrase key answered through the shipped
+# askpass helper, through to the server, with the server's key remembered in the granted
+# folder, which is reached through a symbolic link, as a symlinked ~/.ssh is; a SQLite
+# write in-process and by macOS's sqlite3; no socket offered; no Sparkle. Then a second
+# launch, from the saved grants only. Local: the test SSH server (sb-sshd, :2224) and the repo's test keys.
 # --ci: an sshd of its own on 127.0.0.1:2226 with fresh keys (GitHub's runners; beside
 # sb-sshd's 2224, so it runs on a Mac with the test servers up too).
 set -euo pipefail
@@ -25,7 +26,8 @@ trap 'pkill -f "$APP/Contents/MacOS/SequelBridge" || true; pkill -f "$W/sshd_con
       rm -rf "$W" "$HOME/Library/Containers/$ID"; [ "$finished" = 1 ] || exit 1' EXIT
 fail() { echo "FAIL: $*"; exit 1; }
 
-mkdir -p "$W/ssh" "$W/sqlite" "$(dirname "$DD")"
+mkdir -p "$W/ssh-real" "$W/sqlite" "$(dirname "$DD")"
+ln -s "$W/ssh-real" "$W/ssh"
 rm -rf "$HOME/Library/Containers/$ID"   # a run that was killed leaves its grants
 if [ "${1:-}" = "--ci" ]; then
   SSH_PORT=2226
@@ -46,7 +48,8 @@ sqlite3 "$W/sqlite/check.sqlite" "CREATE TABLE t (x INTEGER);"
 xcodebuild build -scheme SequelBridgeAppStore -configuration Debug -destination 'platform=macOS' -derivedDataPath "$DD" \
   PRODUCT_BUNDLE_IDENTIFIER="$ID" INFOPLIST_FILE="$REPO/scripts/fixtures/sandbox-check-Info.plist" \
   CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= > "$DD.log" 2>&1 || { grep error: "$DD.log" | head; fail "build"; }
-ARGS=(-SBCheckSSH "127.0.0.1" "$SSH_PORT" "$SSH_USER" -SBCheckTarget "$TARGET" -SBCheckPassphrase sbphrase -SBCheckSQLite check.sqlite)
+ARGS=(-SBCheckSSH "127.0.0.1" "$SSH_PORT" "$SSH_USER" -SBCheckTarget "$TARGET" -SBCheckPassphrase sbphrase
+      -SBCheckSSHFolder "$W/ssh" -SBCheckSQLite "$W/sqlite/check.sqlite")
 
 run() {   # report-name [folders…]
   local name="$1"; shift

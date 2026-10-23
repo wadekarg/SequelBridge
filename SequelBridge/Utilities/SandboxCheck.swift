@@ -4,8 +4,9 @@
 //
 //  The App Store build's self-check (scripts/check-appstore-sandbox.sh): launched with
 //  -SBSandboxCheck and opened with folders (which grants them, as an open panel would), it
-//  runs the app's own SSH and SQLite code in the sandbox and writes a report to its
-//  container's temporary folder, then quits. Compiled into the App Store build only.
+//  runs the app's own SSH and SQLite code in the sandbox, on the paths the script names
+//  (-SBCheckSSHFolder, -SBCheckSQLite) and never the user's own ~/.ssh, writes a report to
+//  its container's temporary folder, then quits. Compiled into the App Store build only.
 //
 
 #if APP_STORE
@@ -28,10 +29,12 @@ enum SandboxCheck {
             || FileManager.default.fileExists(atPath: Bundle.main.bundlePath + "/Contents/Frameworks/Sparkle.framework")
         report["sparkle"] = sparkle ? "present" : "absent"
         report["sockets"] = DatabaseEngine.mysql.connectionTypes.contains(.socket) ? "offered" : "not offered"
-        let ssh = Grants.shared.covering(Paths.realHome + "/.ssh") ?? Grants.shared.grantedPaths
-            .first { $0.hasSuffix("/ssh") }.flatMap { Grants.shared.covering($0) }
-        if let ssh, let host = value("-SBCheckSSH", in: args), let port = value("-SBCheckSSH", 2, in: args).flatMap(Int.init),
+        // Only the paths the script names, granted by opening them or by an earlier launch:
+        // never the user's own ~/.ssh, even in an App Store build that has it granted.
+        if let folder = value("-SBCheckSSHFolder", in: args), Grants.shared.covering(folder) != nil,
+           let host = value("-SBCheckSSH", in: args), let port = value("-SBCheckSSH", 2, in: args).flatMap(Int.init),
            let user = value("-SBCheckSSH", 3, in: args), let target = value("-SBCheckTarget", in: args) {
+            let ssh = URL(fileURLWithPath: folder, isDirectory: true)
             SSHTunnel.sshFolderGrant = { ssh }
             // In place of the app's login dialog: the stand-in's known_hosts starts empty, so
             // the server's key is trusted (and ssh writes it there), and the key's passphrase.
@@ -43,13 +46,12 @@ enum SandboxCheck {
                 default: return nil
                 }
             }
-            report["ssh.key"] = await tunnel(host: host, port: port, user: user, target: target, key: ssh.path + "/key")
-            report["ssh.passphrase"] = await tunnel(host: host, port: port, user: user, target: target, key: ssh.path + "/phrase_key")
+            report["ssh.key"] = await tunnel(host: host, port: port, user: user, target: target, key: folder + "/key")
+            report["ssh.passphrase"] = await tunnel(host: host, port: port, user: user, target: target, key: folder + "/phrase_key")
             SSHTunnel.prompter = nil
         }
-        if let file = value("-SBCheckSQLite", in: args),
-           let folder = Grants.shared.grantedPaths.first(where: { FileManager.default.fileExists(atPath: $0 + "/" + file) }) {
-            let (duck, tool) = await sqlite(folder + "/" + file)
+        if let file = value("-SBCheckSQLite", in: args), Grants.shared.covering(file) != nil {
+            let (duck, tool) = await sqlite(file)
             report["sqlite.duckdb"] = duck
             report["sqlite.sqlite3"] = tool
         }
