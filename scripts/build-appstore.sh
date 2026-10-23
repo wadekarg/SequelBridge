@@ -39,9 +39,8 @@ xcodebuild -project SequelBridge.xcodeproj -scheme SequelBridgeAppStore -configu
   -destination 'generic/platform=macOS' -derivedDataPath "$WORK/dd" -archivePath "$WORK/SequelBridge.xcarchive" \
   ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO -allowProvisioningUpdates archive > "$OUT/archive.log" 2>&1 \
   || { grep -E "error:|detritus|failed with" "$OUT/archive.log" | head || true; fail "archive ($OUT/archive.log)"; }
-xcodebuild -exportArchive -archivePath "$WORK/SequelBridge.xcarchive" -exportOptionsPlist "$WORK/ExportOptions.plist" \
-  -exportPath "$WORK/export" -allowProvisioningUpdates > "$OUT/export.log" 2>&1 \
-  || { tail -20 "$OUT/export.log"; fail "export ($OUT/export.log)"; }
+# The archive is checked before anything is exported: with --upload the export is the
+# upload, and a refused build would already be in App Store Connect, its number spent.
 APP="$WORK/SequelBridge.xcarchive/Products/Applications/SequelBridge.app"
 P="$APP/Contents/Info.plist"
 ARCHS=$(lipo -archs "$APP/Contents/MacOS/SequelBridge")
@@ -55,6 +54,9 @@ grep -q "com.apple.security.app-sandbox" <<< "$ENT" || fail "not sandboxed"
 [[ " $ARCHS " == *" arm64 "* && " $ARCHS " == *" x86_64 "* ]] || fail "not universal: $ARCHS"
 [ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$P")" = "14.0" ] || fail "minimum macOS"
 [ -f "$APP/Contents/Resources/PrivacyInfo.xcprivacy" ] || fail "no privacy manifest"
+xcodebuild -exportArchive -archivePath "$WORK/SequelBridge.xcarchive" -exportOptionsPlist "$WORK/ExportOptions.plist" \
+  -exportPath "$WORK/export" -allowProvisioningUpdates > "$OUT/export.log" 2>&1 \
+  || { tail -20 "$OUT/export.log"; fail "export ($OUT/export.log)"; }
 if [ "$DEST" = export ]; then
   PKG=$(ls "$WORK/export"/*.pkg 2>/dev/null | head -1 || true)
   [ -n "$PKG" ] || fail "no package in $WORK/export"
