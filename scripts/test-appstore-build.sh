@@ -21,10 +21,12 @@ ENT=$(codesign -d --entitlements :- "$APP" 2>/dev/null)
 keys=$(echo "$ENT" | plutil -convert json -o - - | python3 -c 'import json,sys; print(" ".join(sorted(k for k, v in json.load(sys.stdin).items() if v is True)))')
 want="com.apple.security.app-sandbox com.apple.security.files.bookmarks.app-scope com.apple.security.files.user-selected.read-write com.apple.security.network.client com.apple.security.network.server"
 [ "${keys/ com.apple.security.get-task-allow/}" = "$want" ] || fail "entitlements: $keys"
-echo "$ENT" | grep -q "temporary-exception" && fail "an entitlement exception"
+grep -q "temporary-exception" <<< "$ENT" && fail "an entitlement exception"
 [ ! -e "$APP/Contents/Frameworks/Sparkle.framework" ] || fail "Sparkle.framework in the App Store build"
-otool -L "$APP/Contents/MacOS/SequelBridge" | grep -q Sparkle && fail "the App Store build links Sparkle"
-nm "$APP/Contents/MacOS/SequelBridge" 2>/dev/null | grep -q "SPUUpdater" && fail "Sparkle code in the App Store build"
+# Counted, not `grep -q`: under pipefail a match there stops grep early, the tool before it
+# dies of SIGPIPE, and the failed pipeline skipped the `&& fail` (a binary with Sparkle passed).
+[ "$(otool -L "$APP/Contents/MacOS/SequelBridge" | grep -c Sparkle)" = 0 ] || fail "the App Store build links Sparkle"
+[ "$(nm "$APP/Contents/MacOS/SequelBridge" 2>/dev/null | grep -c "SPUUpdater")" = 0 ] || fail "Sparkle code in the App Store build"
 P="$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$P" >/dev/null 2>&1 && fail "SUFeedURL in the App Store Info.plist"
 [ "$(/usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' "$P")" = "false" ] || fail "ITSAppUsesNonExemptEncryption"

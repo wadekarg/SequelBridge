@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Privacy — SequelBridge</title>
+<meta name="description" content="SequelBridge collects no data.">
+<link rel="icon" type="image/png" href="assets/icon.png">
+<style>
+  /* The site's own colours and type (index.html). */
+  :root{ color-scheme: light dark; --ground:#eef0f4; --ink:#151a22; --muted:#69727f; --accent:#1f6feb;
+         --sans:-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  @media (prefers-color-scheme: dark){ :root{ --ground:#0c0f14; --ink:#e8ebf0; --muted:#8b95a3; --accent:#4d8dff; } }
+  body{ margin:0; background:var(--ground); color:var(--ink); font:16px/1.6 var(--sans); }
+  main{ max-width:720px; margin:0 auto; padding:48px 16px 64px; }
+  h1{ font-size:32px; letter-spacing:-.02em; margin:24px 0 4px; }
+  h2{ font-size:20px; margin:32px 0 8px; }
+  .muted{ color:var(--muted); }
+  a{ color:var(--accent); }
+  header a{ color:var(--ink); text-decoration:none; font-weight:700; display:inline-flex; align-items:center; gap:8px; }
+</style>
+</head>
+<body>
+<main>
+<header><a href="/"><img src="assets/icon.png" alt="" width="22" height="22" style="border-radius:6px">SequelBridge</a></header>
+<h1>Privacy</h1>
+<p class="muted">October 2026</p>
+<p>SequelBridge collects no data. It has no analytics, tracking, advertising or crash reporting, and it sends nothing about you or your databases to anyone.</p>
+<h2>What stays on your Mac</h2>
+<ul>
+<li>Your connections, statement history and saved queries are files on your Mac.</li>
+<li>Passwords are kept in your Mac's Keychain.</li>
+</ul>
+<h2>What the app connects to</h2>
+<ul>
+<li>The database and SSH servers you configure, and nothing else.</li>
+<li>The version from this site or Homebrew also checks for a new version once a day, when you allow it, by reading the update feed on the project's GitHub releases. The App Store version is updated by the App Store.</li>
+</ul>
+<h2>Questions</h2>
+<p>Ask on <a href="https://github.com/wadekarg/SequelBridge/issues">GitHub</a>.</p>
+</main>
+</body>
+</html>
