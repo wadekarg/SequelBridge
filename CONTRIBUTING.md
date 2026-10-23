@@ -43,6 +43,25 @@ build it as a static library for the app's CPUs, compatible with the version shi
 drivers were compiled against its headers), put it in `vendor/DuckDB/libs` in place of
 the one there (`libmariadbclient.a`), and build the app: it links what that folder holds.
 
+### The App Store build
+
+The `SequelBridgeAppStore` scheme builds the same app for the Mac App Store: in the App
+Sandbox, without Sparkle (see [Two builds](guide/ARCHITECTURE.md#two-builds)). Both
+targets make `SequelBridge.app`, so build it in derived data of its own, or it replaces
+the DMG build's app in Xcode's:
+
+```bash
+xcodebuild build -scheme SequelBridgeAppStore -destination 'platform=macOS' \
+  -derivedDataPath ~/Library/Caches/SequelBridge-appstore/dd
+scripts/test-appstore-build.sh       # both builds, each checked
+scripts/check-appstore-sandbox.sh    # its SSH and SQLite code in the sandbox (the test SSH server up)
+```
+
+Code only one build may have sits under `#if APP_STORE` or `#if !APP_STORE`; what differs
+at run time asks `Distribution.current`. The two share a bundle id, and macOS may open a
+build in place of the copy in Applications: `scripts/forget-builds.sh <folder>` makes it
+forget the apps in a folder (the scripts above do it for theirs).
+
 ## Test
 
 ```bash

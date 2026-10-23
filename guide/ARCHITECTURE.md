@@ -57,9 +57,10 @@ app tells you exactly what it sent to each server.
 | Results | `Models/QueryResult.swift`, `CellTable.swift`, `StreamBatcher.swift`, `RunClock.swift`, `ChartData.swift`, `Engine/ResultExporter.swift` | The result's columnar storage, when streamed chunks reach the screen, one clock per run, chart series, CSV/JSON/Markdown/SQL export. |
 | Views | `Views/Home/*`, `Views/Workspace/*`, `Views/Settings/*`, `Views/Connection/*` | Home and the connection form; the workspace: toolbar tabs (`WorkspaceView`), sidebar, the Query tab (`QueryPanelView`, which carries out each statement's route), editor, results grid and chart, and one file per panel; Settings; the SSH login dialog. |
 | Stores | `Utilities/HistoryStore.swift`, `SavedQueryStore.swift`, `CSVParser.swift`, `ConsoleExporter.swift` | Statement history (`history.jsonl`, append-only, compacted at 1,000 entries), saved queries (`saved_queries.json`), an RFC 4180 CSV reader, the console's `.sql` export. |
-| Scripts | `scripts/` | `fetch-duckdb.sh` (DuckDB with its scanners built in, as static libraries), `build-duckdb.sh` and `package-duckdb.sh` (that package, built from source), `run-all-tests.sh` (containers, fixtures, the whole matrix), `seed-demo.sh` and `capture-screenshots.sh` (the demo data and the guide's images), `check-docs.sh`, `acknowledgements.py` (the licenses Help → Acknowledgements shows), `build-release.sh` (the notarized DMG, `appcast.xml` and the Homebrew cask). |
+| Scripts | `scripts/` | `fetch-duckdb.sh` (DuckDB with its scanners built in, as static libraries), `build-duckdb.sh` and `package-duckdb.sh` (that package, built from source), `run-all-tests.sh` (containers, fixtures, the whole matrix), `seed-demo.sh` and `capture-screenshots.sh` (the demo data and the guide's images), `check-docs.sh`, `acknowledgements.py` (the licenses Help → Acknowledgements shows), `build-release.sh` (the notarized DMG, `appcast.xml` and the Homebrew cask), `build-appstore.sh` and `appstore-screenshots.sh` (the App Store package and screenshots), `test-appstore-build.sh` and `check-appstore-sandbox.sh` (the App Store build checked, and run in its sandbox). |
 | Vendored DuckDB | `vendor/DuckDB/` | The Swift wrapper with three local patches, and the recipe that builds DuckDB with its scanners (`recipe/`); the libraries themselves are fetched, not committed. |
-| Updates | `Utilities/AppUpdater.swift`, `vendor/Sparkle/` | Sparkle 2.10, vendored: the daily check for a new version (asked first), **SequelBridge → Check for Updates…** and Settings → Updates; the feed is `appcast.xml` on the latest GitHub release. |
+| Updates | `Utilities/AppUpdater.swift`, `vendor/Sparkle/` | Sparkle 2.10, vendored: the daily check for a new version (asked first), **SequelBridge → Check for Updates…** and Settings → Updates; the feed is `appcast.xml` on the latest GitHub release. The DMG build only: the App Store updates its own. |
+| The App Store build | `Utilities/Distribution.swift`, `Grants.swift`, `Paths.swift`, `SandboxCheck.swift`, `sb-askpass` | Which build this is and what it offers, what the user granted the sandbox (security-scoped bookmarks), `~` as the user's home, the sandbox self-check; the askpass helper both builds ship. See [Two builds](#two-builds). |
 
 ## A connection's life
 
@@ -481,6 +482,11 @@ Launch arguments change this for a demo or screenshot instance: `-SBConnectionsF
 <path>` reads a fixture connection list with inline passwords and never writes it
 back; `-SBSupportDir <dir>` moves the three files above into that folder.
 
+The App Store build keeps the same files in its sandbox container
+(`~/Library/Containers/gwadekar.SequelBridge/Data/Library/Application Support/SequelBridge/`),
+its settings there too, with the bookmarks of what the user granted (`SBGrants`); its ssh
+reads and writes the `~/.ssh` the user granted.
+
 ## The DuckDB the app ships
 
 DuckDB 1.5.6 is linked statically, with its MySQL, PostgreSQL and SQLite scanner
@@ -570,17 +576,52 @@ compares its rows, row for row, with the plain plan's. A reduction may make a qu
 faster; it may never change the answer. The streaming tests assert that first rows
 arrive well before a transfer ends. [TESTING.md](../TESTING.md) lists every suite.
 
+## Two builds
+
+One source tree builds two apps. The `SequelBridge` target is the DMG and Homebrew build,
+with Sparkle. `SequelBridgeAppStore` compiles the same files (the project's folders are
+synchronized groups, so a new file joins both) with `APP_STORE` set, in the App Sandbox
+and without Sparkle, under the same bundle id and product name; its entitlements are
+`SequelBridge/SequelBridge-AppStore.entitlements` and its Info.plist
+`SequelBridge-AppStore-Info.plist`. What differs at run time asks `Distribution.current`
+(`.direct` or `.appStore`): whether the form offers a socket, what it says about ssh-agent,
+whether a path needs a grant.
+
+In the sandbox the app reaches only what the user granted. `Grants` keeps each folder or
+file picked in an open panel as a security-scoped bookmark, starts its access when a path
+under it is needed, and forgets one whose bookmark no longer leads to the path it was
+given for (moved, renamed, deleted), so the app asks again. The engine knows none of
+this: the App Store build sets the first three hooks below at launch
+(`SequelBridgeApp.init`), which the DMG build leaves unset, and the fourth follows
+`Distribution.current`.
+
+| Hook | In the App Store build |
+|---|---|
+| `SSHTunnel.sshFolderGrant` | `~/.ssh`, granted or asked for: ssh runs with `-F <folder>/config` (or `/dev/null`), `UserKnownHostsFile=<folder>/known_hosts` and `IdentityAgent=none`, as ssh-agent's socket is out of the sandbox's reach |
+| `SSHTunnel.keyGrant` | a key file outside `~/.ssh`, granted or asked for |
+| `QueryEngine.fileGrant` | a SQLite file's folder: SQLite writes its journal beside the file, and a grant of the file alone lets only reads through |
+| `QueryEngine.socketsAllowed` | false: a socket connection is refused, saying to use TCP/IP to 127.0.0.1 (the sandbox refuses a Unix socket even in a granted folder) |
+
+`/usr/bin/ssh` and `/usr/bin/sqlite3` run as the app's children, in its sandbox and with
+its grants. The helper that answers ssh's questions, `sb-askpass`, ships in the app's
+Resources, signed with it: the sandbox won't run a file the app wrote. `~` in a typed
+path is the user's home (`Paths.realHome`, from the user database), not the container
+that `NSHomeDirectory()` and `$HOME` give in the sandbox. `scripts/check-appstore-sandbox.sh`
+runs the App Store build truly sandboxed and has it exercise its own SSH and SQLite code
+(`SandboxCheck`, launched with `-SBSandboxCheck`).
+
 ## Distribution
 
-SequelBridge ships as a signed, notarized DMG, not through the App Store. With the
-scanners built in, nothing executable is downloaded, which the App Store forbids; what
-stands in the way now is its App Sandbox, in which ssh can't read your keys in `~/.ssh`
-or reach ssh-agent, the app can't run the helper that asks for ssh's passwords, and a
-server's Unix socket and a SQLite file named by path, rather than picked in a dialog,
-are out of reach.
+SequelBridge ships two ways: a signed, notarized DMG, and the Mac App Store. With the
+drivers built in, nothing executable is downloaded, which the App Store forbids, and the
+App Store build is the sandboxed one above: ssh reads the `~/.ssh` the user granted, a
+SQLite file opens in a granted folder, and what the sandbox can't reach at all,
+ssh-agent and a server's Unix socket, isn't offered. `scripts/build-appstore.sh`
+archives it for both CPUs, exports it with Xcode's account and checks it; `--upload`
+sends it to App Store Connect. The App Store updates it.
 
-It also installs with Homebrew (`brew install --cask wadekarg/tap/sequelbridge`), and an
-installed copy updates itself with Sparkle (`AppUpdater`). `scripts/build-release.sh`
+The DMG also installs with Homebrew (`brew install --cask wadekarg/tap/sequelbridge`), and
+an installed copy updates itself with Sparkle (`AppUpdater`). `scripts/build-release.sh`
 signs the DMG with the project's EdDSA key and writes `appcast.xml`, which the GitHub
 release carries, and the cask for the tap. The app takes an update only when that
 signature matches its `SUPublicEDKey` and the new copy's code signature matches its own.

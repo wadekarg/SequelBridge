@@ -18,6 +18,10 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
   load an extension on its own.
 
 ### Added
+- **SequelBridge on the Mac App Store**: a second, sandboxed build, which the App Store
+  updates. It asks once for your `~/.ssh` folder and once for each folder holding a SQLite
+  file, and has no socket connections and no ssh-agent; the DMG and Homebrew build is as
+  before.
 - **Help → Acknowledgements**: the projects whose code is built into the app, with their
   licenses.
 

@@ -52,6 +52,11 @@ key. **SequelBridge → Check for Updates…** checks at once.
 The MySQL, PostgreSQL and SQLite drivers are built into the app: connecting downloads
 nothing.
 
+SequelBridge is also on the Mac App Store, which updates it. That version runs in macOS's
+sandbox: it asks once for your `~/.ssh` folder and once for each folder holding a SQLite
+file, and it can't use a local socket (connect over TCP/IP to 127.0.0.1) or ssh-agent (it
+uses your key files). [The differences](guide/FEATURES.md#the-app-store-version).
+
 ## Compatibility
 
 | | |

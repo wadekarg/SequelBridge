@@ -38,7 +38,8 @@ Screenshots come from a demo instance on synthetic data.
 
 Row editing needs a primary key on the table; a query result is edited when it is one
 table's rows with that key in it. A typed `EXPLAIN QUERY PLAN` on a SQLite file runs in
-SQLite and shows its plan.
+SQLite and shows its plan. The App Store version has no socket connections and no
+ssh-agent: see [The App Store version](#the-app-store-version).
 
 ## Connecting
 
@@ -83,6 +84,24 @@ read-only (ClickHouse's `readonly=2`), so even a stored function a `SELECT` call
 write. A typed statement that writes to it is refused; one for a writable connection
 open beside it runs, and a statement across servers that writes into it is refused by
 DuckDB. Use it for production servers.
+
+## The App Store version
+
+The version from the Mac App Store is the same app in macOS's App Sandbox, which lets it
+reach only what you pick in an open panel. It asks for your `~/.ssh` folder at the first
+SSH connection (ssh reads its config, keys and known_hosts there), and for a SQLite file's
+folder when you choose the file (SQLite writes its journal beside it). A key kept outside
+`~/.ssh` is asked for when you connect, or picked with **Choose…** beside the SSH Key field.
+macOS keeps each grant, so the app asks once, and again only if the folder is moved or
+renamed.
+
+| | From the website or Homebrew | From the Mac App Store |
+|---|---|---|
+| TCP/IP | ✓ | ✓ |
+| SSH tunnel | key files, ssh-agent, passwords, passphrases, one-time codes | key files, passwords, passphrases, one-time codes; no ssh-agent |
+| Local socket | ✓ | none: connect over TCP/IP to 127.0.0.1 |
+| SQLite file | any path | in a folder granted once |
+| Updates | the app checks and installs them (**SequelBridge → Check for Updates…**) | the App Store |
 
 ## Finding your way around
 
@@ -281,7 +300,8 @@ writes the log as a `.sql` file; **Clear** empties it.
 **Appearance** sets a light, dark or system theme. **Editor** sets the font size, tab
 width and whether Tab completes a word (off, it indents). **Connections** lists the saved
 connections with Edit and Delete, which asks first, since the saved password goes too.
-**Updates** turns the daily check for a new version on or off and checks now, as
+**Updates** (not in the App Store version, which the App Store updates) turns the daily
+check for a new version on or off and checks now, as
 **SequelBridge → Check for Updates…** does; a new version is offered with its notes and
 installed only when it is signed with the project's key. The **Help** menu opens the
 guide (⌘?), how queries run, the release notes, GitHub's form to report an issue, the

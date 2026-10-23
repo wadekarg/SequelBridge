@@ -19,7 +19,7 @@ scripts/run-all-tests.sh --down          # tear the containers down
 
 `--provision` is the canonical "A to Z from scratch" run: it drops and recreates the
 Docker containers, seeds every fixture from `scripts/fixtures/`, points every gated suite
-at them, and runs all 826 tests in 164 suites (about three minutes of tests after the build).
+at them, and runs all 849 tests in 172 suites (about three minutes of tests after the build).
 Then every MySQL suite runs three more times, with its server pointed at MySQL 8.4,
 MariaDB 11.4 and MySQL 8.0 in turn.
 That is the run that gates a merge. Even then two tests stay skipped on purpose: the
@@ -107,8 +107,9 @@ result streaming and caps (`RowCapTests` — the "big query" coverage), the **re
 filter** (`QueryResultFilterTests`), **chart data extraction** (`ChartDataTests`), result
 export incl. **Markdown/SQL-INSERT** (`ResultExporterTests`), parsers,
 the built-in drivers, the acknowledgements, sort order, write-path SQL, panel logic, stores, the
-query-conventions note, the demo fixture store. Together with the gated suites below:
-826 tests across 122 files.
+query-conventions note, the demo fixture store, the App Store build's grants and sandbox
+hooks, the privacy manifest. Together with the gated suites below: 849 tests across 130
+files.
 
 **Gated real-DB suites** (run by the script against seeded containers):
 
@@ -155,6 +156,14 @@ query-conventions note, the demo fixture store. Together with the gated suites b
 | `ConnectionLifecycleTests` | always | a Connect that fails part-way leaves none of its connections attached; a server added in the workspace closes with the next Connect from Home; saving a SQLite connection writes nothing to the Keychain |
 | `HelpLinksTests` | always | where the Help menu and the About window point: the guide's pages (which must exist in the repo), the releases, the issue form, the website and the source; the About window's credits link the website and GitHub, in the window's own text color |
 | `AppUpdaterTests` | always | the updater (Sparkle): not started in a test run, a copy launched with files of its own (UI tests, screenshots) or a Debug build, unless `-SBUpdateFeed` names a feed; Info.plist's feed on GitHub Releases and its Ed25519 update key |
+| `DistributionTests` | always | which build this is: the unit tests run in the DMG build; the App Store build offers no socket or ssh-agent and needs grants |
+| `PathsTests` | always | `~` in a typed key path or SQLite file is the user's home, from the user database, not `$HOME` (the sandbox points it at the container) |
+| `SSHAskpassHelperTests` | always | the askpass helper is in the app, executable, and nothing is written at run time; run as ssh runs it, it asks the app the question and prints the app's answer |
+| `GrantsTests` | always | what the user let the App Store build reach: a granted folder covers what it holds and nothing else, grants kept for the next launch, a moved, renamed or deleted folder forgotten (and asked for again), a folder other than the one asked for doesn't meet the need, `~` |
+| `SSHSandboxTests` | always | SSH in the App Store build: ssh reads the granted folder's config (or none) and known_hosts and never asks ssh-agent; a test's own known_hosts still wins; no `~/.ssh` granted, or a key ssh can't read, stops before ssh runs, saying which; a config ssh refuses gives ssh's own reason |
+| `SQLiteSandboxTests` | always | a SQLite file in the App Store build: with no folder granted the connection says which and why and nothing is attached; with it, the file is opened and written |
+| `SocketSandboxTests` | always | the App Store build's form offers no socket, and a socket connection that reaches it is refused, saying to use TCP/IP to 127.0.0.1; the DMG build's offers them |
+| `PrivacyManifestTests` | always | the privacy manifest Apple requires: no tracking, nothing collected, a reason for each kind of required-reason API the app calls (DuckDB included) |
 | `ReadFallbackTests` | always | where a Query-tab read that failed through DuckDB runs again: two columns of one name and a value the MySQL driver can't convert on the app's own client, SQLite newer than DuckDB's in macOS's `sqlite3`; never a read the user stopped, nor one inside a Query-tab transaction |
 | `SQLiteToolScriptTests` | always | `sqlite3` reading a script on its standard input: a big script that fails early says which statement, and the app stays up; it runs without copying its log records to stderr (a run from Xcode or a test), where macOS 15's sqlite3 logged each error |
 | `RelationsTableLayoutTests` | always | the Relations table in a pane narrower than its columns (the window a 1024×768 screen opens): it takes no more width than the pane has and scrolls, and its name column fits the longest name |
@@ -188,6 +197,20 @@ what the installed DuckDB package's license files give. `scripts/test-update-e2e
 newer one through Sparkle, headless, from a feed on 127.0.0.1, and checks that an update
 whose file doesn't match its signature is refused; it uses a throwaway key and a test
 bundle id, never the release key or the app's own settings.
+
+**The App Store build.** `scripts/test-appstore-build.sh` (run by `run-all-tests.sh` and
+CI) builds the `SequelBridgeAppStore` target and checks what it made: sandboxed, with the
+App Store entitlements and no exception; no Sparkle (framework, code or Info.plist keys);
+the App Store Info.plist keys; macOS 14; the privacy manifest; and the DMG build still
+with Sparkle. `scripts/check-appstore-sandbox.sh` (run by `run-all-tests.sh` without
+`--hermetic`, against the test SSH server; with `--ci` and an sshd of its own on CI) runs
+it truly sandboxed: built under a bundle id of its own, it is opened with an `~/.ssh`
+stand-in and a folder holding a SQLite file, which grants them as an open panel would,
+and runs its own code there (`-SBSandboxCheck`): a key login and a passphrase key
+answered through the shipped askpass helper, through to the server, with the server's
+key remembered in the granted folder; a SQLite write by DuckDB and by macOS's `sqlite3`;
+no socket offered; no Sparkle. A second launch does it all again from the saved grants
+alone, and the container is removed after.
 
 The headline features — the cross-server JOIN reduction and the ClickHouse bridge — each
 have a suite that proves the optimized plan returns **exactly** the same rows as the naive
