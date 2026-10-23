@@ -64,8 +64,9 @@ def main():
     third = sorted(f for f in os.listdir(LICENSES) if f.startswith("duckdb-third-party-"))
     if third:
         names = ", ".join(f[len("duckdb-third-party-"):-len(".txt")] for f in third)
-        parts.append(f"\n== Libraries in DuckDB's source\nDuckDB carries these in its own source, each under its "
-                     f"license: {names}.\nhttps://github.com/duckdb/duckdb/tree/v1.5.6/third_party\n")
+        parts.append(f"\n== Libraries in DuckDB's source\nDuckDB carries these in its source (its third_party "
+                     f"folder, and its extensions': ICU), each under its license, with its NOTICE where one "
+                     f"comes with it: {names}.\nhttps://github.com/duckdb/duckdb/tree/v1.5.6/third_party\n")
         for f in third:
             name = f[len("duckdb-third-party-"):-len(".txt")]
             parts.append(f"\n-- {name}\n\n{read('licenses/' + f)}\n")

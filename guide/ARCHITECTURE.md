@@ -494,8 +494,9 @@ release of [sequelbridge-duckdb](https://github.com/wadekarg/sequelbridge-duckdb
 `scripts/fetch-duckdb.sh` installs it, checked against the SHA-256 it pins. The recipe's
 patches, vcpkg triplets and extension list are in `vendor/DuckDB/recipe/`.
 
-The scanners load when DuckDB starts. DuckDB installs nothing (`autoinstall_known_extensions`
-off, its extension folder the app's own) and loads no unsigned extension, and the app
+The scanners load when DuckDB starts. DuckDB installs nothing on its own
+(`autoinstall_known_extensions` off, its extension folder the app's own) and loads no
+unsigned extension, and the app
 keeps the hardened runtime's library validation. **Help → Acknowledgements** shows the
 licenses of all this code (`Acknowledgements.txt`, written by `scripts/acknowledgements.py`
 from the package's license files).
@@ -539,9 +540,10 @@ folder's README:
 - Besides your servers, the app reaches only, when you allow it, the project's GitHub
   releases, for the update feed (`appcast.xml`) and an update you choose to install,
   which carry nothing about you or your databases.
-- No code is downloaded: the scanners are built in and signed with the app. DuckDB's
-  extension installs are off and unsigned extensions refused, and library validation
-  lets macOS load only code signed by Apple or with the app's own team ID.
+- No code is downloaded on the app's own: the scanners are built in and signed with the
+  app. DuckDB's automatic extension installs are off and unsigned extensions refused, and
+  library validation lets macOS load only code signed by Apple or with the app's own team
+  ID.
 
 ## Known limits
 

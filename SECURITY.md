@@ -27,9 +27,10 @@ mitigation as soon as one is ready. The latest release is the supported version.
   databases. An update is installed only when its EdDSA signature matches the key the
   app carries (Sparkle, `SUPublicEDKey`), and its code signature matches the installed
   app's. There is no telemetry and no crash reporting.
-- The app downloads no code. The MySQL, PostgreSQL and SQLite drivers are built into it
-  and signed with it; DuckDB installs no extension and loads no unsigned one, and macOS
-  loads only code signed by Apple or the app's developer into it (library validation).
+- The app downloads no code on its own. The MySQL, PostgreSQL and SQLite drivers are
+  built into it and signed with it; DuckDB installs no extension on its own and loads no
+  unsigned one, and macOS loads into the app only code signed by Apple or the app's
+  developer (library validation).
 
 ## In scope
 

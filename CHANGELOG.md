@@ -8,6 +8,9 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 - **The MySQL, PostgreSQL and SQLite drivers are built into the app.** The first
   connection to each kind of server no longer downloads its driver (about 30 MB, from
   DuckDB's site): it needs no internet beyond the server, and doesn't wait.
+- A query across servers that reads a file over https or from S3, or needs another
+  DuckDB extension the app doesn't build in, fails naming the extension, where DuckDB
+  used to download it.
 
 ### Security
 - **Only signed code runs in the app.** The downloaded drivers were unsigned, so the app

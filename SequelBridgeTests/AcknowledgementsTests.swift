@@ -34,6 +34,17 @@ struct AcknowledgementsTests {
         }
     }
 
+    /// DuckDB carries other libraries in its source, some a folder deeper than others: ICU
+    /// in its ICU extension's own third_party folder, Thrift (in Parquet) one down in its.
+    @Test("the libraries in DuckDB's source are there, with an Apache NOTICE where one comes with them")
+    func librariesInDuckDB() throws {
+        let t = try text()
+        for name in ["icu", "thrift", "re2", "zstd", "mbedtls", "fmt", "tdigest"] {
+            #expect(t.contains("\n-- \(name)\n"), "no \(name)")
+        }
+        #expect(t.contains("originally authored by Ted Dunning"), "no tdigest NOTICES")
+    }
+
     @Test("MariaDB Connector/C, linked statically under the LGPL, says where its source is and how to relink it")
     func relinking() throws {
         let t = try text()

@@ -4,8 +4,8 @@
 //
 //  The MySQL, PostgreSQL and SQLite drivers (DuckDB's scanner extensions) are built into
 //  the app (scripts/build-duckdb.sh): nothing is downloaded at the first connection, as
-//  it was (~30 MB a driver, from extensions.duckdb.org, loaded unsigned), and DuckDB can't
-//  install anything either.
+//  it was (~30 MB a driver, from extensions.duckdb.org, loaded unsigned), and DuckDB
+//  installs nothing on its own either.
 //
 
 import Foundation
@@ -53,6 +53,27 @@ struct BuiltInDriversTests {
         #expect(installed.isEmpty, "installed in \(path): \(installed)")
         let sqlite = try await engine.query("SELECT install_mode FROM duckdb_extensions() WHERE extension_name = 'sqlite_scanner'")
         #expect(sqlite.rows.first?.first == "STATICALLY_LINKED")
+    }
+
+    /// The drivers are linked into one binary, where a type two of them define gets one
+    /// vtable: duckdb-postgres' AttachFunctionData won over duckdb-sqlite's (a different
+    /// layout), so destroying sqlite_attach's bind data freed memory past it.
+    /// scripts/check-driver-symbols.sh fails the build on such a name.
+    @Test("sqlite_attach, typed in DuckDB, works again and again")
+    func sqliteAttach() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-builtin-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("lite.sqlite").path
+        let engine = try QueryEngine()
+        _ = try await engine.query("ATTACH \(SQLBuilder.literal(file)) AS lite (TYPE sqlite)")
+        _ = try await engine.query("CREATE TABLE lite.t AS SELECT range AS id, 'name ' || range AS name FROM range(3)")
+        _ = try await engine.query("DETACH lite")
+        for _ in 0..<200 {
+            _ = try await engine.query("CALL sqlite_attach(\(SQLBuilder.literal(file)), overwrite = true)")
+        }
+        let rows = try await engine.query("SELECT count(*), max(name) FROM t")
+        #expect(rows.rows.first == ["3", "name 2"])
     }
 
     /// The downloaded drivers were unsigned: DuckDB had to allow unsigned extensions, and

@@ -19,8 +19,9 @@ Nothing else to install.
 
 `scripts/fetch-duckdb.sh` installs a published build of DuckDB with the drivers, from
 [sequelbridge-duckdb](https://github.com/wadekarg/sequelbridge-duckdb)'s releases. To
-build it yourself (another version of DuckDB or of a library it links, such as MariaDB
-Connector/C), you need Xcode's command-line tools, CMake and Ninja:
+build it yourself (another version of DuckDB or of a library it links), you need Xcode's
+command-line tools, CMake and Ninja. A Mac with Apple Silicon builds both CPUs, as CI
+does (`.github/workflows/build-duckdb.yml`); an Intel Mac builds x86_64:
 
 ```bash
 scripts/build-duckdb.sh arm64        # about 40 minutes a CPU the first time
@@ -33,9 +34,14 @@ python3 scripts/acknowledgements.py  # Help → Acknowledgements, if a license c
 
 `scripts/package-duckdb.sh --single x86_64` packages one CPU's build, to try it on that
 Mac. The versions are pinned in `build-duckdb.sh`, and its patches, vcpkg triplets and
-extension list are in `vendor/DuckDB/recipe/`. vcpkg builds the drivers' libraries from
-its ports: to use your own version of one, give vcpkg an overlay port
-(`VCPKG_OVERLAY_PORTS=/path/to/ports scripts/build-duckdb.sh …`).
+extension list are in `vendor/DuckDB/recipe/`. The drivers are linked into one binary, so
+the build stops if two of them define one name two ways (`scripts/check-driver-symbols.sh`).
+
+To build the app with your own version of a library DuckDB links, such as MariaDB
+Connector/C (LGPL; the source the package was built from is in its `sources/` folder),
+build it as a static library for the app's CPUs, compatible with the version shipped (the
+drivers were compiled against its headers), put it in `vendor/DuckDB/libs` in place of
+the one there (`libmariadbclient.a`), and build the app: it links what that folder holds.
 
 ## Test
 

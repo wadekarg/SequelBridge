@@ -27,9 +27,11 @@ LZ4) linked in, and `scripts/package-duckdb.sh` combines both CPUs into the zip 
   the package, which `scripts/acknowledgements.py` puts in the app's Acknowledgements.
   The zip also carries `sources/`, not installed here: MariaDB Connector/C's source as
   compiled (it is LGPL, and linked in statically) and the vcpkg port that built it.
-- `recipe/` — what `scripts/build-duckdb.sh` builds with: patches to the MySQL and
-  PostgreSQL scanners (each marked `SequelBridge`) so they link statically, vcpkg
-  triplets for macOS 14, and the list of extensions built in.
+- `recipe/` — what `scripts/build-duckdb.sh` builds with: patches to the scanners (each
+  marked `SequelBridge`) so MySQL and PostgreSQL link statically and SQLite's attach type
+  has a name of its own, vcpkg triplets for macOS 14, and the list of extensions built
+  in. Linked into one binary, two drivers must not define one name two ways:
+  `scripts/check-driver-symbols.sh` fails the build when they do.
 
 ## Local patches (re-apply when refreshing the wrapper)
 
@@ -68,7 +70,9 @@ Run from the repo root before building (and after the package changes):
 
 To move to a new DuckDB version: in `scripts/build-duckdb.sh` set `DUCKDB_TAG`, the
 scanners' commits (DuckDB names them in `.github/config/extensions/<name>.cmake`) and
-vcpkg's tag (DuckDB's `Makefile`); check that `recipe/patches` still apply; build both
+vcpkg's tag (DuckDB's `Makefile`); check that `recipe/patches` still apply (a name the
+build reports two drivers define differently needs a patch like `duckdb-sqlite.patch`),
+and that `.github/workflows/build-duckdb.yml` names the new package; build both
 CPUs and package them (CONTRIBUTING.md), with the new name in `package-duckdb.sh`;
 publish the zip as a new release of `wadekarg/sequelbridge-duckdb`
 (`duckdb-v<version>-sb<n>`) and set `PACKAGE` and `SHA256` in `scripts/fetch-duckdb.sh`;

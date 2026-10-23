@@ -2,11 +2,14 @@
 # Fetch DuckDB's static libraries + C header for the local `vendor/DuckDB` SwiftPM package:
 # DuckDB 1.5.6 with the MySQL, PostgreSQL and SQLite drivers built in, for Apple Silicon
 # and Intel, as scripts/build-duckdb.sh and scripts/package-duckdb.sh make them. They are
-# NOT committed (~70 MB); run this once before building, and after the package changes.
+# NOT committed (an 86 MB zip, ~280 MB installed); run this once before building, and after
+# the package changes.
 #
 # The zip is a release of github.com/wadekarg/sequelbridge-duckdb, checked against the
 # SHA-256 pinned here. SB_DUCKDB_ZIP=path installs a zip built here instead (checked
 # against path.sha256 when that exists): a rebuild being tried, or before it's published.
+# --check-published (build-release.sh) changes nothing: it fails unless vendor/DuckDB holds
+# the published package, the one whose source the app's Acknowledgements point to.
 set -euo pipefail
 
 PACKAGE="duckdb-v1.5.6-sb1"
@@ -19,6 +22,14 @@ LIBS="$PKG/libs"
 INCLUDE="$PKG/Sources/Cduckdb/include"
 LICENSES="$PKG/licenses"
 STAMP="$LIBS/.duckdb-version"
+
+if [ "${1:-}" = "--check-published" ]; then
+  have="$(cat "$STAMP" 2>/dev/null || echo "no package")"
+  [ -n "$SHA256" ] || { echo "$PACKAGE isn't published yet (no SHA-256 pinned here): a release links only the published package"; exit 1; }
+  [ "$have" = "$PACKAGE" ] && [ -f "$LIBS/libmysql_scanner_extension.a" ] && exit 0
+  echo "vendor/DuckDB holds $have, not the published $PACKAGE: run scripts/fetch-duckdb.sh"
+  exit 1
+fi
 
 LOCAL="${SB_DUCKDB_ZIP:-}"
 WANT="$PACKAGE"
