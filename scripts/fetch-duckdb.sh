@@ -13,7 +13,7 @@
 set -euo pipefail
 
 PACKAGE="duckdb-v1.5.6-sb1"
-SHA256=""   # of $PACKAGE-macos-universal.zip; pinned when the release is published
+SHA256="6c7ef6ec104f450f7bf263169f453261eb60d56d82338d4204d90e9750947519"   # of $PACKAGE-macos-universal.zip, as published
 URL="https://github.com/wadekarg/sequelbridge-duckdb/releases/download/$PACKAGE/$PACKAGE-macos-universal.zip"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
