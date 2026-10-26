@@ -17,7 +17,8 @@ To try it without a server, use the attached demo.sqlite:
 4. The left panel lists the tables; the Query tab runs SQL, for example SELECT * FROM regions;
 
 Entitlements and settings:
-- com.apple.security.network.server: SSH tunnels to databases are a local port forward on 127.0.0.1 (macOS's /usr/bin/ssh, with an askpass helper shipped in the app).
+- com.apple.security.network.server: the app listens on 127.0.0.1 only. SSH tunnels to databases are a local port forward there (macOS's /usr/bin/ssh), and the askpass helper shipped in the app passes ssh's questions (a password, a key's passphrase, a one-time code) to the app's own dialog through it.
+- Child processes: macOS's own /usr/bin/ssh (tunnels), /usr/bin/ssh-keygen (forgetting a server's changed key) and /usr/bin/sqlite3 (statements on a SQLite file); they run in the app's sandbox.
 - NSAllowsArbitraryLoads: the user's ClickHouse servers are often reached over plain HTTP by host name.
 - Files: only what the user picks in an open panel (their ~/.ssh folder for SSH, a SQLite file's folder), kept as security-scoped bookmarks.
 
