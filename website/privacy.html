@@ -3,41 +3,236 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Privacy — SequelBridge</title>
-<meta name="description" content="SequelBridge collects no data.">
+<title>SequelBridge privacy</title>
+<meta name="description" content="SequelBridge collects nothing about you or your databases: no account, no analytics or tracking, no ads, no crash reporting.">
 <link rel="icon" type="image/png" href="assets/icon.png">
+<link rel="apple-touch-icon" href="assets/icon.png">
 <style>
-  /* The site's own colours and type (index.html). */
-  :root{ color-scheme: light dark; --ground:#eef0f4; --ink:#151a22; --muted:#69727f; --accent:#1f6feb;
-         --sans:-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-  @media (prefers-color-scheme: dark){ :root{ --ground:#0c0f14; --ink:#e8ebf0; --muted:#8b95a3; --accent:#4d8dff; } }
-  body{ margin:0; background:var(--ground); color:var(--ink); font:16px/1.6 var(--sans); }
-  main{ max-width:720px; margin:0 auto; padding:48px 16px 64px; }
-  h1{ font-size:32px; letter-spacing:-.02em; margin:24px 0 4px; }
-  h2{ font-size:20px; margin:32px 0 8px; }
-  .muted{ color:var(--muted); }
-  a{ color:var(--accent); }
-  header a{ color:var(--ink); text-decoration:none; font-weight:700; display:inline-flex; align-items:center; gap:8px; }
+  /* The site's own tokens, header, buttons, facts and footer (index.html), and this page's reading column. */
+  :root{
+    color-scheme: light;
+    --ground:#eef0f4; --surface:#ffffff; --surface-2:#f6f7f9;
+    --ink:#151a22; --ink-soft:#3a424e; --muted:#69727f;
+    --line:#e2e5ea; --line-strong:#d2d6dd;
+    --accent:#1f6feb; --accent-ink:#ffffff;
+    --shadow: 0 1px 2px rgba(20,26,34,.04), 0 12px 32px -12px rgba(20,26,34,.18);
+    --radius:14px;
+    --maxw:1120px;
+    --sans:-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --display:-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --ground:#0c0f14; --surface:#141922; --surface-2:#1a2029;
+      --ink:#e8ebf0; --ink-soft:#c2c8d2; --muted:#8b95a3;
+      --line:#252c37; --line-strong:#323a47;
+      --accent:#4d8dff; --accent-ink:#0c0f14;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 18px 40px -16px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --ground:#0c0f14; --surface:#141922; --surface-2:#1a2029;
+    --ink:#e8ebf0; --ink-soft:#c2c8d2; --muted:#8b95a3;
+    --line:#252c37; --line-strong:#323a47;
+    --accent:#4d8dff; --accent-ink:#0c0f14;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 18px 40px -16px rgba(0,0,0,.6);
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%; scroll-padding-top:calc(72px + env(safe-area-inset-top,0px))}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font-family:var(--sans); font-size:16px; line-height:1.6;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  .wrap{max-width:var(--maxw); margin-inline:auto; padding-inline:24px}
+  @media (max-width:520px){ .wrap{padding-inline:16px} }
+  a{color:inherit}
+  h1,h2,h3{font-family:var(--display); font-weight:600; letter-spacing:-.02em; text-wrap:balance; margin:0}
+  p{margin:0}
+  a:focus-visible, button:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:6px}
+  .eyebrow{
+    font-size:13px; font-weight:600; letter-spacing:.04em; color:var(--muted);
+    display:inline-flex; align-items:center; gap:8px;
+  }
+  .dotline{display:inline-block; width:22px; height:1px; background:var(--line-strong)}
+
+  /* ---------- top bar ---------- */
+  header.bar{
+    position:sticky; top:0; z-index:20;
+    padding-top:env(safe-area-inset-top,0px);
+    background:color-mix(in srgb, var(--ground) 94%, transparent);
+    transition:transform .25s ease;
+    backdrop-filter:saturate(1.4) blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .bar-in{display:flex; align-items:center; gap:20px; height:60px}
+  .brand{display:flex; align-items:center; gap:10px; font-family:var(--display); font-weight:700; font-size:18px; letter-spacing:-.02em; text-decoration:none}
+  .brand img{display:block; width:28px; height:28px; border-radius:7px}
+  .nav{display:flex; gap:22px; margin-left:8px}
+  .nav a{color:var(--ink-soft); text-decoration:none; font-size:14.5px; font-weight:500}
+  .nav a:hover{color:var(--ink)}
+  .bar-spacer{flex:1}
+  .bar-in > .icon-btn, .bar-in > .btn{flex:none}
+  @media (max-width:520px){ .bar-in{gap:12px} .brand{font-size:17px; gap:8px} }
+  @media (max-width:380px){ .bar-in{gap:8px} .brand{font-size:16px} .bar .btn-sm{padding:8px 11px; font-size:13.5px} .bar .icon-btn{width:34px; height:34px} }
+  @media (max-width:340px){ .bar .icon-btn{display:none} }
+  .btn{
+    display:inline-flex; align-items:center; gap:8px; justify-content:center;
+    font-family:var(--sans); font-weight:600; font-size:15px; line-height:1;
+    padding:12px 18px; border-radius:11px; border:1px solid transparent;
+    text-decoration:none; cursor:pointer; transition:transform .08s ease, background .15s ease, border-color .15s ease;
+  }
+  .btn:active{transform:translateY(1px)}
+  .btn-primary{background:var(--accent); color:var(--accent-ink)}
+  .btn-primary:hover{filter:brightness(1.05)}
+  .btn-ghost{background:transparent; color:var(--ink); border-color:var(--line-strong)}
+  .btn-ghost:hover{background:var(--surface-2)}
+  .btn-sm{padding:9px 14px; font-size:14px; border-radius:9px}
+  .icon-btn{width:38px; height:38px; padding:0; border-radius:10px; background:transparent; border:1px solid var(--line-strong); color:var(--ink-soft); cursor:pointer; display:inline-grid; place-items:center}
+  .icon-btn:hover{background:var(--surface-2); color:var(--ink)}
+  @media (max-width:760px){ .nav{display:none} }
+  @media (max-width:760px){ header.bar.is-hidden{transform:translateY(-100%)} }
+
+  /* ---------- the promise ---------- */
+  .intro{padding-top:clamp(48px,7vw,88px); padding-bottom:clamp(28px,4vw,44px)}
+  .intro h1{margin-top:16px; font-size:clamp(34px,5.6vw,58px); line-height:1.04; max-width:17ch}
+  .meta-line{margin-top:18px; font-size:13.5px; color:var(--muted)}
+  .nos{display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:36px; max-width:880px}
+  @media (max-width:560px){ .nos{grid-template-columns:1fr} }
+  .fact{display:flex; flex-direction:column; gap:3px; padding:15px 17px; border:1px solid var(--line); border-radius:12px; background:var(--surface)}
+  .fact b{font-family:var(--display); font-size:15.5px; letter-spacing:-.01em}
+  .fact span{color:var(--muted); font-size:14.5px; line-height:1.5}
+
+  /* ---------- the details ---------- */
+  .policy{padding-top:clamp(20px,3vw,32px); padding-bottom:clamp(56px,8vw,96px)}
+  .policy h2{font-size:clamp(22px,3vw,28px); line-height:1.15; margin-top:clamp(40px,5vw,56px)}
+  .policy h2:first-child{margin-top:0}
+  .policy p, .policy li{color:var(--ink-soft); font-size:16.5px; max-width:64ch}
+  .policy p{margin-top:14px}
+  .marks{list-style:none; margin:16px 0 0; padding:0; display:grid; gap:12px}
+  .marks li{position:relative; padding-left:22px}
+  .marks li::before{content:""; position:absolute; left:0; top:.6em; width:9px; height:9px; border-radius:3px; background:var(--accent)}
+  .policy a.inline{color:var(--accent); text-decoration:none}
+  .policy a.inline:hover{text-decoration:underline}
+  .cta-row{display:flex; flex-wrap:wrap; gap:12px; margin-top:22px}
+
+  footer{border-top:1px solid var(--line); background:var(--surface); color:var(--muted)}
+  .foot{display:flex; flex-wrap:wrap; gap:14px 24px; align-items:center; padding-block:26px; font-size:13.5px}
+  .foot a{color:var(--ink-soft); text-decoration:none}
+  .foot a:hover, .foot a[aria-current="page"]{color:var(--ink)}
+  .foot .sp{flex:1}
+
+  @media (prefers-reduced-motion: reduce){ *{transition:none!important} }
 </style>
 </head>
 <body>
+
+<header class="bar">
+  <div class="wrap bar-in">
+    <a class="brand" href="/">
+      <img src="assets/icon.png" alt="" width="28" height="28">
+      SequelBridge
+    </a>
+    <nav class="nav">
+      <a href="/#features">Features</a>
+      <a href="/#engines">Engines</a>
+      <a href="/#open-source">Open source</a>
+    </nav>
+    <span class="bar-spacer"></span>
+    <button class="icon-btn" id="theme" title="Toggle theme" aria-label="Toggle light and dark theme">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5 5l1.4 1.4M17.6 17.6L19 19M19 5l-1.4 1.4M6.4 17.6L5 19"/></svg>
+    </button>
+    <a class="btn btn-primary btn-sm" href="/download">Download</a>
+  </div>
+</header>
+
 <main>
-<header><a href="/"><img src="assets/icon.png" alt="" width="22" height="22" style="border-radius:6px">SequelBridge</a></header>
-<h1>Privacy</h1>
-<p class="muted">October 2026</p>
-<p>SequelBridge collects no data. It has no analytics, tracking, advertising or crash reporting, and it sends nothing about you or your databases to anyone.</p>
-<h2>What stays on your Mac</h2>
-<ul>
-<li>Your connections, statement history and saved queries are files on your Mac.</li>
-<li>Passwords are kept in your Mac's Keychain.</li>
-</ul>
-<h2>What the app connects to</h2>
-<ul>
-<li>The database and SSH servers you configure, and nothing else.</li>
-<li>The version from this site or Homebrew also checks for a new version once a day, when you allow it, by reading the update feed on the project's GitHub releases. The App Store version is updated by the App Store.</li>
-</ul>
-<h2>Questions</h2>
-<p>Ask on <a href="https://github.com/wadekarg/SequelBridge/issues">GitHub</a>.</p>
+  <section class="intro">
+    <div class="wrap">
+      <span class="eyebrow"><span class="dotline"></span> Privacy</span>
+      <h1>SequelBridge collects nothing about you or your databases.</h1>
+      <p class="meta-line">Last updated October 2026</p>
+      <div class="nos">
+        <div class="fact"><b>No account</b><span>Nothing to sign up for or sign in to.</span></div>
+        <div class="fact"><b>No analytics or tracking</b><span>The app doesn't measure or follow what you do.</span></div>
+        <div class="fact"><b>No ads</b><span>None in the app, and nothing shared with advertisers.</span></div>
+        <div class="fact"><b>No crash reporting</b><span>The app sends no reports of its own when something goes wrong.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="policy">
+    <div class="wrap">
+      <h2>What stays on your Mac</h2>
+      <ul class="marks">
+        <li>Your connections, statement history and saved queries are files on your Mac.</li>
+        <li>Passwords are kept in your Mac's Keychain, never in those files.</li>
+        <li>The App Store version keeps the same files in its own folder, inside the sandbox macOS gives App Store apps.</li>
+      </ul>
+
+      <h2>What the app connects to</h2>
+      <ul class="marks">
+        <li>The database and SSH servers you add, when you connect to them, and nothing else.</li>
+        <li>The version from this site or Homebrew checks for a new version once a day, if you allow it, by reading the update feed on the project's GitHub releases. The App Store version is updated by the App Store.</li>
+        <li>Links in the Help menu open the guide, GitHub and this site in your browser.</li>
+      </ul>
+
+      <h2>You can check it</h2>
+      <p>SequelBridge is free and open source under the MIT license. Its source code is on GitHub, so anyone can confirm what it does with your data.</p>
+      <div class="cta-row">
+        <a class="btn btn-ghost" href="https://github.com/wadekarg/SequelBridge">Read the source on GitHub</a>
+      </div>
+
+      <h2>Questions</h2>
+      <p>Ask on <a class="inline" href="https://github.com/wadekarg/SequelBridge/issues">GitHub</a>. Issues are public, so an answer helps the next person too.</p>
+    </div>
+  </section>
 </main>
+
+<footer>
+  <div class="wrap foot">
+    <span class="brand" style="font-size:15px">
+      <img src="assets/icon.png" alt="" width="22" height="22" style="width:22px;height:22px;border-radius:6px">
+      SequelBridge
+    </span>
+    <span class="sp"></span>
+    <a href="https://github.com/wadekarg/SequelBridge">GitHub</a>
+    <a href="/download">Download</a>
+    <a href="https://github.com/wadekarg/SequelBridge/blob/main/LICENSE">MIT License</a>
+    <a href="privacy.html" aria-current="page">Privacy</a>
+    <span>Built with DuckDB</span>
+  </div>
+</footer>
+
+<script>
+  (function(){
+    var root=document.documentElement, btn=document.getElementById('theme');
+    try{ var s=localStorage.getItem('sb-theme'); if(s) root.setAttribute('data-theme', s); }catch(e){}
+    btn.addEventListener('click', function(){
+      var cur=root.getAttribute('data-theme');
+      var next = cur ? (cur==='dark'?'light':'dark')
+                     : (matchMedia('(prefers-color-scheme: dark)').matches ? 'light':'dark');
+      root.setAttribute('data-theme', next);
+      try{ localStorage.setItem('sb-theme', next); }catch(e){}
+    });
+  })();
+</script>
+<script>
+  // Phones only: hide the top bar on scroll down, show it on scroll up.
+  (function(){
+    var bar=document.querySelector('header.bar'); if(!bar) return;
+    var mq=window.matchMedia('(max-width:760px)'), last=window.scrollY, ticking=false;
+    function update(){
+      var y=window.scrollY;
+      if(!mq.matches || y<80 || y<last-4) bar.classList.remove('is-hidden');
+      else if(y>last+4) bar.classList.add('is-hidden');
+      last=y; ticking=false;
+    }
+    window.addEventListener('scroll',function(){ if(!ticking){ ticking=true; requestAnimationFrame(update); } },{passive:true});
+  })();
+</script>
 </body>
 </html>
