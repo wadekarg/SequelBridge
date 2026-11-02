@@ -1,6 +1,6 @@
 # SequelBridge
 
-A native macOS database client that runs one SQL statement across MySQL/MariaDB,
+A Database client for macOs that runs one SQL statement across MySQL/MariaDB,
 PostgreSQL, SQLite and ClickHouse, joins included, and streams the result in as it
 arrives.
 
